@@ -67,8 +67,12 @@ class Recovery(ShopFixture, unittest.TestCase):
         def broken(conn):
             conn.execute("CREATE TABLE new_feature(x)")
             raise RuntimeError("power cut in the middle")
-        with self.assertRaises(RuntimeError):
-            Store(path).migrate(schema.MIGRATIONS + [(2, "broken", broken)])
+        store = Store(path)
+        try:
+            with self.assertRaises(RuntimeError):
+                store.migrate(schema.MIGRATIONS + [(2, "broken", broken)])
+        finally:
+            store.close()
         conn = sqlite3.connect(str(path / "shop.db"))
         self.assertIsNone(conn.execute("SELECT 1 FROM sqlite_master WHERE name='new_feature'").fetchone())
         self.assertEqual(conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0], 1)
@@ -82,8 +86,6 @@ class Recovery(ShopFixture, unittest.TestCase):
         self.assertEqual(store.schema_version(), 2)
         self.assertEqual(Shop(store).available(pid), 5)
         store.close()
-        self.store = Store.__new__(Store)  # cleanup already closed
-        self.store.db = sqlite3.connect(":memory:")
 
 
 if __name__ == "__main__":

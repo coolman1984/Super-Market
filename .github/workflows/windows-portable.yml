@@ -20,8 +20,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Unit and integration tests on Windows
-        working-directory: tests
-        run: python -m unittest -v
+        run: python tools/ci_tests.py
       - name: Build portable package (pinned Python from NuGet, SHA-512 checked)
         run: python tools/build_portable.py --out dist
       - name: Start the package with its own Python only

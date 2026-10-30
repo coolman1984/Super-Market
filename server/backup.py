@@ -62,7 +62,7 @@ def verify_backup(folder):
         raise ShopError("backup_checksum_mismatch")
     if manifest.get("product") != PRODUCT_ID:
         raise ShopError("backup_other_product")
-    conn = sqlite3.connect("file:%s?mode=ro" % path.as_posix(), uri=True)
+    conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
             raise ShopError("backup_integrity_failed")

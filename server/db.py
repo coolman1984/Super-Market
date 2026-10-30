@@ -29,8 +29,12 @@ class Store:
         self.db.execute("PRAGMA busy_timeout=%d" % (timeout * 1000))
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
-        self.migrate()
-        self._check_mode()
+        try:
+            self.migrate()
+            self._check_mode()
+        except BaseException:
+            self.db.close()  # never leave the file locked (Windows) after a refusal
+            raise
 
     # ---------- schema ----------
     def schema_version(self):
