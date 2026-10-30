@@ -1,0 +1,17 @@
+{"id": "R01", "observed": {"cash": "refund_exceeds_paid_by_method", "original": "refund_exceeds_paid_by_method", "credit_note": "credit_needs_customer"}}
+{"id": "R02", "observed": {"cash_refund": "refund_exceeds_paid_by_method", "customer_balance": -10000, "cash_still_in_drawer": 10000}}
+{"id": "R03", "observed": {"returned_disposition": "restock", "available_after_recall_return": 1, "resale": "S-000002"}}
+{"id": "R04", "observed": {"meat_consumed_g": 0, "output_g": 1000, "label_claimed_meat_g": 900, "production": 1}}
+{"id": "R05", "observed": {"scanned_expiry": "2026-10-29", "scan_accepted": true, "sale": "S-000001", "allocated_supplier_lot": "FRESH"}}
+{"id": "R06", "observed": {"drawer_before": 0, "cash_paid_out": 10000, "drawer_after": -10000}}
+{"id": "R07", "observed": {"pending_queue": 0, "receipt_payment_state": "pending", "report": [{"method": "transfer", "state": "pending", "amount": 1000}]}}
+{"id": "R09", "observed": {"two_consumers_receive_same_event": true, "no_workstation_argument": true}}
+{"id": "R10", "observed": {"other_cashier_received_same_sale": true, "sales_posted": 1}}
+{"id": "R11", "observed": {"open_shift": "forbidden", "supplier_payment": "no_open_shift"}}
+{"id": "R12", "observed": {"physical_stock_g": 500, "available_pack_g": 1000, "reconcile_says_ok": true}}
+{"id": "R13", "observed": {"old_cursor": 2, "new_server_last": 1, "events_delivered": 0, "browser_cursor_after_poll": 2}}
+{"id": "R14", "observed": {"cart_price_at_scan": 10000, "charged_without_quote_confirmation": 15000, "cash_received": 20000}}
+{"id": "R15", "observed": {"sold_product_id": 1, "packaging_belongs_to_product_id": 2, "proposed_quantity": 12}}
+{"id":"R16","observed":{"nested_description_list":"[object HTMLElement],[object HTMLElement]","expected":"FieldValue"}}
+{"id":"R17","observed":{"previous_user_cart_visible_to_new_user":true}}
+{"id":"R18","observed":{"saved_sale_time_ignored":true,"receipt_uses_browser_now":true}}
