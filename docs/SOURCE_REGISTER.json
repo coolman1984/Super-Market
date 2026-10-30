@@ -1,0 +1,191 @@
+{
+  "scope": "Targeted primary-source desk research, not exhaustive legal or market review. No copied full source pages.",
+  "sources": [
+    {
+      "id": "fefo",
+      "url": "https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/removal_strategies/fefo.html",
+      "final_url": "https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/shipping_receiving/removal_strategies/fefo.html",
+      "status": 200,
+      "bytes": 434198,
+      "sha256": "22e5b5c0786f903938599bd489c2b1ba78610096e8681c904e12df6b9d6c2510",
+      "text_chars": 43126,
+      "accessed_date": "2026-10-30"
+    },
+    {
+      "id": "expiry",
+      "url": "https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/product_tracking/expiration_dates.html",
+      "final_url": "https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory/product_management/product_tracking/expiration_dates.html",
+      "status": 200,
+      "bytes": 440357,
+      "sha256": "1af0d6424ef0c3f391c6ad264fc624ea101bbf35a6ff5656c72fde654a216afd",
+      "text_chars": 47137,
+      "accessed_date": "2026-10-30"
+    },
+    {
+      "id": "byproducts",
+      "url": "https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/workflows/byproducts.html",
+      "final_url": "https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/workflows/byproducts.html",
+      "status": 200,
+      "bytes": 420636,
+      "sha256": "0b5c5cc7d170a3ed5252837d24d9c7974fb95176b1e8935b1ac340d1f1c1cef8",
+      "text_chars": 39755,
+      "accessed_date": "2026-10-30"
+    },
+    {
+      "id": "scale",
+      "url": "https://www.odoo.com/documentation/19.0/applications/sales/point_of_sale/hardware_network/scale.html",
+      "final_url": "https://www.odoo.com/documentation/19.0/applications/sales/point_of_sale/hardware_network/scale.html",
+      "status": 200,
+      "bytes": 429798,
+      "sha256": "03692ac3a3aff267dee2a1bea49c5572cd05fce840c9181e93546d1769f8b706",
+      "text_chars": 40989,
+      "accessed_date": "2026-10-30"
+    },
+    {
+      "id": "eta-submit",
+      "url": "https://sdk.invoicing.eta.gov.eg/ereceiptapi/02-submit-receipt/",
+      "final_url": "https://sdk.invoicing.eta.gov.eg/ereceiptapi/02-submit-receipt/",
+      "status": 200,
+      "bytes": 22519,
+      "sha256": "b45eb04d06f218149806b4a62097097efb10b66e21922f15b54a94dafc4a6d39",
+      "text_chars": 8592,
+      "accessed_date": "2026-10-30"
+    },
+    {
+      "id": "eta-services",
+      "url": "https://www.eta.gov.eg/ar/content/e-receipt-services",
+      "final_url": "https://www.eta.gov.eg/ar/content/e-receipt-services",
+      "status": 200,
+      "bytes": 68029,
+      "sha256": "99928f095fbb8d7be0e416668cd851a505105c8293474c3cef5bae3c8657142e",
+      "text_chars": 6431,
+      "accessed_date": "2026-10-30"
+    },
+    {
+      "id": "eta-inquiry",
+      "url": "https://www.eta.gov.eg/ar/ereceipt-inquiry",
+      "final_url": "https://www.eta.gov.eg/ar/ereceipt-inquiry",
+      "status": 200,
+      "bytes": 54158,
+      "sha256": "f4327e794a2af770af66942078419e3be0d05878c53e9f5920d971db37dca052",
+      "text_chars": 3718,
+      "accessed_date": "2026-10-30"
+    },
+    {
+      "id": "gs1-310",
+      "url": "https://ref.gs1.org/ai/3100",
+      "final_url": "https://ref.gs1.org/ai/3100",
+      "status": 200,
+      "bytes": 810221,
+      "sha256": "7d59bf1817839c5fdec7964ea64434ab5dcd64419dc932cdd04746f91154cf9d",
+      "text_chars": 2568,
+      "accessed_date": "2026-10-30"
+    },
+    {
+      "id": "gs1-17",
+      "url": "https://ref.gs1.org/ai/17",
+      "final_url": "https://ref.gs1.org/ai/17",
+      "status": 200,
+      "bytes": 810221,
+      "sha256": "7d59bf1817839c5fdec7964ea64434ab5dcd64419dc932cdd04746f91154cf9d",
+      "text_chars": 2568,
+      "accessed_date": "2026-10-30"
+    },
+    {
+      "id": "eta",
+      "url": "https://www.eta.gov.eg/",
+      "status": 200,
+      "accessed_date": "2026-10-30",
+      "text_sha256": "005db57f26f4b43965115a381ae48073cbf0105c85793ca61917a811af165521",
+      "evidence": "Source directly retrieved and substantive content inspected; hash is extracted text, not original HTML."
+    },
+    {
+      "id": "receipt",
+      "url": "https://sdk.invoicing.eta.gov.eg/ereceiptapi/",
+      "status": 200,
+      "accessed_date": "2026-10-30",
+      "text_sha256": "cef9010c998b7dde5417e9320e730bed8c94d072cb9a9dc293f1c1ecde3241e3",
+      "evidence": "Source directly retrieved and substantive content inspected; hash is extracted text, not original HTML."
+    },
+    {
+      "id": "daftra",
+      "url": "https://www.daftra.com/",
+      "status": 200,
+      "accessed_date": "2026-10-30",
+      "text_sha256": "88f1473d75fdca581f75497f469f398df9fa73c6a2e80c74bdd4d9123b94b583",
+      "evidence": "Source directly retrieved and substantive content inspected; hash is extracted text, not original HTML."
+    },
+    {
+      "id": "edara",
+      "url": "https://getedara.com/",
+      "status": 200,
+      "accessed_date": "2026-10-30",
+      "text_sha256": "df9c03fabe2ffd57f0957397393c9df1e47f5a5c16ab98581d1049df1f6ec1c5",
+      "evidence": "Source directly retrieved and substantive content inspected; hash is extracted text, not original HTML."
+    },
+    {
+      "id": "cpa",
+      "url": "https://cpa.gov.eg/ar-EG/اسئلة-متكررة",
+      "status": 200,
+      "accessed_date": "2026-10-30",
+      "text_sha256": "d97f85f400a11d38b7b1e100dad8b3bda7d3903c4b0976dbf9834dcc28fdb44a",
+      "evidence": "Source directly retrieved and substantive content inspected; hash is extracted text, not original HTML."
+    },
+    {
+      "id": "eta-faq",
+      "url": "https://sdk.invoicing.eta.gov.eg/receiptissuancefaq/",
+      "status": 200,
+      "accessed_date": "2026-10-30",
+      "text_sha256": "e933ad53e43d8462276c3914040b19eeb19ceb2240015a6999a4ef9200f5f1cf",
+      "evidence": "Source directly retrieved and substantive content inspected; hash is extracted text, not original HTML."
+    },
+    {
+      "id": "eta-schema",
+      "url": "https://sdk.invoicing.eta.gov.eg/documents/receipt-v1-2/",
+      "status": 200,
+      "accessed_date": "2026-10-30",
+      "text_sha256": "060bae8dac0cc893942c5488058cf60ea170d33312c652d3f5600f5c78587ed3",
+      "evidence": "Source directly retrieved and substantive content inspected; hash is extracted text, not original HTML."
+    },
+    {
+      "id": "metro",
+      "url": "https://www.metro-markets.com/terms-and-conditions",
+      "status": 200,
+      "accessed_date": "2026-10-30",
+      "text_sha256": "c9b6fa64c86b46b15757a5f2f878ab82054994704549eb736d2d5585e1f2043d",
+      "evidence": "Source directly retrieved and substantive content inspected; hash is extracted text, not original HTML."
+    },
+    {
+      "id": "gourmet",
+      "url": "https://gourmetegypt.com/meat-poultry-seafood/gourmet-fresh-chicken-breast-with-lemon-garlic",
+      "status": 200,
+      "accessed_date": "2026-10-30",
+      "text_sha256": "672f6bd19b3c5fae8378bdc3e00125d18d6e40757bae033c2d8a4717ad61dbce",
+      "evidence": "Source directly retrieved and substantive content inspected; hash is extracted text, not original HTML."
+    },
+    {
+      "id": "gourmet-kofta",
+      "url": "https://gourmetegypt.com/meat-poultry-seafood/gourmet-beef-oven-kofta",
+      "status": 200,
+      "accessed_date": "2026-10-30",
+      "text_sha256": "8620e6824af1f54aeef52292d0a71f6467e87197f12a70ac1d91f24d7cb90cb3",
+      "evidence": "Source directly retrieved and substantive content inspected; hash is extracted text, not original HTML."
+    },
+    {
+      "id": "gs1-data",
+      "url": "https://ref.gs1.org/ai/GS1_Application_Identifiers.jsonld",
+      "status": 200,
+      "accessed_date": "2026-10-30",
+      "text_sha256": "9c8792febc1e2449fdf575acc0da2e273d1e33e3a9135052b6d1cece977e399c",
+      "evidence": "Source directly retrieved and substantive content inspected; hash is extracted text, not original HTML."
+    },
+    {
+      "id": "nfsa",
+      "url": "https://www.nfsa.gov.eg/",
+      "status": 200,
+      "usable": false,
+      "accessed_date": "2026-10-30",
+      "reason": "Request Rejected body; no substantive guidance verified."
+    }
+  ]
+}
