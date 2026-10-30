@@ -1,0 +1,83 @@
+/* Shop-specific layout on top of Yousef base.css. Tokens only, logical properties only. */
+
+.auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 1rem; background: radial-gradient(circle at 20% 10%, var(--brand-soft), transparent 50%), var(--canvas); align-content: center; gap: 1rem; }
+.auth-card { width: min(28rem, 100%); display: grid; gap: .9rem; }
+.auth-card h1 { font-size: 1.5rem; }
+.brand-mark { width: 3.2rem; height: 3.2rem; border-radius: .9rem; display: grid; place-items: center; background: var(--signal); color: var(--signal-ink); }
+.auth-foot { justify-content: flex-end; }
+.wide { width: min(64rem, 100%); }
+.dialog.wide { width: min(64rem, 100%); }
+.drawer-head { padding: 1.1rem 1.3rem; display: flex; align-items: center; gap: .7rem; border-bottom: 1px solid var(--line-2); }
+.drawer-head h2 { flex: 1; }
+.drawer-body { padding: 1.2rem 1.3rem; overflow: auto; flex: 1; display: grid; gap: .8rem; align-content: start; }
+.drawer-foot { padding: 1rem 1.3rem; border-top: 1px solid var(--line-2); display: flex; gap: .6rem; flex-wrap: wrap; }
+.form-actions { display: flex; gap: .6rem; justify-content: flex-end; margin-block-start: 1rem; flex-wrap: wrap; }
+.btn.block { width: 100%; }
+.input.big { font-size: 1.6rem; min-height: 3.4rem; font-variant-numeric: tabular-nums; direction: ltr; text-align: end; }
+.mono { font-family: var(--font-mono); }
+td.n, th.n { text-align: end; }
+tr.clickable { cursor: pointer; }
+.narrow { max-width: 32rem; }
+.warn-tip { background: var(--warn-soft); border-color: transparent; }
+
+/* sell */
+.sell-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem); gap: var(--gap); align-items: start; }
+.sell-main { display: grid; gap: .8rem; min-width: 0; }
+.scan-bar { display: flex; align-items: center; gap: .7rem; padding: .8rem 1rem; flex-wrap: wrap; }
+.scan-bar .scan-input { flex: 1 1 12rem; font-size: 1.25rem; min-height: 3rem; direction: ltr; font-family: var(--font-mono); }
+.scan-status { min-height: 1.8rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.scan-status code { background: var(--surface-2); padding: .1rem .4rem; border-radius: var(--r-1); }
+.pay-panel { position: sticky; top: calc(var(--topbar-h) + 1rem); display: grid; gap: .7rem; }
+.tot-row { display: flex; justify-content: space-between; color: var(--ink-2); }
+.tot-big { display: flex; justify-content: space-between; align-items: baseline; font-size: 1.9rem; font-weight: 700; padding-block: .6rem; border-block: 1px solid var(--line-2); }
+.qty-cell { gap: .3rem; }
+.pick-list { display: grid; gap: .4rem; max-height: 55vh; overflow: auto; }
+.pick { display: grid; grid-template-columns: 1fr auto auto; gap: .2rem 1rem; text-align: start; padding: .7rem .9rem; border: 1px solid var(--line-2); border-radius: var(--r-1); background: var(--surface); }
+.pick:hover, .pick:focus-visible { background: var(--brand-soft); }
+.pick .muted:last-child { grid-column: 1 / -1; font-size: .85rem; }
+.pay-total { font-size: 2rem; font-weight: 700; }
+.pay-row { display: grid; grid-template-columns: 7rem 1fr 1fr auto; gap: .5rem; align-items: center; }
+.pay-change { display: grid; gap: .4rem; font-size: 1.1rem; }
+.change-big { font-size: 1.8rem; font-weight: 700; color: var(--ok); }
+
+/* receipt & labels: screen preview + print */
+.receipt { font-family: var(--font-sans); background: #fff; color: #000; padding: .8rem; border: 1px dashed var(--line); width: 100%; max-width: 22rem; margin-inline: auto; font-size: .9rem; }
+.receipt hr { border: 0; border-top: 1px dashed #000; }
+.rc-shop { font-weight: 700; text-align: center; font-size: 1.1rem; }
+.rc-kind { text-align: center; font-size: .8rem; }
+.rc-train { text-align: center; font-weight: 700; border: 2px solid #000; padding: .2rem; margin-block-end: .4rem; }
+.rc-line { display: flex; justify-content: space-between; gap: .5rem; }
+.rc-item { margin-block: .25rem; }
+.rc-foot { text-align: center; margin-block-start: .5rem; font-size: .8rem; }
+.labels { display: flex; flex-wrap: wrap; gap: .6rem; }
+.pack-label { width: 15rem; border: 1px solid var(--line); border-radius: var(--r-1); padding: .5rem; background: #fff; color: #000; display: grid; gap: .15rem; font-size: .85rem; }
+svg.ean { width: 100%; height: 3.2rem; fill: #000; background: #fff; }
+#print { display: none; }
+@media print {
+  body > *:not(#print) { display: none !important; }
+  #print { display: block !important; }
+  #print.w58 .receipt { max-width: 54mm; font-size: 9pt; border: 0; padding: 0; }
+  #print.w80 .receipt { max-width: 76mm; font-size: 10pt; border: 0; padding: 0; }
+  #print.labels-print { display: flex !important; flex-wrap: wrap; gap: 4mm; }
+  @page { margin: 3mm; }
+}
+
+/* goods */
+.recv-line header h3 { flex: 1; }
+.mass { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin-block-start: .8rem; }
+.count-row { display: flex; justify-content: space-between; gap: 1rem; align-items: center; padding: .6rem .9rem; border: 1px solid var(--line-2); border-radius: var(--r-1); background: var(--surface); flex-wrap: wrap; }
+.count-row .input { width: 9rem; direction: ltr; text-align: end; }
+.scan-result { min-height: 1rem; }
+.faq summary { cursor: pointer; font-size: 1.05rem; }
+.faq[open] summary { margin-block-end: .7rem; }
+
+@media (max-width: 900px) {
+  .sell-grid { grid-template-columns: minmax(0, 1fr); }
+  .pay-panel { position: static; }
+  .pay-row { grid-template-columns: 1fr 1fr; }
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .app .sidebar { position: fixed; inset-block: 0; inset-inline-start: 0; width: 17rem; transform: translateX(calc(-105% * var(--dx, 1))); transition: transform var(--t-med) var(--ease); }
+  [dir="rtl"] .app .sidebar { --dx: -1; }
+  .app.nav-open .sidebar { transform: none; }
+  .menu-btn { display: inline-grid; }
+}

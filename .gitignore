@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.db
+*.db-wal
+*.db-shm
+shop-data/
+training-data/
+backups/
+samples/private/
+dist/
+ENVIRONMENT_REPORT.local.json
+*.log
+pre-upgrade/

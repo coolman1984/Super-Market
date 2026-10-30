@@ -1,0 +1,278 @@
+/* Reused with owner authorization from coolman1984/Yousef-Transportation
+   css/tokens.css @ 46c76925f0e8f650fae363779c3c3dc69ce5bd8c, 2026-10-30.
+   Baseline design tokens, not a claim that a supermarket UI is implemented. */
+/* Trip Orders - design tokens (see docs/DESIGN.md). Everything visual comes from these variables.
+   Themes: daylight (default light), night (default dark), asphalt (graphite + amber), highway (navy + green), contrast (AA+).
+   Green / amber / red (--ok, --warn, --bad) mean trust colours only; the brand accent is --signal. */
+
+:root,
+[data-theme="daylight"] {
+  color-scheme: light;
+  --canvas: #e8edf4;
+  --surface: #ffffff;
+  --surface-2: #f4f7fb;
+  --raised: #ffffff;
+  --ink: #0f1b33;
+  --ink-2: #4a5a75;
+  --ink-3: #586780;
+  --line: #d6dde9;
+  --line-2: #e6ebf3;
+  --brand: #13294b;
+  --brand-ink: #ffffff;
+  --brand-soft: #e3eaf6;
+  --signal: #f2a900;
+  --signal-ink: #201500;
+  --signal-soft: #fff1cc;
+  --signal-line: #e39f00;
+  --info: #1f5fcf;
+  --info-soft: #e2ecfc;
+  --ok: #126a34;
+  --ok-soft: #dcf3e5;
+  --warn: #8a5a00;
+  --warn-soft: #ffefc7;
+  --bad: #b52b2b;
+  --bad-soft: #fbe2e2;
+  --side-bg: #13294b;
+  --side-bg-2: #0d1f3b;
+  --side-ink: #f2f6fd;
+  --side-ink-2: #aebbd3;
+  --side-hover: rgb(255 255 255 / .08);
+  --side-active: rgb(255 255 255 / .14);
+  --focus: #1f5fcf;
+  --shadow-1: 0 1px 2px rgb(15 27 51 / .06), 0 3px 10px rgb(15 27 51 / .06);
+  --shadow-2: 0 10px 28px rgb(15 27 51 / .14), 0 2px 6px rgb(15 27 51 / .08);
+  --shadow-3: 0 24px 60px rgb(15 27 51 / .28), 0 6px 16px rgb(15 27 51 / .12);
+  --scrim: rgb(15 27 51 / .48);
+  --grid: rgb(19 41 75 / .05);
+}
+
+[data-theme="night"] {
+  color-scheme: dark;
+  --canvas: #0a1120;
+  --surface: #121a2c;
+  --surface-2: #17213a;
+  --raised: #1b2743;
+  --ink: #e8edf6;
+  --ink-2: #a3b0c8;
+  --ink-3: #8e9cb6;
+  --line: #27334f;
+  --line-2: #1f2a44;
+  --brand: #9dbcff;
+  --brand-ink: #0a1528;
+  --brand-soft: #1a2947;
+  --signal: #ffc23d;
+  --signal-ink: #1d1400;
+  --signal-soft: #3a2d0c;
+  --signal-line: #ffc23d;
+  --info: #7fb0ff;
+  --info-soft: #182b4d;
+  --ok: #46d78f;
+  --ok-soft: #0f3324;
+  --warn: #ffbb4d;
+  --warn-soft: #3a2b0a;
+  --bad: #ff7b7b;
+  --bad-soft: #3d1717;
+  --side-bg: #0d1524;
+  --side-bg-2: #080e1a;
+  --side-ink: #e8edf6;
+  --side-ink-2: #92a1bd;
+  --side-hover: rgb(255 255 255 / .06);
+  --side-active: rgb(255 194 61 / .14);
+  --focus: #ffc23d;
+  --shadow-1: 0 0 0 1px rgb(255 255 255 / .03) inset, 0 4px 14px rgb(0 0 0 / .35);
+  --shadow-2: 0 12px 32px rgb(0 0 0 / .5), 0 0 0 1px rgb(255 255 255 / .05) inset;
+  --shadow-3: 0 28px 70px rgb(0 0 0 / .65), 0 0 0 1px rgb(255 255 255 / .06) inset;
+  --scrim: rgb(2 6 14 / .66);
+  --grid: rgb(255 255 255 / .04);
+}
+
+[data-theme="asphalt"] {
+  color-scheme: dark;
+  --canvas: #161616;
+  --surface: #202020;
+  --surface-2: #292929;
+  --raised: #2e2e2e;
+  --ink: #f1f1ef;
+  --ink-2: #b9b9b3;
+  --ink-3: #a0a09a;
+  --line: #3a3a38;
+  --line-2: #2f2f2e;
+  --brand: #ffc23d;
+  --brand-ink: #1a1200;
+  --brand-soft: #3a3016;
+  --signal: #ffc23d;
+  --signal-ink: #1a1200;
+  --signal-soft: #3a3016;
+  --signal-line: #ffc23d;
+  --info: #8ab8ff;
+  --info-soft: #1e2b44;
+  --ok: #4fd694;
+  --ok-soft: #10331f;
+  --warn: #ffbb4d;
+  --warn-soft: #3a2b0a;
+  --bad: #ff8080;
+  --bad-soft: #401a1a;
+  --side-bg: #101010;
+  --side-bg-2: #0a0a0a;
+  --side-ink: #f1f1ef;
+  --side-ink-2: #a3a39d;
+  --side-hover: rgb(255 255 255 / .06);
+  --side-active: rgb(255 194 61 / .16);
+  --focus: #ffc23d;
+  --shadow-1: 0 0 0 1px rgb(255 255 255 / .04) inset, 0 4px 14px rgb(0 0 0 / .45);
+  --shadow-2: 0 12px 32px rgb(0 0 0 / .55), 0 0 0 1px rgb(255 255 255 / .05) inset;
+  --shadow-3: 0 28px 70px rgb(0 0 0 / .7), 0 0 0 1px rgb(255 255 255 / .06) inset;
+  --scrim: rgb(0 0 0 / .68);
+  --grid: rgb(255 255 255 / .035);
+}
+
+[data-theme="highway"] {
+  color-scheme: light;
+  --canvas: #e4eee9;
+  --surface: #ffffff;
+  --surface-2: #f2f8f5;
+  --raised: #ffffff;
+  --ink: #0d2233;
+  --ink-2: #44596b;
+  --ink-3: #4f6577;
+  --line: #cfdcd6;
+  --line-2: #e1ebe6;
+  --brand: #0b3d2e;
+  --brand-ink: #ffffff;
+  --brand-soft: #dcefe6;
+  --signal: #f2a900;
+  --signal-ink: #201500;
+  --signal-soft: #fff1cc;
+  --signal-line: #e39f00;
+  --info: #1c5fb8;
+  --info-soft: #e0ecfa;
+  --ok: #126a34;
+  --ok-soft: #dcf3e5;
+  --warn: #8a5a00;
+  --warn-soft: #ffefc7;
+  --bad: #b52b2b;
+  --bad-soft: #fbe2e2;
+  --side-bg: #0b3d2e;
+  --side-bg-2: #072a20;
+  --side-ink: #f0f8f4;
+  --side-ink-2: #a9c9bb;
+  --side-hover: rgb(255 255 255 / .08);
+  --side-active: rgb(255 255 255 / .15);
+  --focus: #1c5fb8;
+  --shadow-1: 0 1px 2px rgb(13 34 51 / .06), 0 3px 10px rgb(13 34 51 / .06);
+  --shadow-2: 0 10px 28px rgb(13 34 51 / .14), 0 2px 6px rgb(13 34 51 / .08);
+  --shadow-3: 0 24px 60px rgb(13 34 51 / .28), 0 6px 16px rgb(13 34 51 / .12);
+  --scrim: rgb(13 34 51 / .5);
+  --grid: rgb(11 61 46 / .05);
+}
+
+[data-theme="contrast"] {
+  color-scheme: light;
+  --canvas: #f2f2f2;
+  --surface: #ffffff;
+  --surface-2: #ececec;
+  --raised: #ffffff;
+  --ink: #000000;
+  --ink-2: #1f1f1f;
+  --ink-3: #333333;
+  --line: #000000;
+  --line-2: #6b6b6b;
+  --brand: #000000;
+  --brand-ink: #ffffff;
+  --brand-soft: #e6e6e6;
+  --signal: #ffd000;
+  --signal-ink: #000000;
+  --signal-soft: #fff3b0;
+  --signal-line: #000000;
+  --info: #0033cc;
+  --info-soft: #dde6ff;
+  --ok: #005c1f;
+  --ok-soft: #d4f2df;
+  --warn: #5c3b00;
+  --warn-soft: #ffe9a8;
+  --bad: #9c0000;
+  --bad-soft: #ffd9d9;
+  --side-bg: #000000;
+  --side-bg-2: #000000;
+  --side-ink: #ffffff;
+  --side-ink-2: #e0e0e0;
+  --side-hover: rgb(255 255 255 / .16);
+  --side-active: rgb(255 208 0 / .3);
+  --focus: #0033cc;
+  --shadow-1: 0 0 0 1px #000;
+  --shadow-2: 0 0 0 2px #000;
+  --shadow-3: 0 0 0 2px #000, 0 12px 30px rgb(0 0 0 / .4);
+  --scrim: rgb(0 0 0 / .7);
+  --grid: rgb(0 0 0 / .08);
+}
+
+/* ---------- appearance settings (set on <html> by js/prefs.js) ---------- */
+:root {
+  --font-plex: 'TO Plex Arabic', 'TO Plex', 'Segoe UI', Tahoma, system-ui, sans-serif;
+  --font-cairo: 'TO Cairo', 'Segoe UI', Tahoma, system-ui, sans-serif;
+  --font-tajawal: 'TO Tajawal', 'Segoe UI', Tahoma, system-ui, sans-serif;
+  --font-kufi: 'TO Kufi', 'Segoe UI', Tahoma, system-ui, sans-serif;
+  --font-sans: var(--font-plex);
+  --font-mono: ui-monospace, 'Cascadia Mono', Consolas, 'Liberation Mono', monospace;
+  --fs: 14px;
+  --row-h: 3.2rem;
+  --pad: 1.15rem;
+  --gap: 1.15rem;
+  --sidebar-w: 17.5rem;
+  --topbar-h: 4.2rem;
+  --r-1: 0.5rem;
+  --r-2: 0.8rem;
+  --r-3: 1.2rem;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --t-fast: 140ms;
+  --t-med: 220ms;
+  --t-slow: 420ms;
+}
+
+[data-font="plex"] { --font-sans: var(--font-plex); }
+[data-font="cairo"] { --font-sans: var(--font-cairo); }
+[data-font="tajawal"] { --font-sans: var(--font-tajawal); }
+[data-font="kufi"] { --font-sans: var(--font-kufi); }
+[data-font="system"] { --font-sans: 'Segoe UI', Tahoma, system-ui, sans-serif; }
+
+[data-size="s"] { --fs: 13px; }
+[data-size="m"] { --fs: 14px; }
+[data-size="l"] { --fs: 15.5px; }
+[data-size="xl"] { --fs: 17.5px; }
+
+[data-density="compact"] { --row-h: 2.5rem; --pad: 0.8rem; --gap: 0.8rem; }
+[data-density="comfortable"] { --row-h: 3.2rem; --pad: 1.15rem; --gap: 1.15rem; }
+
+[data-motion="off"] { --t-fast: 0ms; --t-med: 0ms; --t-slow: 0ms; }
+[data-motion="off"] *,
+[data-motion="off"] *::before,
+[data-motion="off"] *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="on"]) { --t-fast: 0ms; --t-med: 0ms; --t-slow: 0ms; }
+  :root:not([data-motion="on"]) *,
+  :root:not([data-motion="on"]) *::before,
+  :root:not([data-motion="on"]) *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+}
+
+/* names the factory guide, consent and report pieces (css/af-*.css) use, mapped onto this program's own tokens */
+:root {
+  --ink-inverse: var(--brand-ink);
+  --overlay-scrim: var(--scrim);
+  --r-sm: var(--r-1);
+  --r-md: var(--r-2);
+  --r-lg: 1.1rem;
+  --r-pill: 62rem;
+  --fs-sm: .85rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.15rem;
+  --font-ui: inherit;
+}
+
+/* colours of the small theme samples shown in Settings -> Appearance: [menu, page, card, accent] of each theme */
+.sw[data-sample="daylight"]  { --s1: #13294b; --s2: #e8edf4; --s3: #ffffff; --s4: #f2a900; }
+.sw[data-sample="night"]     { --s1: #0d1524; --s2: #0a1120; --s3: #121a2c; --s4: #ffc23d; }
+.sw[data-sample="asphalt"]   { --s1: #101010; --s2: #161616; --s3: #202020; --s4: #ffc23d; }
+.sw[data-sample="highway"]   { --s1: #0b3d2e; --s2: #e4eee9; --s3: #ffffff; --s4: #f2a900; }
+.sw[data-sample="contrast"]  { --s1: #000000; --s2: #f2f2f2; --s3: #ffffff; --s4: #ffd000; }
+.sw[data-sample="auto"] { --s1: #13294b; --s2: #e8edf4; --s3: #0d1524; --s4: #0a1120; }
