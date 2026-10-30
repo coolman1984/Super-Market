@@ -1,0 +1,56 @@
+name: windows-portable
+# Builds the no-install Windows package on a real Windows runner and proves it
+# starts with ONLY the bundled Python: no installed Python on PATH, no packages.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Unit and integration tests on Windows
+        working-directory: tests
+        run: python -m unittest -v
+      - name: Build portable package (pinned Python from NuGet, SHA-512 checked)
+        run: python tools/build_portable.py --out dist
+      - name: Start the package with its own Python only
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist\SuperMarket-*-win64.zip | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath C:\clean
+          $app = Get-ChildItem C:\clean -Directory | Select-Object -First 1
+          # hide every other Python from this step
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notmatch 'Python|hostedtoolcache' }) -join ';'
+          $env:PYTHONPATH = 'C:\nonexistent'; $env:PYTHONHOME = 'C:\nonexistent'
+          & "$($app.FullName)\python\python.exe" -c "import sys, sqlite3, ctypes, ssl, hashlib; print(sys.version, sqlite3.sqlite_version, sys.path)"
+          if ($LASTEXITCODE -ne 0) { throw 'bundled python failed' }
+          $p = Start-Process -FilePath "$($app.FullName)\python\python.exe" -ArgumentList '-X','utf8','launcher.py','training' -WorkingDirectory $app.FullName -PassThru
+          Start-Sleep -Seconds 6
+          $state = Invoke-RestMethod http://127.0.0.1:8766/api/state
+          $state | ConvertTo-Json
+          if ($state.mode -ne 'training') { throw 'server did not answer' }
+          $css = Invoke-WebRequest http://127.0.0.1:8766/css/shop.css -UseBasicParsing
+          if ($css.StatusCode -ne 200) { throw 'static files missing' }
+          & "$($app.FullName)\python\python.exe" "$($app.FullName)\tools\shopctl.py" backup --data "$($app.FullName)\training-data" --mode training
+          if ($LASTEXITCODE -ne 0) { throw 'backup failed' }
+          Get-ChildItem "$($app.FullName)\backups-training"
+          Stop-Process -Id $p.Id
+          & "$($app.FullName)\python\python.exe" -c "import sys; sys.path.insert(0, r'$($app.FullName)'); from server.scanner import list_serial_ports; print('serial ports:', list_serial_ports())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SuperMarket-win64
+          path: |
+            dist/SuperMarket-*-win64.zip
+            dist/SuperMarket-*-win64.zip.sha256
+          retention-days: 30

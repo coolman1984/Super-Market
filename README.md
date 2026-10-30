@@ -18,6 +18,7 @@
 ## التشغيل
 
 ```text
+python tools/build_portable.py   بناء حزمة ويندوز بدون تثبيت (انظر docs/WINDOWS.md)
 start.bat                 المحل الحقيقي (http://127.0.0.1:8765)
 start-training.bat        التدريب المنفصل (http://127.0.0.1:8766)
 python -m server.app [--training] [--lan] [--data FOLDER]
@@ -44,7 +45,7 @@ python -m unittest discover -s tests -v
 powershell -NoProfile -File tools/Discover-Environment.ps1
 ```
 
-لا توجد بعد حزمة ويندوز محمولة؛ التشغيل يحتاج Python 3.9+ مثبتًا. بيانات التدريب منفصلة عن بيانات المحل. التشغيل المستهدف محلي على ويندوز دون اشتراك في خدمات نماذج أو إنترنت إلزامي.
+حزمة ويندوز بدون تثبيت تُبنى بـ `tools/build_portable.py` وتضم بايثون الرسمي؛ لم تُجرب بعد على جهاز عميل نظيف. بيانات التدريب منفصلة عن بيانات المحل. التشغيل المستهدف محلي على ويندوز دون اشتراك في خدمات نماذج أو إنترنت إلزامي.
 
 ## مراجع ثابتة
 
