@@ -177,8 +177,10 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 - [x] **L8** `add_party` has no duplicate check (double click creates two customers) and phone isn't validated (`services.py:~221`). Normalize phone (Egyptian mobile pattern) and warn on same name+phone.
 - [x] **L9** `tools/ci_tests.py` is the only working test entry; `python -m unittest discover -s tests -t .` fails (tests is not a package). Add `tests/__init__.py` or document in README/CLAUDE.md (`python3 tools/ci_tests.py`).
   - _Resolved by documenting_: `python3 tools/ci_tests.py` or `python3 -m unittest discover -s tests` (no `-t .`); noted in CLAUDE.md item 15 and README. `tests` stays a non-package on purpose (helper imports).
-- [ ] **L10** Closing the business day early (before the shop stops selling) pushes the rest of the day's sales into tomorrow; no "reopen". Add a confirmation dialog stating this in Arabic, and an owner-only audited "reopen last day" if no later day has data.
-- [ ] **L11** Return restock puts the whole quantity into the first allocation's location and a single lot with the earliest expiry (`services.py:~1757-1768`) even when the sale drew from several lots/locations. Safe (earliest expiry) but loses precision; split per allocation proportionally if stock accuracy matters.
+- [x] **L10** (partly) Closing the business day early (before the shop stops selling) pushes the rest of the day's sales into tomorrow; no "reopen". Add a confirmation dialog stating this in Arabic, and an owner-only audited "reopen last day" if no later day has data.
+  - _Done_: the close confirmation now says in Arabic that selling after the close goes to the next day and that a close cannot be undone. _Not done_: owner-only "reopen last day" — closed days are immutable by design (DB triggers) and reopening needs a schema migration; deferred until PR #14 (migration 9) is merged. Ask the owner before building it.
+- [ ] **L11 (deferred)** Return restock puts the whole quantity into the first allocation's location and a single lot with the earliest expiry (`services.py:~1757-1768`) even when the sale drew from several lots/locations. Safe (earliest expiry) but loses precision; split per allocation proportionally if stock accuracy matters.
+  - _Not done_: `return_lines` has PRIMARY KEY(return_id, sale_line_id) and one lot per line (also read by `costtrace.py`); splitting per allocation needs a schema migration, which would collide with PR #14 (migration 9). Current behaviour stays safe (earliest expiry). Do after PR #14 merges.
 
 ---
 
