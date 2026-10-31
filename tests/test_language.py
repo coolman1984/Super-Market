@@ -83,8 +83,8 @@ class Language(unittest.TestCase):
             self.assertTrue(any(term in v for v in self.ar.values()), term)
 
     def test_guide_and_current_user_docs_use_formal_arabic(self):
-        guide = json.loads((ROOT / 'web/guide/ar.json').read_text())
-        texts = list(guide.values()) + [(ROOT / 'docs' / p).read_text() for p in
+        guide = json.loads((ROOT / 'web/guide/ar.json').read_text(encoding='utf-8'))
+        texts = list(guide.values()) + [(ROOT / 'docs' / p).read_text(encoding='utf-8') for p in
             ('USER_GUIDE.md', 'CLOUD_BACKUP.md', 'SUPPORT_GUIDE.md', 'WINDOWS.md')]
         banned = ('اللي', 'دلوقتي', 'مفيش', 'مينفعش', 'بتاعتك', 'عشان', 'تاني', 'بكام', 'تلاقي', 'ماتحفظش')
         for text in texts:

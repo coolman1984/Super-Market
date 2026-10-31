@@ -20,6 +20,15 @@ def exposure(store, source_lot):
     product_kind = {r['id']: r['kind'] for r in store.all('SELECT id,kind FROM products')}
     lot_kind = {r['id']: product_kind[r['product_id']] for r in store.all('SELECT id,product_id FROM lots')}
     weights = {r['lot_id']: r['weight'] for r in store.all('SELECT * FROM production_cost_weights')}
+    allocations_by_op = defaultdict(list)
+    for r in store.all('''SELECT a.*,s.op_id FROM sale_allocations a JOIN sale_lines l ON l.id=a.sale_line_id
+            JOIN sales s ON s.id=l.sale_id ORDER BY a.sale_line_id,a.lot_id,a.location_id'''):
+        allocations_by_op[r['op_id']].append(r)
+    lines_by_op = defaultdict(list)
+    for r in store.all('SELECT l.id,l.qty,s.op_id FROM sale_lines l JOIN sales s ON s.id=l.sale_id'):
+        lines_by_op[r['op_id']].append(r)
+    productions = {r['op_id']: r for r in store.all('SELECT * FROM productions')}
+    returns = {r['lot_id']: r for r in store.all('SELECT * FROM return_lines')}
     entries = store.all('SELECT * FROM stock_entries ORDER BY id')
     seeded = False
     for op, group in groupby(entries, key=lambda e: e['op_id']):
@@ -38,17 +47,16 @@ def exposure(store, source_lot):
             removed[e['kind'], e['lot_id'], e['location_id']] += part
         # Allocate a sale's outgoing exposure to its actual immutable line/lot
         # allocations. This also handles several lines of the same product.
-        allocations = store.all('''SELECT a.* FROM sale_allocations a JOIN sale_lines l ON l.id=a.sale_line_id
-            JOIN sales s ON s.id=l.sale_id WHERE s.op_id=? ORDER BY a.sale_line_id,a.lot_id,a.location_id''', (op,))
+        allocations = allocations_by_op[op]
         totals = defaultdict(int)
         for a in allocations:
             totals[a['lot_id'], a['location_id']] += a['qty']
         for a in allocations:
             k = a['lot_id'], a['location_id']
             sold[a['sale_line_id']] += removed[('sale',) + k] * Fraction(a['qty'], totals[k])
-        for r in store.all('SELECT l.id,l.qty FROM sale_lines l JOIN sales s ON s.id=l.sale_id WHERE s.op_id=?', (op,)):
+        for r in lines_by_op[op]:
             sale_qty[r['id']] = r['qty']
-        production = store.one('SELECT * FROM productions WHERE op_id=?', (op,))
+        production = productions.get(op)
         production_part = Fraction()
         if production:
             for (kind, lot, loc), part in list(removed.items()):
@@ -78,7 +86,7 @@ def exposure(store, source_lot):
             elif kind == 'production_out' and production_part:
                 part = production_part * Fraction(weights[e['lot_id']], output_weight)
             elif kind == 'return':
-                r = store.one('SELECT * FROM return_lines WHERE lot_id=?', (e['lot_id'],))
+                r = returns.get(e['lot_id'])
                 if r:
                     line = r['sale_line_id']
                     part = sold[line] * Fraction(r['qty'], sale_qty[line])

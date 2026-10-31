@@ -220,8 +220,8 @@ def cloud_code(data):
     if not code:
         print("هذا الجهاز لم يتصل بالسحابة بعد. شغّل البرنامج وهو متصل بالإنترنت ثم أعد المحاولة.")
         return 1
-    print("كود استعادة نسخ هذا الجهاز من السحابة. اكتبه على ورقة واحفظه مع صاحب المحل فقط:")
-    print("أي شخص معه هذا الكود يقدر يقرأ نسخ هذا المحل.\n")
+    print("رمز استعادة نسخ هذا الجهاز من السحابة. اكتبه على ورقة واحفظه مع صاحب المحل فقط:")
+    print("يستطيع أي شخص يمتلك هذا الرمز قراءة نسخ المحل.\n")
     print(code + "\n")
     return 0
 
@@ -246,7 +246,7 @@ def cloud_restore(data):
             return 1
         import datetime   # a new PC opened the program once after Setup: that empty folder is kept aside, never deleted
         data.rename(data.with_name("shop-data-empty-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")))
-    code = input("الصق كود استعادة الجهاز القديم: ").strip()
+    code = input("أدخل رمز استعادة الجهاز القديم: ").strip()
     try:
         pick = cloud.restore(code, data, HOME / "restore-work")
     except (cloud.CloudError, ShopError) as exc:

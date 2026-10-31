@@ -76,6 +76,38 @@ class ReviewC(ShopFixture, unittest.TestCase):
         self.adjust(r, 1000)
         self.assertEqual(sorted(r['cost'] for r in self.store.all('SELECT cost FROM stock_balances WHERE qty>0')), [250, 750])
 
+    def test_raw_price_correction_follows_unsold_recipe_and_packaging_once(self):
+        r = self.receipt()
+        spice = self.shop.add_product(self.owner, {'code': 'SP', 'name_ar': 'تتبيلة', 'name_en': 'Marinade', 'kind': 'ingredient', 'measure': 'g'})
+        tray = self.shop.add_product(self.owner, {'code': 'TR', 'name_ar': 'صينية', 'name_en': 'Tray', 'kind': 'packaging', 'measure': 'unit'})
+        out = self.meat('READY', kind='prepared')
+        a = self.receipt(qty=400, cost=4000, product=spice)
+        b = self.receipt(qty=1, cost=500, product=tray)
+        recipe = self.shop.save_recipe(self.owner, out, [
+            {'product_id': self.raw, 'qty': 600, 'role': 'meat'},
+            {'product_id': spice, 'qty': 400, 'role': 'food'},
+            {'product_id': tray, 'qty': 1, 'role': 'packaging'}], 2, '', 0, 1000)
+        made = self.shop.produce(self.owner, key(), {'kind': 'recipe', 'recipe_version_id': recipe['recipe_version'], 'units': 1,
+            'inputs': [self.inp(r['lines'][0]['lot'], 600), self.inp(a['lines'][0]['lot'], 400), self.inp(b['lines'][0]['lot'], 1)],
+            'outputs': [{'product_id': out, 'qty': 1000, 'location_id': self.fridge}], 'packs': [{'net_g': 1000, 'meat_g': 600}]})
+        self.adjust(r)
+        self.assertEqual(self.shop._balance(made['outputs'][0]['lot'], self.fridge), (1000, 11100))
+        self.assertEqual(self.store.scalar('SELECT SUM(cost) FROM stock_balances'), 15500)
+        self.assertEqual(self.shop.day_report(self.owner)['cost_of_sales'], 0)
+
+    def test_closed_day_snapshot_stays_fixed_while_next_day_stock_takes_correction(self):
+        import datetime as dt
+        from helpers import NOW
+        r = self.receipt()
+        lot = self.cut_lots([self.inp(r['lines'][0]['lot'], 1000)])['outputs'][0]['lot']
+        self.shop.close_day(self.owner, key(), '2026-10-30')
+        snapshot = self.store.scalar("SELECT snapshot FROM day_closes WHERE day='2026-10-30'")
+        core.set_clock(NOW + dt.timedelta(days=1))
+        self.adjust(r)
+        self.assertEqual(self.store.scalar("SELECT snapshot FROM day_closes WHERE day='2026-10-30'"), snapshot)
+        self.assertEqual(self.shop._balance(lot, self.fridge)[1], 11000)
+        self.assertEqual(self.store.scalar('SELECT COUNT(*) FROM day_corrections'), 1)
+
     def test_losses_and_supplier_returns_do_not_masquerade_as_sales(self):
         r = self.receipt()
         lot = r['lines'][0]['lot']
