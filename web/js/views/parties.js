@@ -46,20 +46,25 @@
     const parts = [h('p', {}, t('party.we_owe'), ' ', SM.num(SM.moneyText(st.balance))), statementTable(st.lines)];
     const open = st.open_returns || [];     // every return stays here: a part-credit does not complete it
     if (open.length) {
-      parts.push(h('div', { class: 'card' }, h('h3', { text: t('party.returns') }), SM.table([
-        { label: t('stock.lot'), render: r => h('span', { class: 'ltr', text: r.lot_no }) }, { label: t('stock.product'), render: r => SM.name(r) },
-        { label: t('party.return_reason'), render: r => t('reason.' + r.reason) },
-        { label: t('party.cost'), num: true, render: r => SM.can('see_cost') && r.cost !== undefined ? SM.num(SM.money(r.cost)) : '—' },
-        { label: t('party.credited'), num: true, render: r => SM.num(SM.money(r.credited)) },
-        { label: t('party.credit_difference'), num: true, render: r => SM.can('see_cost') ? SM.num(SM.money(r.difference_from_cost)) : '—' },
-        { label: t('set.state'), render: r => r.settlement ? t('party.claim_closed') : (r.open ? t('party.claim_open') : t('party.claim_covered')) },
-        { label: '', render: r => SM.can('supplier_pay') && !r.settlement ? h('div', { class: 'toolbar' },
+      // A drawer is narrower than the main page. Keep every amount and action
+      // visible in a return card rather than hiding them off a wide table.
+      parts.push(h('section', { class: 'stack' }, h('h3', { text: t('party.returns') }), open.map(r => {
+        const metric = (label, value) => [h('dt', { text: t(label) }), h('dd', {}, SM.num(SM.money(value)))];
+        return h('article', { class: 'card', 'data-supplier-return': String(r.id) },
+          h('h4', {}, SM.name(r), ' — ', h('span', { class: 'ltr', text: r.lot_no })),
+          h('p', { class: 'muted', text: t('reason.' + r.reason) }),
+          h('dl', { class: 'kv' }, SM.can('see_cost') && r.cost !== undefined ? metric('party.cost', r.cost) : null,
+            metric('party.credited', r.credited), SM.can('see_cost') ? metric('party.credit_difference', r.difference_from_cost) : null),
+          h('p', { text: r.settlement ? t('party.claim_closed') : (r.open ? t('party.claim_open') : t('party.claim_covered')) }),
+          r.settlement ? h('p', { class: 'help', text: r.settlement.reason }) : null,
+          SM.can('supplier_pay') && !r.settlement ? h('div', { class: 'toolbar' },
           h('button', { class: 'btn sm', text: t('party.credit_note'), onclick: () => creditNoteDialog(r, () => { d.close(); after(); }) }),
           h('button', { class: 'btn sm', text: t('party.close_claim'), onclick: SM.guard(async () => {
             const reason = prompt(t('party.close_claim_q')); if (!reason) return;
             try { await SM.command('/api/supplier-returns/close', SM.newKey(), undefined, { return_id: r.id, reason });
               SM.toast(t('saved')); d.close(); after(); } catch (e) { SM.fail(e); }
-          }) })) : null }], open)));
+          }) })) : null);
+      })));
     }
     const invoices = await SM.api('GET', '/api/supplier-invoices?supplier=' + s.id).catch(() => []);
     if (invoices.length) {

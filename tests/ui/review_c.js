@@ -36,6 +36,7 @@ const out = process.argv[3] || '.';
     await page.waitForSelector('.drawer');
     assert.ok((await page.locator('.drawer').innerText()).includes(await T('party.credit_difference')));
     assert.ok((await page.locator('.drawer').innerText()).includes(await T('party.claim_covered')));
+    assert.ok(await page.locator('[data-supplier-return]').evaluate(el => el.scrollWidth <= el.clientWidth + 1));
     await page.locator('.drawer').screenshot({ path: out + '/review-c-supplier-ar.png' });
     page.once('dialog', d => d.accept('تسوية نهائية بعد استلام الإشعارين'));
     await page.getByRole('button', { name: await T('party.close_claim'), exact: true }).click();
@@ -43,6 +44,7 @@ const out = process.argv[3] || '.';
     await page.getByText('مورد مراجعة ثالثة', { exact: true }).click();
     await page.waitForSelector('.drawer');
     assert.ok((await page.locator('.drawer').innerText()).includes(await T('party.claim_closed')));
+    assert.ok((await page.locator('.drawer').innerText()).includes('تسوية نهائية بعد استلام الإشعارين'));
     assert.equal(await page.locator('.drawer').getByRole('button', { name: await T('party.credit_note'), exact: true }).count(), 0);
     await page.locator('.drawer-head button').click();
     // Failed status lookup is unknown, never silently "disabled" or "saved".
@@ -57,7 +59,17 @@ const out = process.argv[3] || '.';
     await page.waitForSelector('#cloud-card');
     assert.ok((await page.locator('#cloud-card').innerText()).includes(await T('set.cloud_never')));
     await page.setViewportSize({ width: 390, height: 844 });
+    // The shell animates its grid and sidebar after a viewport change. Wait for
+    // that real state before asserting geometry or capturing a mobile image.
+    await page.waitForFunction(() => {
+      const r = document.querySelector('.sidebar').getBoundingClientRect();
+      return r.left >= innerWidth || r.right <= 0;
+    });
     await page.locator('#cloud-card').scrollIntoViewIfNeeded();
+    assert.ok(await page.locator('#cloud-card').evaluate(el => {
+      const r = el.getBoundingClientRect();
+      return r.left >= -1 && r.right <= innerWidth + 1 && el.scrollWidth <= el.clientWidth + 1;
+    }));
     await page.screenshot({ path: out + '/review-c-cloud-mobile-ar.png' });
     assert.deepEqual(errors, []);
     console.log('Review C: cumulative credit, final settlement, guide evidence and cloud uncertainty passed.');
