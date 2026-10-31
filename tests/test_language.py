@@ -20,7 +20,7 @@ def dictionaries():
     script = ("global.window=global;global.SM={};const fs=require('fs');"
               "for (const f of ['i18n.js','i18n/en.js','i18n/ar.js']) eval(fs.readFileSync(%r+'/'+f,'utf8'));"
               "console.log(JSON.stringify(SM.i18n))" % str(WEB))
-    return json.loads(subprocess.run([NODE, "-e", script], capture_output=True, text=True, check=True).stdout)
+    return json.loads(subprocess.run([NODE, "-e", script], capture_output=True, text=True, encoding="utf-8", check=True).stdout)
 
 
 def sources():
@@ -132,7 +132,7 @@ for (const [role,perms] of Object.entries(roles)) {
   }
 }
 console.log(JSON.stringify(out));""" % (str(WEB), str(WEB), json.dumps(self.roles()))
-        out = json.loads(subprocess.run([NODE, "-e", script], capture_output=True, text=True, check=True).stdout)
+        out = json.loads(subprocess.run([NODE, "-e", script], capture_output=True, text=True, encoding="utf-8", check=True).stdout)
         self.assertEqual(out["counter"]["today-"], "count")            # a counter is never sent to open a shift or sell
         self.assertEqual(out["counter"]["today+"], "count")
         self.assertEqual(out["accountant"]["today-"], "reports")       # an accountant never opens a shift
