@@ -15,6 +15,7 @@ import logging
 import mimetypes
 import pathlib
 import re
+import secrets
 import sqlite3
 import sys
 import threading
@@ -25,7 +26,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import guidebook, backup, training
 from .auth import Auth, can, require
-from .core import Forbidden, ShopError, integer, text
+from .core import Forbidden, ShopError, integer, text, today
 from .db import Store
 from .scanner import ScannerHub, list_serial_ports
 from .services import Shop
@@ -34,6 +35,11 @@ from .version import VERSION
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 MAX_BODY = 1_000_000
+LAN_IDLE_LOCK_S = 15 * 60    # a till on the shop network that nobody touches for this long locks itself (M1)
+POLL_PATHS = {"/api/scanner/events"}      # background polling: does not count as someone using the till
+SOCKET_TIMEOUT = 15          # seconds a client may stay silent (headers or body) before the connection is dropped (M4)
+BODY_DEADLINE = 15           # seconds for the whole request body, so a trickle of bytes cannot hold a thread
+MAX_CONNECTIONS = 64         # simultaneous connections; the next ones get 503 instead of an endless thread pile
 COOKIE = "sm_session"
 log = logging.getLogger("supermarket")
 
@@ -47,6 +53,8 @@ class App:
         self.store = Store(data_folder, mode)
         self.shop = Shop(self.store)
         self.auth = Auth(self.store)
+        if lan:
+            self.auth.idle_lock_s = LAN_IDLE_LOCK_S
         self.hub = ScannerHub()
         self.backup_folder = pathlib.Path(backup_folder or pathlib.Path(data_folder).parent / ("backups-" + mode))
         if mode == "training":
@@ -74,7 +82,7 @@ class App:
         r("GET", r"/api/locations", lambda a, q, b: self.shop.locations())
         r("POST", r"/api/locations", lambda a, q, b: {"id": self.shop.add_location(a, b.get("code"), b.get("name_ar"), b.get("name_en"), b.get("kind"), b.get("sellable"))})
         r("GET", r"/api/parties", self.parties)
-        r("POST", r"/api/parties", lambda a, q, b: {"id": self.shop.add_party(a, b.get("kind"), b.get("name"), b.get("phone"), b.get("credit_limit", 0))})
+        r("POST", r"/api/parties", lambda a, q, b: {"id": self.shop.add_party(a, b.get("kind"), b.get("name"), b.get("phone"), b.get("credit_limit", 0), b.get("allow_duplicate") is True)})
         r("POST", r"/api/scan", lambda a, q, b: self.shop.resolve_scan(a, b.get("raw"), b.get("profile") or self.profile_for(a)))
         r("POST", r"/api/receipts", lambda a, q, b: self.shop.receive(a, b.get("key"), b.get("payload")))
         r("GET", r"/api/shift", lambda a, q, b: self.shop.shift_summary(a, _int(q.get("id"), None)))
@@ -137,7 +145,7 @@ class App:
         r("GET", r"/api/reports/day", lambda a, q, b: self.shop.day_report(a, q.get("day")))
         r("GET", r"/api/export/stock\.csv", self.export_stock)
         r("GET", r"/api/settings", lambda a, q, b: self.public_settings(a))
-        r("POST", r"/api/settings", lambda a, q, b: self.shop.update_settings(a, b))
+        r("POST", r"/api/settings", self.save_settings)
         r("GET", r"/api/label-templates", lambda a, q, b: self.shop.label_templates())
         r("POST", r"/api/label-templates", lambda a, q, b: {"id": self.shop.save_label_template(a, b)})
         r("GET", r"/api/scanner/profile", lambda a, q, b: self.profile_for(a))
@@ -151,6 +159,7 @@ class App:
         r("POST", r"/api/users", self.add_user)
         r("POST", r"/api/backup", self.make_backup)
         r("GET", r"/api/backups", lambda a, q, b: require(a, "backup") and backup.list_backups(self.backup_folder))
+        r("GET", r"/api/backup/status", self.backup_status)
         r("GET", r"/api/cloud", self.cloud_status, lock=False)
         r("POST", r"/api/cloud/now", self.cloud_now, lock=False)
         r("GET", r"/api/reconcile", lambda a, q, b: require(a, "reports") and self.shop.reconcile())
@@ -159,12 +168,27 @@ class App:
         self.routes.append((method, re.compile("^" + pattern + "$"), fn, auth, lock))
 
     # ---------- handlers ----------
-    def state(self, actor, q, body):
+    def state(self, actor, q, body, client="127.0.0.1"):
+        """Public part: version, mode, setup_needed (+ clock warning, training logins). The shop's name, day,
+        instance id and LAN flag only for this PC or a signed-in user (review L5)."""
         s = self.shop.settings()
+        private = actor or ipaddress.ip_address(client).is_loopback
         return {"version": VERSION, "mode": self.store.mode, "setup_needed": not self.auth.has_users(),
-                "user": actor, "shop_name": s["shop_name"], "business_day": self.store.current_business_day(), "instance": s.get("instance_id"), "lan": self.lan,
+                "user": actor, "shop_name": s["shop_name"] if private else "",
+                "business_day": self.store.current_business_day() if private else None,
+                "instance": s.get("instance_id") if private else None, "lan": self.lan if private else None,
+                "lan_addresses": self._lan_addresses() if self.lan and actor else None,
+                "clock_behind": ({"closed": self.store.clock_behind(), "today": today()} if self.store.clock_behind() else None),
                 "training_login": {"users": [u for u, _, _ in training.TRAINING_USERS], "password": training.TRAINING_PASSWORD}
                 if self.store.mode == "training" else None}
+
+    port = None
+    _lan_cache = None
+
+    def _lan_addresses(self):
+        if self._lan_cache is None:
+            self._lan_cache = lan_addresses(self.port or 8765)
+        return self._lan_cache
 
     stop_key = None
     cloud = None      # server.cloudsync.CloudSync, set by the launcher of the real shop once it is connected
@@ -214,18 +238,18 @@ class App:
             return {"ok": True}
         return self.store.tx(work)
 
-    def login(self, actor, q, body):
-        token, user = self.auth.login(body.get("username"), body.get("password"), body.get("workstation") or "unknown")
+    def login(self, actor, q, body, client=None):
+        token, user = self.auth.login(body.get("username"), body.get("password"), body.get("workstation") or "unknown", client=client)
         return {"user": user, "_cookie": token}
 
-    def change_password(self, actor, q, body, token=None):
-        return self.auth.change_password(actor, token, body.get("old"), body.get("new"))
+    def change_password(self, actor, q, body, token=None, client=None):
+        return self.auth.change_password(actor, token, body.get("old"), body.get("new"), client=client)
 
     def lock(self, actor, q, body, token=None):
         return self.auth.lock_screen(actor, token)
 
-    def unlock(self, actor, q, body, token=None):
-        return self.auth.unlock_screen(actor, token, body.get("password"))
+    def unlock(self, actor, q, body, token=None, client=None):
+        return self.auth.unlock_screen(actor, token, body.get("password"), client=client)
 
     def logout(self, actor, q, body, token=None):
         if token:
@@ -404,7 +428,27 @@ class App:
         require(actor, "backup")
         result = backup.create_backup(self.store, self.backup_folder, "manual")
         self.store.tx(lambda: self.store.audit(actor, "backup", result["folder"]))
+        result["external"] = backup.sync_external(self.store, self.backup_folder, self.home)
         return result
+
+    @property
+    def home(self):
+        return pathlib.Path(self.store.folder).parent
+
+    def save_settings(self, actor, q, body):
+        out = self.shop.update_settings(actor, body)
+        if isinstance(body, dict) and "backup_folder_2" in body and body["backup_folder_2"]:
+            backup.sync_external(self.store, self.backup_folder, self.home)       # first copy now, not at the next half hour
+        return out
+
+    def backup_status(self, actor, q, body):
+        require(actor, "settings")
+        cloud_ok = None
+        try:
+            cloud_ok = (self.cloud.status_light() or {}).get("last_ok_at") if self.cloud else None
+        except Exception:
+            cloud_ok = None
+        return backup.status(self.store, self.backup_folder, cloud_ok)
 
 
 def _int(value, default):
@@ -438,10 +482,53 @@ def _csv(value):
     return '"' + text.replace('"', '""') + '"' if any(c in text for c in ',"\r\n') else text
 
 
+def own_names():
+    """Names under which the other tills may reach THIS PC: its computer name (also with .local). A DNS-rebinding
+    page cannot use them: its Host header carries the attacker's own name (review M2)."""
+    import socket
+    host = socket.gethostname().lower()
+    names = {host, host + ".local"}
+    try:
+        names.add(socket.getfqdn().lower())
+    except OSError:
+        pass
+    return names
+
+
+def lan_addresses(port):
+    """What to type on another till: the computer name and the private IP addresses of this PC."""
+    import socket
+    out = []
+    host = socket.gethostname()
+    out.append("http://%s:%d/" % (host, port))
+    try:
+        for info in socket.getaddrinfo(host, None, socket.AF_INET):
+            ip = info[4][0]
+            if ipaddress.ip_address(ip).is_private and not ipaddress.ip_address(ip).is_loopback:
+                out.append("http://%s:%d/" % (ip, port))
+    except OSError:
+        pass
+    return list(dict.fromkeys(out))
+
+
 def make_handler(app, allowed_lan):
     class Handler(BaseHTTPRequestHandler):
         server_version = "SuperMarket"
         sys_version = ""
+        timeout = SOCKET_TIMEOUT
+
+        def _read_body(self, length):
+            import time
+            deadline, chunks = time.monotonic() + BODY_DEADLINE, []
+            while length > 0:
+                if time.monotonic() > deadline:
+                    raise TimeoutError("request body too slow")
+                chunk = self.rfile.read(min(length, 65536))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                length -= len(chunk)
+            return b"".join(chunks)
 
         def log_message(self, fmt, *args):  # no tokens or bodies in logs
             log.info("%s %s", self.address_string(), fmt % args)
@@ -470,7 +557,7 @@ def make_handler(app, allowed_lan):
             """DNS-rebinding guard: only literal local/private addresses or
             localhost on our own port may be used as Host."""
             host = self.headers.get("Host", "")
-            m = re.fullmatch(r"(?:\[([0-9a-fA-F:]+)\]|([0-9.]+|localhost))(?::(\d{1,5}))?", host)
+            m = re.fullmatch(r"(?:\[([0-9a-fA-F:]+)\]|([0-9.]+|localhost|[A-Za-z0-9][A-Za-z0-9.-]{0,62}))(?::(\d{1,5}))?", host)
             if not m or (m.group(3) and int(m.group(3)) != self.server.server_address[1]):
                 return False
             name = m.group(1) or m.group(2)
@@ -479,7 +566,7 @@ def make_handler(app, allowed_lan):
             try:
                 ip = ipaddress.ip_address(name)
             except ValueError:
-                return False
+                return allowed_lan and name.lower() in own_names()     # M2: this PC's own computer name, not any name
             return ip.is_loopback or (allowed_lan and ip.is_private)
 
         def _token(self):
@@ -512,7 +599,7 @@ def make_handler(app, allowed_lan):
             if length > MAX_BODY:
                 return self._send(413, {"error": "too_large"})
             try:
-                body = json.loads(self.rfile.read(length) or b"{}") if method == "POST" else {}
+                body = json.loads(self._read_body(length) or b"{}") if method == "POST" else {}
                 if not isinstance(body, dict):
                     raise ValueError
             except ValueError:
@@ -525,7 +612,7 @@ def make_handler(app, allowed_lan):
                     continue
                 try:
                     with app.store.lock:
-                        actor = app.auth.session(token)
+                        actor = app.auth.session(token, touch=parts.path not in POLL_PATHS)
                     if needs_auth and not actor and parts.path != "/api/state":
                         raise ShopError("login_required", status=401)
                     # a locked till and a password that must be changed stop everything else on the server
@@ -538,24 +625,34 @@ def make_handler(app, allowed_lan):
                     # sees rows of a transaction that may still roll back
                     lock = app.store.lock if take_lock else contextlib.nullcontext()
                     with lock:
-                        if fn == app.setup:
+                        if fn == app.state:
+                            result = fn(actor, query, body, client=self.client_address[0])
+                        elif fn == app.setup:
                             result = fn(actor, query, body, client=self.client_address[0])
                         elif fn == app.local_stop:
                             result = fn(actor, query, body, client=self.client_address[0], key=self.headers.get("X-SM-Stop"), server=self.server)
-                        elif fn in (app.logout, app.change_password, app.lock, app.unlock):
+                        elif fn == app.login:
+                            result = fn(actor, query, body, client=self.client_address[0])
+                        elif fn in (app.change_password, app.unlock):
+                            result = fn(actor, query, body, token=token, client=self.client_address[0])
+                        elif fn in (app.logout, app.lock):
                             result = fn(actor, query, body, token=token)
                         else:
                             result = fn(actor, query, body, *match.groups())
                     if actor and not can(actor, "see_cost") and not (isinstance(result, dict) and "_raw" in result):
                         result = redact_cost(result)
                 except ShopError as exc:
-                    return self._send(exc.status, {"error": exc.code, "detail": exc.detail})
-                except (TypeError, ValueError, KeyError, AttributeError, sqlite3.InterfaceError):
+                    extra = {"Retry-After": str(exc.detail["retry_after"])} if exc.status == 429 and "retry_after" in exc.detail else None
+                    return self._send(exc.status, {"error": exc.code, "detail": exc.detail}, headers=extra)
+                except (TypeError, KeyError):
+                    # a missing field or a wrong JSON type in the request body is the client's mistake (400); anything
+                    # else below is a bug of ours and must be visible as a 500 with a traceback, never hidden as "bad request" (M10)
                     log.warning("bad request on %s\n%s", parts.path, traceback.format_exc())
                     return self._send(400, {"error": "bad_request"})
                 except Exception:  # never leak internals to the browser
-                    log.error("internal error on %s\n%s", parts.path, traceback.format_exc())
-                    return self._send(500, {"error": "internal_error"})
+                    request_id = secrets.token_hex(4)
+                    log.error("internal error %s on %s\n%s", request_id, parts.path, traceback.format_exc())
+                    return self._send(500, {"error": "internal_error", "detail": {"request_id": request_id}})
                 headers = {}
                 if isinstance(result, dict) and "_raw" in result:
                     return self._send(200, result["_raw"], result["_type"],
@@ -583,12 +680,43 @@ def make_handler(app, allowed_lan):
     return Handler
 
 
+class BoundedServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with a ceiling on simultaneous connections (review M4)."""
+
+    def __init__(self, *args, limit=MAX_CONNECTIONS, **kwargs):
+        self._slots = threading.BoundedSemaphore(limit)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            try:
+                request.sendall(b"HTTP/1.0 503 Service Unavailable\r\nRetry-After: 2\r\nContent-Length: 0\r\n\r\n")
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+        super().process_request(request, client_address)
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):      # a till that went away is not an error of ours
+            log.info("client %s went away", client_address[0])
+            return
+        log.error("connection error from %s\n%s", client_address[0], traceback.format_exc())
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+
 def serve(data_folder, mode="shop", host="127.0.0.1", port=8765, lan=False):
     app = App(data_folder, mode, lan=lan)
     bind = "0.0.0.0" if lan else host
-    httpd = ThreadingHTTPServer((bind, port), make_handler(app, lan))
+    httpd = BoundedServer((bind, port), make_handler(app, lan))
     httpd.daemon_threads = True
     httpd.app = app
+    app.port = httpd.server_address[1]
     return httpd
 
 

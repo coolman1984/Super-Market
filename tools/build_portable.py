@@ -103,7 +103,7 @@ def build(nupkg, out):
     for f in APP_FILES:
         shutil.copy2(ROOT / f, target / f)
     for d in APP_DIRS:
-        shutil.copytree(ROOT / d, target / d, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "domain.py"))
+        shutil.copytree(ROOT / d, target / d, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     (target / "tools").mkdir()
     for f in TOOLS:
         shutil.copy2(ROOT / "tools" / f, target / "tools" / f)

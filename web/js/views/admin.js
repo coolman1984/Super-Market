@@ -254,7 +254,31 @@
       }
       const sheet = h('div', { class: 'card' }, h('h3', { text: t('scn.sheet') }), h('p', { class: 'muted', text: t('scn.sheet_help') }),
         h('div', { class: 'labels' }, ['6220000000013', '0012345678905', '2112345012506'].map(c => h('div', { class: 'pack-label' }, SM.ean13(c), h('div', { class: 'ltr mono', text: c })))));
-      SM.put(root, h('p', { class: 'tip', text: t('scn.intro') }), h('div', { class: 'toolbar' }, seg), body, sheet);
+      /* H3: a device test the owner can run on the real shop PC; the answer is kept on this PC, never claimed for the hardware */
+      const deviceTest = () => {
+        const last = SM.prefs.get('device_test', {});
+        const lastBox = h('p', { class: 'muted' });
+        const showLast = () => SM.put(lastBox, ...(last.print ? [t('dev.last_print', { mm: last.print.mm, result: t(last.print.ok ? 'dev.ok' : 'dev.bad'), at: last.print.at })] : [t('dev.none_yet')]));
+        const remember = (mm, ok) => { last.print = { mm, ok, at: new Date().toLocaleString('en-GB', { timeZone: 'Africa/Cairo' }) }; SM.prefs.set('device_test', last); showLast(); };
+        const test = {
+          no: 'TEST-0001', at: new Date().toISOString(), cashier: t('dev.cashier'), shop_name: SM.state.settings.shop_name || t('app.name'),
+          lines: [{ name_ar: 'لبن كامل الدسم ١ لتر — جرّب الحروف: أ إ آ ؤ ئ ة ى', name_en: 'Full-cream milk 1 L', qty: 2, measure: 'piece', unit_price: 4550, gross: 9100, discount: 0 },
+            { name_ar: 'جبنة رومي — ٢٥٠ جم', name_en: 'Roumy cheese 250 g', qty: 1, measure: 'piece', unit_price: 12075, gross: 12075, discount: 0 }],
+          discount: 0, total: 21175, payments: [{ method: 'cash', amount: 21175, state: 'settled' }], cash_tendered: 25000, change: 3825, footer: t('dev.footer') };
+        const run = async (mm) => {
+          let area = document.getElementById('print');
+          if (!area) { area = h('div', { id: 'print' }); document.body.append(area); }
+          area.className = 'w' + mm;
+          SM.put(area, SM.receipt(test));
+          window.print();
+          const ok = await SM.confirm(t('dev.print_q_title'), t('dev.print_q', { mm }));
+          remember(mm, ok);
+        };
+        showLast();
+        return h('div', { class: 'card', 'data-guide': 'dev.card' }, h('h3', { text: t('dev.title') }), h('p', { class: 'muted', text: t('dev.help') }),
+          h('div', { class: 'toolbar' }, [58, 80].map(mm => h('button', { class: 'btn', text: t('dev.print', { mm }), onclick: SM.guard(() => run(mm)) }))), lastBox);
+      };
+      SM.put(root, h('p', { class: 'tip', text: t('scn.intro') }), h('div', { class: 'toolbar' }, seg), body, sheet, deviceTest());
       draw();
     },
   };
@@ -282,29 +306,40 @@
         const tol = h('input', { class: 'input', inputmode: 'numeric', value: s.cutting_loss_tolerance_permille === null ? '' : String(s.cutting_loss_tolerance_permille) });
         const dayStart = h('input', { class: 'input', inputmode: 'numeric', value: String(s.day_start_hour === undefined ? 4 : s.day_start_hour) });
         const thawDays = h('input', { class: 'input', inputmode: 'numeric', value: s.thaw_shelf_life_days ? String(s.thaw_shelf_life_days) : '' });
+        const refundOver = h('input', { class: 'input', inputmode: 'decimal', value: SM.money(s.refund_approval_over === undefined ? 20000 : s.refund_approval_over) });
+        const refundDays = h('input', { class: 'input', inputmode: 'numeric', value: String(s.refund_days_without_approval === undefined ? 7 : s.refund_days_without_approval) });
         const below = h('input', { type: 'checkbox', checked: s.block_below_cost });
         const gtin = h('input', { type: 'checkbox', checked: s.gtin_equivalence });
         parts.push(h('div', { class: 'card' }, h('h3', { text: t('set.shop') }), h('div', { class: 'grid cols-3' },
           SM.field(t('set.shop_name'), name), SM.field(t('set.footer'), footer), SM.field(t('set.width'), width), SM.field(t('set.near'), near),
           SM.field(t('set.discount'), disc, t('set.discount_help')), SM.field(t('set.tolerance'), tol, t('set.tolerance_help')),
           SM.field(t('set.thaw_days'), thawDays, t('set.thaw_days_help')), SM.field(t('set.day_start'), dayStart, t('set.day_start_help')),
+          SM.field(t('set.refund_over'), refundOver, t('set.refund_help')), SM.field(t('set.refund_days'), refundDays),
           h('label', { class: 'row' }, below, t('set.below_cost')), h('label', { class: 'row' }, gtin, t('set.gtin'))),
           h('p', { class: 'tip', text: t('set.tax_note') }),
           h('button', { class: 'btn primary', text: t('save'), onclick: async () => {
             try {
               await SM.api('POST', '/api/settings', { shop_name: name.value, receipt_footer: footer.value, receipt_width_mm: parseInt(width.value, 10),
                 near_expiry_days: SM.parseInt(near.value), cashier_discount_permille: SM.parseInt(disc.value), cutting_loss_tolerance_permille: tol.value === '' ? null : SM.parseInt(tol.value),
-                block_below_cost: below.checked, gtin_equivalence: gtin.checked, thaw_shelf_life_days: thawDays.value === '' ? null : SM.parseInt(thawDays.value), day_start_hour: SM.parseInt(dayStart.value || '0') });
+                block_below_cost: below.checked, gtin_equivalence: gtin.checked, thaw_shelf_life_days: thawDays.value === '' ? null : SM.parseInt(thawDays.value), day_start_hour: SM.parseInt(dayStart.value || '0'),
+                refund_approval_over: SM.parseMoney(refundOver.value), refund_days_without_approval: SM.parseInt(refundDays.value) });
               SM.state.settings = await SM.api('GET', '/api/settings'); SM.toast(t('saved'));
             } catch (e) { SM.fail(e); }
           } })));
         parts.push(await labelCard());
       }
       if (SM.can('users')) parts.push(await usersCard());
+      if (SM.state.lanAddresses) parts.push(lanCard());
       if (SM.can('backup')) parts.push(await backupCard(), await cloudCard());
       SM.put(root, ...parts);
     },
   };
+
+  /* Review M1/M2: how another till reaches this PC, and the honest warning about plain HTTP. */
+  function lanCard() {
+    return h('div', { class: 'card', id: 'lan-card' }, h('h3', { text: t('set.lan') }), h('p', { class: 'muted', text: t('set.lan_help') }),
+      h('ul', {}, SM.state.lanAddresses.map(a => h('li', { class: 'ltr', text: a }))), h('p', { class: 'warn', text: t('set.lan_warn') }));
+  }
 
   async function labelCard() {
     const list = await SM.api('GET', '/api/label-templates').catch(() => []);
@@ -348,11 +383,18 @@
 
   async function backupCard() {
     const list = await SM.api('GET', '/api/backups').catch(() => []);
+    const st = await SM.api('GET', '/api/backup/status').catch(() => ({}));
+    const second = h('input', { class: 'input ltr', id: 'backup2', value: (SM.state.settings || {}).backup_folder_2 || '', placeholder: 'E:\\' });
     return h('div', { class: 'card' }, h('h3', { text: t('set.backup') }), h('p', { class: 'muted', text: t('set.backup_help') }),
       h('button', { class: 'btn primary', 'data-guide': 'set.backup_now', text: t('set.backup_now'), onclick: async () => {
         try { const r = await SM.api('POST', '/api/backup', {}); SM.toast(t('set.backup_done')); SM.dialog({ title: t('set.backup_done'), body: h('code', { class: 'ltr', text: r.folder + '\nSHA-256 ' + r.sha256 }) }); } catch (e) { SM.fail(e); }
       } }),
-      list.length ? h('ul', {}, list.slice(0, 10).map(b => h('li', { class: 'ltr', text: b.created_at + ' — schema ' + b.schema + ' — ' + b.integrity }))) : null);
+      list.length ? h('ul', {}, list.slice(0, 10).map(b => h('li', { class: 'ltr', text: b.created_at + ' — schema ' + b.schema + ' — ' + b.integrity }))) : null,
+      h('h4', { text: t('set.backup2') }), h('p', { class: 'muted', text: t('set.backup2_help') }),
+      h('p', { class: st.external_error ? 'warn' : 'muted', text: st.external_error ? t('bk.error') : st.external_ok_at ? t('set.backup2_state_ok', { at: '\u2066' + st.external_ok_at.replace('T', ' ').slice(0, 16) + '\u2069' }) : t('set.backup2_state_none') }),
+      h('div', { class: 'row' }, second, h('button', { class: 'btn', id: 'backup2-save', text: t('set.backup2_save'), onclick: async () => {
+        try { SM.state.settings = await SM.api('POST', '/api/settings', { backup_folder_2: second.value.trim() }); SM.toast(t('set.backup2_saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
+      } })));
   }
 
   // Live copy of the shop to the owner's Cloudflare space (server/cloudsync.py). Never shows the secret or the address.

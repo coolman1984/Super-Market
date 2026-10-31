@@ -153,8 +153,12 @@
     const d = SM.dialog({ title: t('party.add_' + kind), body: [SM.field(t('cat.name'), name), SM.field(t('party.phone'), phone, t('party.phone_help')),
       kind === 'customer' ? SM.field(t('party.limit'), limit, t('party.limit_help')) : null],
       actions: [h('button', { class: 'btn primary', text: t('save'), onclick: SM.guard(async () => {
-        try { await SM.api('POST', '/api/parties', { kind, name: name.value, phone: phone.value || null, credit_limit: limit.value ? SM.parseMoney(limit.value) : 0 });
-          SM.toast(t('saved')); d.close(); after(); } catch (e) { SM.fail(e); }
+        const send = (again) => SM.api('POST', '/api/parties', { kind, name: name.value, phone: phone.value || null, credit_limit: limit.value ? SM.parseMoney(limit.value) : 0, allow_duplicate: again === true });
+        try { await send(false); SM.toast(t('saved')); d.close(); after(); } catch (e) {
+          if (e.code === 'party_duplicate' && await SM.confirm(t('party.dup_title'), t('err.party_duplicate'))) {
+            try { await send(true); SM.toast(t('saved')); d.close(); after(); } catch (e2) { SM.fail(e2); }
+          } else if (e.code !== 'party_duplicate') SM.fail(e);
+        }
       }) })] });
   }
 

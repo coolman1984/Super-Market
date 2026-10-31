@@ -6,11 +6,6 @@
 - **Reader:** Claude Code. Every issue below has: ID · where · problem · impact · **exact fix**. Fix in severity order; tick the checkbox when done.
 - **Owner goal:** sell the program to shops; Windows EXE built by GitHub Actions; wired to Cloudflare (backup now, sync/phones later); everything (customers too) on the server, phones get reports only.
 
-> **UPDATE 31 Oct 2026 (second pass, branch `cloudflare-sync`):** the Cloudflare wiring was done and `main` (`14ea484`) was merged in.
-> - **Resolved on this branch:** C1 (dead built-in URL; now `https://super-market-sync.mflma2040.workers.dev`), C2 (one design: D1 sync; R2 backup deleted), H7 (R2 `/pc/register` deleted), L7 (Arabic for the 4 error codes), M6 cloud-identity part (no hostname-keyed space any more).
-> - **Re-review of `main` 14ea484 (review C changes):** reconcile fuzz (400 random carts) still 0 mismatches; huge numbers still rejected; H1 still reproduces; new notes E5 (thaw default removed) and L12 (Edge `--app` uses the user's own profile) are in `docs/CLAUDE_FIX_PROMPT.md`.
-> - **Everything still open** (with severity, files, fixes, acceptance tests) is in `docs/CLAUDE_FIX_PROMPT.md`. Ticks below are not updated; that file is the live list.
-
 ## 0. Executive summary (plain words, for the owner)
 
 The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass, no floating-point money, strict permission checks, safe web UI. The program is **not yet sellable** because:
@@ -84,33 +79,35 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 
 ## 3. HIGH
 
-### [ ] H1 — Any cashier can refund any sale in cash without manager approval (fraud)
+### [x] H1 — Any cashier can refund any sale in cash without manager approval (fraud)
 - **Where:** `server/services.py:1710` `return_sale` (approval only for `change_of_mind` on raw meat/prepared: ~line 1752); `:1691` `sale_detail` lets anyone with `refund` read any sale; no age limit, no receipt-owner check, no threshold. Reproduced in-process: `cash1` refunded `cash2`'s sale, 4,500 piastres in cash, no approval.
 - **Impact:** classic till theft: a dishonest cashier takes cash out against old/other sales; drawer count then "balances" because a refund row exists.
 - **Fix:** add settings `refund_approval_over` (piastres, default e.g. 20000) and `refund_days_without_approval` (default 7); in `return_sale`, require `self._approved(actor, approver, "release_hold"-like perm "approve_refund")` when `total > threshold` OR sale older than N business days OR sale belongs to another cashier OR method=cash and reason in (`other`,`change_of_mind`). Log in audit with approver. Add tests (cashier alone → `approval_required`; with manager approval → ok; own recent small refund → ok). Show the rule in the Arabic UI.
 
-### [ ] H2 — Anyone who can reach the server can lock the owner out (verified)
+### [x] H2 — Anyone who can reach the server can lock the owner out (verified)
 - **Where:** `server/auth.py:16-17,86-101` (`MAX_FAILED=5`, `LOCK_MINUTES=5`, lock is per username, applies to the owner too, `/api/login` is unauthenticated).
 - **Impact:** on LAN mode (or any local user) 5 bad tries per 5 minutes keep the owner/manager permanently locked out; reproduced: after 6 bad attempts the correct password returned `account_locked`.
 - **Fix:** key throttling by (username + client IP + workstation) and add a global per-IP limiter (HTTP 429, exponential back-off); do not lock the account itself for >60 s unless failures are from the same IP; allow the owner to unlock from the shop PC (`127.0.0.1`) via existing recovery. Test: 100 bad logins from IP B never block IP A.
 
-### [ ] H3 — Hardware & real-shop validation missing (SALE_READINESS gates 6, 8)
+### [x] H3 (code part) — Hardware & real-shop validation missing (SALE_READINESS gates 6, 8)
+- **Status:** a printer test (58 / 80 mm, Arabic) is on the scanner screen. Real hardware validation is still the owner's task; nothing here claims the hardware works.
 - **Where:** `docs/SALE_READINESS.md`, `docs/FIELD_TEST.md`.
 - **Problem:** Arabic thermal receipt printing, barcode scanner behaviour (keyboard-wedge speed, prefixes), label scale/weighed barcodes, cash drawer — only simulated. No non-technical person ran a full day.
 - **Impact:** first customer finds printing/scanning problems; reputation risk.
 - **Fix:** (owner/hardware task, not code) run `docs/FIELD_TEST.md` on the shop PC with the real printer/scanner/scale; record results in a new `docs/FIELD_TEST_RESULTS.md`; Claude: add a one-screen "device test" page with print-test receipt (Arabic + 58/80 mm), scanner test, and scale-barcode test, whose result is stored.
 
-### [ ] H4 — Egyptian tax/e-receipt compliance undefined (gate 7)
+### [x] H4 (documentation part) — Egyptian tax/e-receipt compliance undefined (gate 7)
+- **Status:** `docs/ETA_QUESTIONS.md` lists the questions for the accountant; a test keeps the "not a tax invoice" wording. ETA compliance itself is NOT implemented.
 - **Where:** receipts say "ليس فاتورة ضريبية"; `tax_mode` only allows `"unverified"` (`services.py` `SETTING_RULES`).
 - **Impact:** a shop that must issue ETA e-receipts/e-invoices cannot legally use the program as its till; blocks sale to registered shops.
 - **Fix:** owner/accountant must confirm obligations (Egyptian Tax Authority e-receipt rules for retail). Then implement as a separate module (receipt number sequence per ETA, tax lines/VAT rates per product, export). Until then, ship with a clear contract/UI statement that the program is an internal management system, not an ETA-compliant invoicing system. (Do not guess tax rules in code.)
 
-### [ ] H5 — Only off-box backup is the (broken) cloud; no USB/second-disk copy
+### [x] H5 — Only off-box backup is the (broken) cloud; no USB/second-disk copy
 - **Where:** `launcher.py:133-160` (`daily_backup` → `HOME/backups-shop` on the same disk), `server/backup.py`.
 - **Impact:** with C1 unresolved, a failed disk loses everything; even after C1, an offline shop has no external copy.
 - **Fix:** add setting `backup_folder_2` (any path, e.g. USB/second drive/network share) and copy each verified daily backup there (`shutil.copytree`, verify manifest hash, skip silently when drive missing, show a yellow banner "no external copy for N days"). Include in Start-menu a "نسخة على فلاشة" action. Tests with a tmp folder.
 
-### [ ] H6 — Installer gives data access to one Windows account but starts for all users
+### [x] H6 — Installer gives data access to one Windows account but starts for all users
 - **Where:** `installer/super-market.iss:96,159` (icacls: SYSTEM + Administrators + the installing operator) vs `:109` autostart in `{commonstartup}` (all users).
 - **Impact:** a second Windows login (cashier's account) starts the EXE, cannot open `ProgramData\SuperMarket` → "program could not start"/"not writable". Common in shops that use a standard cashier Windows account.
 - **Fix:** grant `Modify` to the local `Users` group (`*S-1-5-32-545`) **only for the data/log/backup folders** (not the program folder) or run the server as a per-machine background service/scheduled task under one account and let other users only open the UI; add an installer-journey step that starts the EXE as a second standard user (CI can create a local user with `net user`).
@@ -124,35 +121,35 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 
 ## 4. MEDIUM
 
-### [ ] M1 — LAN mode is plain HTTP (passwords and session cookie visible on Wi-Fi)
+### [x] M1 — LAN mode is plain HTTP (passwords and session cookie visible on Wi-Fi)
 - **Where:** `server/app.py` (`serve(... lan=True)`), cookie set at `:562` has no `Secure` (can't over HTTP).
 - **Fix:** document and enforce "wired/isolated LAN only"; show a warning in the LAN-start window; optionally offer HTTPS with a locally generated self-signed cert + install-time trust. Add idle-session timeout for tills (verify the server-side screen lock covers it).
 
-### [ ] M2 — LAN access by computer name rejected
+### [x] M2 — LAN access by computer name rejected
 - **Where:** `app.py` Host allow-list (probe: `Host: shop-pc:8799` → 421 `bad_host`).
 - **Impact:** tills must use the numeric IP; breaks when DHCP changes.
 - **Fix:** allow the PC's own hostname + `<hostname>.local` and private-range IPs in LAN mode; show the correct address in the startup message; recommend a fixed IP.
 
-### [ ] M3 — Approval-password guessing at the till
+### [x] M3 — Approval-password guessing at the till
 - **Where:** `services.py:~740-750` (`_approval_failures`: 5 per 5 min per requesting user, **in memory**, reset at restart).
 - **Impact:** a cashier can try ~1,440 manager passwords/day; restart resets.
 - **Fix:** persist failures in DB, 5 failures ⇒ exponential lock (15 min → 24 h) for the *requester*, audit each failure, notify owner.
 
-### [ ] M4 — No socket timeout on the HTTP server (slow-connection DoS)
+### [x] M4 — No socket timeout on the HTTP server (slow-connection DoS)
 - **Where:** `server/app.py:~587` (`ThreadingHTTPServer`, `daemon_threads=True`, no handler `timeout`; `rfile.read(length)` at `:512`).
 - **Fix:** set `Handler.timeout = 15`, read body with deadline, cap concurrent connections (e.g. 64); test with a client that sends headers and stalls.
 
-### [ ] M5 — Clock set behind a closed business day refuses everything shop-wide
+### [x] M5 — Clock set behind a closed business day refuses everything shop-wide
 - **Where:** `server/db.py:113-122 business_day_for` (`today() < closed` → `day_closed` for everyone).
 - **Impact:** a dead CMOS battery/wrong date freezes the shop with an unclear message.
 - **Fix:** detect at start-up and show a dedicated Arabic screen "ساعة الجهاز خاطئة — صحّحها (التاريخ الصحيح …)"; allow the owner to continue only after correcting; never auto-post to the past. Add test that the message names the closed date.
 
-### [ ] M6 — Backup/restore ordering depends on the PC clock; renaming the PC creates a new cloud space
+### [x] M6 — Backup/restore ordering depends on the PC clock; renaming the PC creates a new cloud space
 - **Where:** `server/backup.py:85-87` sorts manifests by folder name (`%Y%m%d-%H%M%S` of PC clock); `server/cloud.py` PC identity/space derived from name.
 - **Impact:** wrong clock ⇒ newest copy pruned/skipped; renaming Windows PC orphans old cloud copies.
 - **Fix:** order by a monotonic sequence stored in each manifest (`seq` from `ops` max id + counter), not by name; key cloud space on a random `instance_id` (already in settings) not the hostname.
 
-### [ ] M7 — Local backup retention only prunes `daily`
+### [x] M7 — Local backup retention only prunes `daily`
 - **Where:** `launcher.py:47,146` (`KEEP_DAILY=30`); `before-<version>` and manual copies never pruned; no disk-space check.
 - **Fix:** keep last N `before-*` (e.g. 5), warn when free disk < 2 GB or backups > X GB, skip with logged error instead of failing silently.
 
@@ -164,7 +161,7 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 - **Where:** `origin/cloudflare-sync:cloud/src/worker.js` (pairing + admin throttles keyed globally).
 - **Fix:** key throttles by IP (`CF-Connecting-IP`) and by store; keep admin endpoint locked after 10 failures only for that IP; add Cloudflare WAF rate-limit rule on `/admin/*` and `/v1/pair`.
 
-### [ ] M10 — Generic `ValueError → 400` hides real bugs
+### [x] M10 — Generic `ValueError → 400` hides real bugs
 - **Where:** `server/app.py` request handler (broad `except ValueError`).
 - **Fix:** catch only `ShopError`/`json.JSONDecodeError` for 400; map unexpected exceptions to 500 + log with traceback + request id; add a test that an injected `ValueError` inside a service surfaces as 500 in logs.
 
@@ -172,17 +169,20 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 
 ## 5. LOW
 
-- [ ] **L1** `server/domain.py` is dead code (tests `test_domain.py` only). Delete or wire it; update CLAUDE.md.
-- [ ] **L2** Promotions use calendar `today()` rather than the business day (`services.py` promotion lookup) — a promo ending "today" stops at midnight though the shop's day continues until `day_start_hour`. Use `self.store.business_day_for(...)`.
+- [x] **L1** `server/domain.py` is dead code (tests `test_domain.py` only). Delete or wire it; update CLAUDE.md.
+- [x] **L2** Promotions use calendar `today()` rather than the business day (`services.py` promotion lookup) — a promo ending "today" stops at midnight though the shop's day continues until `day_start_hour`. Use `self.store.business_day_for(...)`.
 - [ ] **L3** Plain `http://` request to the live Worker returns 500 instead of redirect/400 (`cloudflare-sync` Worker). Return 400/redirect to https; enable "Always Use HTTPS".
-- [ ] **L4** Pre-upgrade copy folder uses minute resolution; two upgrades in one minute would collide (`before-<version>`). Include seconds.
-- [ ] **L5** `GET /api/state` is unauthenticated and returns shop name + instance id (needed by launcher). Return only `version/mode/setup_needed` unless the caller is local (127.0.0.1) or logged in.
-- [ ] **L6** PBKDF2 iterations 240,000 (`auth.py:14`) < OWASP 2023 600,000 for PBKDF2-SHA256. Raise to ≥600k; hashes carry `pw_iter` so existing users re-hash on next login (verify the rehash-on-login path exists, else add).
+- [x] **L4** Pre-upgrade copy folder uses minute resolution; two upgrades in one minute would collide (`before-<version>`). Include seconds.
+- [x] **L5** `GET /api/state` is unauthenticated and returns shop name + instance id (needed by launcher). Return only `version/mode/setup_needed` unless the caller is local (127.0.0.1) or logged in.
+- [x] **L6** PBKDF2 iterations 240,000 (`auth.py:14`) < OWASP 2023 600,000 for PBKDF2-SHA256. Raise to ≥600k; hashes carry `pw_iter` so existing users re-hash on next login (verify the rehash-on-login path exists, else add).
 - [ ] **L7** Four server error codes lack Arabic `err.*` text: `download_mismatch`, `no_copies`, `not_found`, `rejected` (cloud restore). Add to `ar.js`/`en.js` (+ a test comparing `ShopError` codes to `err.*` keys, `tests/errorcodes.py` could be extended).
-- [ ] **L8** `add_party` has no duplicate check (double click creates two customers) and phone isn't validated (`services.py:~221`). Normalize phone (Egyptian mobile pattern) and warn on same name+phone.
-- [ ] **L9** `tools/ci_tests.py` is the only working test entry; `python -m unittest discover -s tests -t .` fails (tests is not a package). Add `tests/__init__.py` or document in README/CLAUDE.md (`python3 tools/ci_tests.py`).
-- [ ] **L10** Closing the business day early (before the shop stops selling) pushes the rest of the day's sales into tomorrow; no "reopen". Add a confirmation dialog stating this in Arabic, and an owner-only audited "reopen last day" if no later day has data.
-- [ ] **L11** Return restock puts the whole quantity into the first allocation's location and a single lot with the earliest expiry (`services.py:~1757-1768`) even when the sale drew from several lots/locations. Safe (earliest expiry) but loses precision; split per allocation proportionally if stock accuracy matters.
+- [x] **L8** `add_party` has no duplicate check (double click creates two customers) and phone isn't validated (`services.py:~221`). Normalize phone (Egyptian mobile pattern) and warn on same name+phone.
+- [x] **L9** `tools/ci_tests.py` is the only working test entry; `python -m unittest discover -s tests -t .` fails (tests is not a package). Add `tests/__init__.py` or document in README/CLAUDE.md (`python3 tools/ci_tests.py`).
+  - _Resolved by documenting_: `python3 tools/ci_tests.py` or `python3 -m unittest discover -s tests` (no `-t .`); noted in CLAUDE.md item 15 and README. `tests` stays a non-package on purpose (helper imports).
+- [x] **L10** (partly) Closing the business day early (before the shop stops selling) pushes the rest of the day's sales into tomorrow; no "reopen". Add a confirmation dialog stating this in Arabic, and an owner-only audited "reopen last day" if no later day has data.
+  - _Done_: the close confirmation now says in Arabic that selling after the close goes to the next day and that a close cannot be undone. _Not done_: owner-only "reopen last day" — closed days are immutable by design (DB triggers) and reopening needs a schema migration; deferred until PR #14 (migration 9) is merged. Ask the owner before building it.
+- [ ] **L11 (deferred)** Return restock puts the whole quantity into the first allocation's location and a single lot with the earliest expiry (`services.py:~1757-1768`) even when the sale drew from several lots/locations. Safe (earliest expiry) but loses precision; split per allocation proportionally if stock accuracy matters.
+  - _Not done_: `return_lines` has PRIMARY KEY(return_id, sale_line_id) and one lot per line (also read by `costtrace.py`); splitting per allocation needs a schema migration, which would collide with PR #14 (migration 9). Current behaviour stays safe (earliest expiry). Do after PR #14 merges.
 
 ---
 

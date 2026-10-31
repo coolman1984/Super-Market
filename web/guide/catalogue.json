@@ -1348,6 +1348,7 @@
    ],
    "errors": [
     "err.account_locked",
+    "err.too_many_attempts",
     "err.bad_login",
     "err.login_required",
     "err.must_change_password",
@@ -1811,6 +1812,7 @@
    "errors": [
     "err.backup_checksum_mismatch",
     "err.backup_integrity_failed",
+    "err.backup2_unusable",
     "err.backup_manifest_missing",
     "err.backup_other_product",
     "err.bad_connect_code",
@@ -1837,6 +1839,8 @@
    ],
    "errors": [
     "err.bad_setting",
+    "err.bad_phone",
+    "err.party_duplicate",
     "err.unknown_setting"
    ]
   },
