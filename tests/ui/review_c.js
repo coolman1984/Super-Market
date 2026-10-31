@@ -10,9 +10,10 @@ const out = process.argv[3] || '.';
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await page.goto(base);
-    await page.fill('input[autocomplete=username]', 'owner');
+    await page.waitForSelector('[data-username=owner]');
+    await page.click('[data-username=owner]');
     await page.fill('input[type=password]', 'training-only');
-    await page.click('button[type=submit]');
+    await page.click('#login-go');
     await page.waitForSelector('.sidebar');
     const T = k => page.evaluate(k => SM.t(k), k);
     const data = await page.evaluate(async () => {

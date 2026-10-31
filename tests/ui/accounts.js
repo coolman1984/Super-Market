@@ -11,11 +11,12 @@ const out = process.argv[3] || '.';
   page.on('pageerror', e => errors.push(e.message));
   const res = {};
   const login = async (p, user, pass) => {
-    await p.goto(base); await p.reload(); await p.waitForSelector('.sidebar, input[type=password]');
+    await p.goto(base); await p.reload(); await p.waitForSelector('.sidebar, .who-list, input[type=password]');
     if (await p.locator('.side-foot .logout-btn').count()) await p.locator('.side-foot .logout-btn').click();
-    await p.waitForSelector('input[autocomplete=username]');
-    await p.fill('input[autocomplete=username]', user); await p.fill('input[type=password]', pass);
-    await p.click('button[type=submit]'); await p.waitForTimeout(800);
+    await p.waitForSelector('[data-username="' + user + '"]');
+    await p.click('[data-username="' + user + '"]');
+    await p.fill('input[type=password]', pass);
+    await p.click('#login-go'); await p.waitForTimeout(800);
   };
   await login(page, 'owner', 'training-only');
   const T = (k, v) => page.evaluate(([k, v]) => SM.t(k, v), [k, v]);
@@ -45,7 +46,7 @@ const out = process.argv[3] || '.';
   await page.locator('#view tr', { hasText: 'newcash' }).locator('button.danger').click();
   await page.fill('#ask-input', 'ترك العمل'); await page.click('#ask-ok'); await page.waitForTimeout(800);   // the program's own question window (review M9)
   await p2.goto(base + '/#sell'); await p2.reload(); await p2.waitForTimeout(900);
-  res.stopped_is_out = await p2.locator('input[autocomplete=username]').count() === 1;
+  res.stopped_is_out = await p2.locator('.who-list').count() === 1 && await p2.locator('[data-username=newcash]').count() === 0;
   res.users_state = (await page.evaluate(() => SM.api('GET', '/api/users'))).find(u => u.id === uid).active === 0;
   res.ok = ['locked_after_reload', 'wrong_refused', 'unlocked', 'forced_screen', 'after_change_in', 'stopped_is_out', 'users_state'].every(k => res[k] === true);
   console.log(JSON.stringify(Object.assign(res, { errors }), null, 1));

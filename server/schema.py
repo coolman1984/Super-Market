@@ -667,3 +667,19 @@ def m009(conn):
 
 MIGRATIONS.append((9, "cloud copy: change log for the optional Cloudflare sync", m009))
 SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+# ---------------------------------------------------------------- migration 10
+# PIN sign-in (SM-UX-LOGIN). The hash never leaves the shop PC (see cloudsync).
+# via_pin: a session opened with the PIN is not blocked by a temporary password.
+def m010(conn):
+    run_script(conn, """
+ALTER TABLE users ADD COLUMN pin_hash TEXT;
+ALTER TABLE users ADD COLUMN pin_salt TEXT;
+ALTER TABLE users ADD COLUMN pin_iter INTEGER;
+ALTER TABLE sessions ADD COLUMN via_pin INTEGER NOT NULL DEFAULT 0;
+""")
+
+
+MIGRATIONS.append((10, "PIN sign-in: hashed PIN per user, session opened with a PIN", m010))
+SCHEMA_VERSION = MIGRATIONS[-1][0]

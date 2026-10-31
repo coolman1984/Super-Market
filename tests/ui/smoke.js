@@ -9,9 +9,9 @@ const out = process.argv[3] || '.';
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await page.goto(base);
-  await page.fill('#' + (await page.locator('input[autocomplete=username]').getAttribute('id')), 'cashier');
+  await page.click('[data-username=cashier]');
   await page.fill('input[type=password]', 'training-only');
-  await page.click('button[type=submit]');
+  await page.click('#login-go');
   await page.waitForSelector('.sidebar');
   // open shift
   await page.goto(base + '/#cash');
@@ -61,10 +61,10 @@ const out = process.argv[3] || '.';
   await page.reload();
   await page.waitForSelector('.side-foot .logout-btn');
   await page.click('.side-foot .logout-btn');
-  await page.waitForSelector('input[type=password]');
-  await page.fill('input[autocomplete=username]', 'owner');
+  await page.waitForSelector('[data-username=owner]');
+  await page.click('[data-username=owner]');
   await page.fill('input[type=password]', 'training-only');
-  await page.click('button[type=submit]');
+  await page.click('#login-go');
   await page.waitForSelector('.sidebar');
   for (const v of ['today', 'reports', 'parties', 'stock', 'prepare', 'receive', 'count', 'catalog', 'scanner', 'settings', 'help', 'returns', 'cash']) {
     await page.goto(base + '/#' + v);

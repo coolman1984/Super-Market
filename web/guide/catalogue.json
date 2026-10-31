@@ -352,6 +352,14 @@
    "page": "settings",
    "sel": "[data-guide=\"set.temp_pw\"]"
   },
+  "set.pin": {
+   "page": "settings",
+   "sel": "[data-guide=\"set.pin\"]"
+  },
+  "set.pin_new": {
+   "page": "settings",
+   "sel": "[data-guide=\"set.pin_new\"]"
+  },
   "help.account": {
    "page": "help",
    "sel": "[data-guide=\"help.account\"]"
@@ -1396,6 +1404,34 @@
    "done": {
     "state": "scale.sticker_ready"
    }
+  },
+  {
+   "id": "set-pin",
+   "cat": "start",
+   "perm": "users",
+   "minutes": 2,
+   "steps": [
+    {
+     "k": "go",
+     "page": "settings",
+     "until": {
+      "route": "settings"
+     }
+    },
+    {
+     "k": "click",
+     "target": "set.pin",
+     "until": {
+      "target": "set.pin_new"
+     }
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "done"
+    }
+   ]
   }
  ],
  "roles": [
@@ -1418,6 +1454,7 @@
     "day-report",
     "close-day",
     "add-user",
+    "set-pin",
     "staff-roles",
     "reset-password",
     "lock-screen",
@@ -1561,6 +1598,9 @@
     "err.screen_locked",
     "err.same_password",
     "err.weak_password",
+    "err.bad_pin",
+    "err.weak_pin",
+    "err.bad_pin_length",
     "err.setup_only_on_shop_pc",
     "err.already_set_up",
     "err.bad_workstation"

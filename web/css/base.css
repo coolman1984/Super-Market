@@ -288,7 +288,7 @@ table.tbl { border-collapse: separate; border-spacing: 0; width: 100%; }
 .keys div { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .35rem 0; border-bottom: 1px dashed var(--line-2); }
 
 /* ---------- toasts ---------- */
-#toasts { position: fixed; inset-block-end: 1.2rem; inset-inline: 0; margin-inline: auto; width: fit-content; max-width: calc(100vw - 2rem); z-index: 100; display: grid; gap: .5rem; justify-items: center; pointer-events: none; }
+#toasts { position: fixed; inset-block-start: 1.2rem; inset-inline: 0; margin-inline: auto; width: fit-content; max-width: calc(100vw - 2rem); z-index: 100; display: grid; gap: .5rem; justify-items: center; pointer-events: none; }
 .toast { pointer-events: auto; display: flex; align-items: center; gap: .6rem; padding: .7rem 1rem; border-radius: 1.2rem; max-width: 40rem; background: var(--raised); color: var(--ink); border: 1px solid var(--line); box-shadow: var(--shadow-2); font-weight: 600; animation: toast-in var(--t-med) var(--ease) both; }
 .toast.ok .ic { color: var(--ok); }
 .toast.bad .ic { color: var(--bad); }
@@ -656,7 +656,8 @@ body .afg-panel, body .afg-coach { z-index: 70; }
 @media (max-width: 640px) { .nm-row select { max-width: 100%; width: 100%; } }
 
 /* scales (server/scale.py) and the program's own question window (SM.ask) */
-.field-error { color: var(--bad, #b42318); min-height: 1.2em; margin: .25rem 0 0; }
+.field-error { color: var(--bad, #b42318); min-height: 0; margin: 0; }
+.field-error:not(:empty) { background: var(--bad-soft, #fbe2e2); color: var(--bad, #b42318); padding: .6rem .8rem; border-radius: var(--r-1); font-weight: 650; margin-top: .45rem; }
 .scale-live { text-align: center; padding: .75rem; border: 1px solid var(--line, #d0d5dd); border-radius: 12px; margin-bottom: .75rem; display: grid; gap: .5rem; justify-items: center; }
 .scale-live[hidden] { display: none; }
 .scale-weight { font-size: 2.6rem; font-weight: 800; font-variant-numeric: tabular-nums; }

@@ -125,6 +125,8 @@ class CloudCopy(ShopFixture, unittest.TestCase):
         blob = json.dumps(seen)
         self.assertNotIn("pw_hash", blob)
         self.assertNotIn("pw_salt", blob)
+        self.assertNotIn("pin_hash", blob)
+        self.assertNotIn("pin_salt", blob)
         users = [r for r in seen if r["t"] == "users"]
         self.assertEqual(len(users), 6)
         self.assertFalse([r for r in seen if r["t"] == "settings" and r["d"]["key"] == "last_app_version"])

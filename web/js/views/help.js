@@ -76,6 +76,7 @@
       const account = h('div', { class: 'card', id: 'help-account', 'data-guide': 'help.account' }, h('h3', { text: t('help.account_title') }), h('p', { class: 'muted', text: t('help.account_sub') }),
         h('div', { class: 'row wrap' },
           h('button', { class: 'btn', id: 'help-password', text: t('account.change'), onclick: () => SM.passwordDialog() }),
+          h('button', { class: 'btn', id: 'help-pin', text: t('account.pin'), onclick: () => SM.ownPinDialog() }),
           h('button', { class: 'btn', id: 'help-lock', text: t('lock.btn'), onclick: () => SM.lockNow() }),
           h('button', { class: 'btn', id: 'help-forgot', text: t('login.forgot'), onclick: () => SM.forgotDialog() })));
       const training = SM.state.mode === 'training' ? await trainingCard() : null;
