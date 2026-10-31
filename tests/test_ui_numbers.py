@@ -26,8 +26,9 @@ def parse(cases):
 class TypedNumbers(unittest.TestCase):
     def test_decimal_comma_in_every_form(self):
         cases = [["kg", "٢،٥"], ["kg", "2,5"], ["kg", "٢٫٥"], ["kg", "2.5"], ["kg", " 2 , 5 "],
-                 ["money", "12,50"], ["money", "١٢٫٥٠"], ["money", "12.5"], ["money", "150"]]
-        self.assertEqual(parse(cases), [2500, 2500, 2500, 2500, 2500, 1250, 1250, 1250, 15000])
+                 ["money", "12,50"], ["money", "١٢٫٥٠"], ["money", "12.5"], ["money", "150"],
+                 ["money", "٢٥"], ["money", "20,5"]]
+        self.assertEqual(parse(cases), [2500, 2500, 2500, 2500, 2500, 1250, 1250, 1250, 15000, 2500, 2050])
 
     def test_ambiguous_input_is_refused_not_guessed(self):
         cases = [["money", "1,000.50"], ["money", "1,005"], ["kg", "1.2.3"], ["money", "-5"], ["money", "abc"]]
