@@ -213,18 +213,18 @@ class App:
             return {"ok": True}
         return self.store.tx(work)
 
-    def login(self, actor, q, body):
-        token, user = self.auth.login(body.get("username"), body.get("password"), body.get("workstation") or "unknown")
+    def login(self, actor, q, body, client=None):
+        token, user = self.auth.login(body.get("username"), body.get("password"), body.get("workstation") or "unknown", client=client)
         return {"user": user, "_cookie": token}
 
-    def change_password(self, actor, q, body, token=None):
-        return self.auth.change_password(actor, token, body.get("old"), body.get("new"))
+    def change_password(self, actor, q, body, token=None, client=None):
+        return self.auth.change_password(actor, token, body.get("old"), body.get("new"), client=client)
 
     def lock(self, actor, q, body, token=None):
         return self.auth.lock_screen(actor, token)
 
-    def unlock(self, actor, q, body, token=None):
-        return self.auth.unlock_screen(actor, token, body.get("password"))
+    def unlock(self, actor, q, body, token=None, client=None):
+        return self.auth.unlock_screen(actor, token, body.get("password"), client=client)
 
     def logout(self, actor, q, body, token=None):
         if token:
@@ -541,14 +541,19 @@ def make_handler(app, allowed_lan):
                             result = fn(actor, query, body, client=self.client_address[0])
                         elif fn == app.local_stop:
                             result = fn(actor, query, body, client=self.client_address[0], key=self.headers.get("X-SM-Stop"), server=self.server)
-                        elif fn in (app.logout, app.change_password, app.lock, app.unlock):
+                        elif fn == app.login:
+                            result = fn(actor, query, body, client=self.client_address[0])
+                        elif fn in (app.change_password, app.unlock):
+                            result = fn(actor, query, body, token=token, client=self.client_address[0])
+                        elif fn in (app.logout, app.lock):
                             result = fn(actor, query, body, token=token)
                         else:
                             result = fn(actor, query, body, *match.groups())
                     if actor and not can(actor, "see_cost") and not (isinstance(result, dict) and "_raw" in result):
                         result = redact_cost(result)
                 except ShopError as exc:
-                    return self._send(exc.status, {"error": exc.code, "detail": exc.detail})
+                    extra = {"Retry-After": str(exc.detail["retry_after"])} if exc.status == 429 and "retry_after" in exc.detail else None
+                    return self._send(exc.status, {"error": exc.code, "detail": exc.detail}, headers=extra)
                 except (TypeError, ValueError, KeyError, AttributeError, sqlite3.InterfaceError):
                     log.warning("bad request on %s\n%s", parts.path, traceback.format_exc())
                     return self._send(400, {"error": "bad_request"})

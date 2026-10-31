@@ -8,13 +8,19 @@ import datetime as dt
 import hashlib
 import hmac
 import secrets
+import threading
+import time
 
 from .core import Forbidden, ShopError, now, now_iso, text
 
-PBKDF2_ITER = 240_000
+PBKDF2_ITER = 600_000
 SESSION_HOURS = 14
-MAX_FAILED = 5
-LOCK_MINUTES = 5
+MAX_FAILED = 5          # wrong passwords from ONE address for ONE name before that pair waits
+LOCK_STEPS = (60, 120, 240, 480, 900)   # seconds: the wait doubles with every repeat, never more than 15 minutes
+WINDOW_SECONDS = 300
+IP_MAX_FAILED = 20      # wrong passwords from one address for any names before it is refused (HTTP 429)
+LOOPBACK_LOCK = 30      # the shop computer itself: a short flat wait, never escalating (the owner works there)
+_mono = time.monotonic  # tests replace this clock
 
 PERMISSIONS = {
     "sell", "discount", "discount_large", "price_override", "refund", "void_line",
@@ -54,9 +60,66 @@ def token_hash(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+class LoginGuard:
+    """Throttles wrong passwords by (name + client address) and by address (review H2).
+    A stranger's wrong guesses can never lock the owner out for the owner's own
+    address; the client address is the TCP peer only (X-Forwarded-For is never read)."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.pairs = {}     # (name, ip) -> {"fails": [t...], "until": t, "level": n}
+        self.ips = {}       # ip -> {"fails": [t...], "until": t, "level": n}
+
+    @staticmethod
+    def _loopback(ip):
+        return ip in ("127.0.0.1", "::1", "localhost", None, "local")
+
+    def _entry(self, table, key):
+        return table.setdefault(key, {"fails": [], "until": 0.0, "level": 0})
+
+    def check(self, name, ip):
+        now_t = _mono()
+        with self.lock:
+            e = self.ips.get(ip)
+            if e and e["until"] > now_t and not self._loopback(ip):
+                raise ShopError("too_many_attempts", {"retry_after": int(e["until"] - now_t) + 1}, status=429)
+            e = self.pairs.get((name, ip))
+            if e and e["until"] > now_t:
+                raise ShopError("account_locked", {"retry_after": int(e["until"] - now_t) + 1}, status=429)
+
+    def _fail(self, entry, limit, now_t, loopback):
+        entry["fails"] = [t for t in entry["fails"] if now_t - t < WINDOW_SECONDS] + [now_t]
+        if len(entry["fails"]) >= limit:
+            wait = LOOPBACK_LOCK if loopback else LOCK_STEPS[min(entry["level"], len(LOCK_STEPS) - 1)]
+            entry["until"] = now_t + wait
+            entry["level"] += 1
+            entry["fails"] = []
+
+    def fail(self, name, ip):
+        now_t = _mono()
+        with self.lock:
+            loop = self._loopback(ip)
+            self._fail(self._entry(self.pairs, (name, ip)), MAX_FAILED, now_t, loop)
+            if not loop:
+                self._fail(self._entry(self.ips, ip), IP_MAX_FAILED, now_t, False)
+            if len(self.pairs) > 5000:       # a flood of invented names must not grow memory forever
+                self.pairs = {k: v for k, v in self.pairs.items() if v["until"] > now_t}
+            if len(self.ips) > 5000:
+                self.ips = {k: v for k, v in self.ips.items() if v["until"] > now_t}
+
+    def succeeded(self, name, ip):
+        with self.lock:
+            self.pairs.pop((name, ip), None)
+            if self._loopback(ip):
+                # the owner/manager typing the right password ON the shop computer clears every wait for that name
+                for k in [k for k in self.pairs if k[0] == name]:
+                    self.pairs.pop(k, None)
+
+
 class Auth:
     def __init__(self, store):
         self.store = store
+        self.guard = LoginGuard()
 
     def has_users(self):
         return bool(self.store.scalar("SELECT COUNT(*) FROM users"))
@@ -75,36 +138,41 @@ class Auth:
             (username, display_name, role, digest, salt, iterations, now_iso()))
         return cur.lastrowid
 
-    def verify(self, username, password, count_failures=True):
-        """Return user row or raise; counts failures and locks briefly."""
+    def verify(self, username, password, count_failures=True, client=None):
+        """Return the user row or raise. Wrong passwords are throttled per (name, client
+        address) and per address, never by locking the account for everybody (H2)."""
         if not isinstance(username, str) or not isinstance(password, str):
             raise ShopError("bad_login", status=401)
-        user = self.store.one("SELECT * FROM users WHERE username=?", (username.strip(),))
+        name = username.strip()
+        if count_failures:
+            self.guard.check(name, client)
+        user = self.store.one("SELECT * FROM users WHERE username=?", (name,))
         if not user or not user["active"]:
             hash_password(password or "x")  # similar timing for unknown names
+            if count_failures:
+                self.guard.fail(name, client)
             raise ShopError("bad_login", status=401)
-        if user["locked_until"] and user["locked_until"] > now_iso():
-            raise ShopError("account_locked", {"until": user["locked_until"]}, status=401)
         digest, _, _ = hash_password(password, user["pw_salt"], user["pw_iter"])
         if not hmac.compare_digest(digest, user["pw_hash"]):
-            if not count_failures:
-                raise ShopError("bad_login", status=401)
-            failed = user["failed"] + 1
-            locked = None
-            if failed >= MAX_FAILED:
-                locked = (now() + dt.timedelta(minutes=LOCK_MINUTES)).isoformat(timespec="seconds")
-                failed = 0
-            self.store.db.execute("UPDATE users SET failed=?, locked_until=? WHERE id=?",
-                                  (failed, locked, user["id"]))
+            if count_failures:
+                self.guard.fail(name, client)
             raise ShopError("bad_login", status=401)
-        if user["failed"] or user["locked_until"]:
-            self.store.db.execute("UPDATE users SET failed=0, locked_until=NULL WHERE id=?", (user["id"],))
+        if count_failures:
+            self.guard.succeeded(name, client)
+        updates = []
+        if user["failed"] or user["locked_until"]:     # leftovers of the old per-account lock
+            updates.append(("failed=0, locked_until=NULL", ()))
+        if user["pw_iter"] < PBKDF2_ITER:              # L6: a hash made with fewer rounds is upgraded at the next good login
+            new_hash, new_salt, new_iter = hash_password(password)
+            updates.append(("pw_hash=?, pw_salt=?, pw_iter=?", (new_hash, new_salt, new_iter)))
+        for sql, args in updates:
+            self.store.db.execute("UPDATE users SET " + sql + " WHERE id=?", args + (user["id"],))
         return user
 
-    def login(self, username, password, workstation):
+    def login(self, username, password, workstation, client=None):
         workstation = text(workstation, "bad_workstation", 64)
         with self.store.lock:  # autocommit: a failed attempt must stay counted
-            user = self.verify(username, password)
+            user = self.verify(username, password, client=client)
         token = secrets.token_urlsafe(32)
         expires = (now() + dt.timedelta(hours=SESSION_HOURS)).isoformat(timespec="seconds")
 
@@ -140,13 +208,13 @@ class Auth:
         self.store.db.execute("UPDATE users SET pw_hash=?, pw_salt=?, pw_iter=?, must_change=?, failed=0, locked_until=NULL WHERE id=?",
                               (digest, salt, iterations, int(must_change), user_id))
 
-    def change_password(self, actor, token, old, new):
+    def change_password(self, actor, token, old, new, client=None):
         """The user's own password: the old one is checked (and counted on failure);
         every other session of this user ends, this one stays."""
         if not actor:
             raise ShopError("login_required", status=401)
         with self.store.lock:
-            self.verify(actor["username"], old)
+            self.verify(actor["username"], old, client=client)
         if old == new:
             raise ShopError("same_password")
 
@@ -201,9 +269,9 @@ class Auth:
         self.store.tx(lambda: self.store.db.execute("UPDATE sessions SET locked=1 WHERE token_hash=?", (token_hash(token),)))
         return {"locked": True}
 
-    def unlock_screen(self, actor, token, password):
+    def unlock_screen(self, actor, token, password, client=None):
         with self.store.lock:
-            self.verify(actor["username"], password)       # failures count and lock the account like a login
+            self.verify(actor["username"], password, client=client)       # failures count and lock the account like a login
         self.store.tx(lambda: self.store.db.execute("UPDATE sessions SET locked=0 WHERE token_hash=?", (token_hash(token),)))
         return {"locked": False}
 

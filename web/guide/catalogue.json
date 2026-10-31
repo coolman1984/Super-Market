@@ -1348,6 +1348,7 @@
    ],
    "errors": [
     "err.account_locked",
+    "err.too_many_attempts",
     "err.bad_login",
     "err.login_required",
     "err.must_change_password",

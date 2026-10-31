@@ -84,7 +84,7 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 - **Impact:** classic till theft: a dishonest cashier takes cash out against old/other sales; drawer count then "balances" because a refund row exists.
 - **Fix:** add settings `refund_approval_over` (piastres, default e.g. 20000) and `refund_days_without_approval` (default 7); in `return_sale`, require `self._approved(actor, approver, "release_hold"-like perm "approve_refund")` when `total > threshold` OR sale older than N business days OR sale belongs to another cashier OR method=cash and reason in (`other`,`change_of_mind`). Log in audit with approver. Add tests (cashier alone → `approval_required`; with manager approval → ok; own recent small refund → ok). Show the rule in the Arabic UI.
 
-### [ ] H2 — Anyone who can reach the server can lock the owner out (verified)
+### [x] H2 — Anyone who can reach the server can lock the owner out (verified)
 - **Where:** `server/auth.py:16-17,86-101` (`MAX_FAILED=5`, `LOCK_MINUTES=5`, lock is per username, applies to the owner too, `/api/login` is unauthenticated).
 - **Impact:** on LAN mode (or any local user) 5 bad tries per 5 minutes keep the owner/manager permanently locked out; reproduced: after 6 bad attempts the correct password returned `account_locked`.
 - **Fix:** key throttling by (username + client IP + workstation) and add a global per-IP limiter (HTTP 429, exponential back-off); do not lock the account itself for >60 s unless failures are from the same IP; allow the owner to unlock from the shop PC (`127.0.0.1`) via existing recovery. Test: 100 bad logins from IP B never block IP A.
@@ -172,7 +172,7 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 - [ ] **L3** Plain `http://` request to the live Worker returns 500 instead of redirect/400 (`cloudflare-sync` Worker). Return 400/redirect to https; enable "Always Use HTTPS".
 - [ ] **L4** Pre-upgrade copy folder uses minute resolution; two upgrades in one minute would collide (`before-<version>`). Include seconds.
 - [ ] **L5** `GET /api/state` is unauthenticated and returns shop name + instance id (needed by launcher). Return only `version/mode/setup_needed` unless the caller is local (127.0.0.1) or logged in.
-- [ ] **L6** PBKDF2 iterations 240,000 (`auth.py:14`) < OWASP 2023 600,000 for PBKDF2-SHA256. Raise to ≥600k; hashes carry `pw_iter` so existing users re-hash on next login (verify the rehash-on-login path exists, else add).
+- [x] **L6** PBKDF2 iterations 240,000 (`auth.py:14`) < OWASP 2023 600,000 for PBKDF2-SHA256. Raise to ≥600k; hashes carry `pw_iter` so existing users re-hash on next login (verify the rehash-on-login path exists, else add).
 - [ ] **L7** Four server error codes lack Arabic `err.*` text: `download_mismatch`, `no_copies`, `not_found`, `rejected` (cloud restore). Add to `ar.js`/`en.js` (+ a test comparing `ShopError` codes to `err.*` keys, `tests/errorcodes.py` could be extended).
 - [ ] **L8** `add_party` has no duplicate check (double click creates two customers) and phone isn't validated (`services.py:~221`). Normalize phone (Egyptian mobile pattern) and warn on same name+phone.
 - [ ] **L9** `tools/ci_tests.py` is the only working test entry; `python -m unittest discover -s tests -t .` fails (tests is not a package). Add `tests/__init__.py` or document in README/CLAUDE.md (`python3 tools/ci_tests.py`).
