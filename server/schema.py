@@ -667,3 +667,25 @@ def m009(conn):
 
 MIGRATIONS.append((9, "cloud copy: change log for the optional Cloudflare sync", m009))
 SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+# ---------------------------------------------------------------- migration 10
+# A debt collected by transfer, wallet or card is not drawer cash. The payment
+# row already exists; this only remembers which shift collected it so the
+# close screen can list it beside other non-cash payments. Old rows stay null.
+M010 = r"""
+ALTER TABLE payments ADD COLUMN shift_id INTEGER REFERENCES shifts(id);
+DROP VIEW payment_states;
+CREATE VIEW payment_states AS
+  SELECT p.*, CASE WHEN c.outcome='confirmed' THEN 'settled' WHEN c.outcome='rejected' THEN 'rejected'
+    ELSE p.state END AS eff_state
+  FROM payments p LEFT JOIN payment_confirmations c ON c.payment_id=p.id;
+"""
+
+
+def m010(conn):
+    run_script(conn, M010)
+
+
+MIGRATIONS.append((10, "debt collection: which shift received a non-cash payment", m010))
+SCHEMA_VERSION = MIGRATIONS[-1][0]

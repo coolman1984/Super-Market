@@ -68,6 +68,22 @@
    "page": "cash",
    "sel": "[data-guide=\"cash.close\"]"
   },
+  "cash.customer": {
+   "page": "cash",
+   "sel": "[data-guide=\"cash.customer\"]"
+  },
+  "cash.amount": {
+   "page": "cash",
+   "sel": "[data-guide=\"cash.amount\"]"
+  },
+  "cash.method": {
+   "page": "cash",
+   "sel": "[data-guide=\"cash.method\"]"
+  },
+  "cash.collect": {
+   "page": "cash",
+   "sel": "[data-guide=\"cash.collect\"]"
+  },
   "sell.scan": {
    "page": "sell",
    "sel": "[data-guide=\"sell.scan\"]"
@@ -658,6 +674,43 @@
    "done": {
     "state": "shift.closed"
    }
+  },
+  {
+   "id": "collect-debt",
+   "cat": "daily",
+   "perm": "shift",
+   "minutes": 2,
+   "steps": [
+    {
+     "k": "go",
+     "page": "cash",
+     "until": {
+      "route": "cash"
+     }
+    },
+    {
+     "k": "choose",
+     "target": "cash.customer"
+    },
+    {
+     "k": "type",
+     "target": "cash.amount",
+     "until": {
+      "filled": "cash.amount"
+     }
+    },
+    {
+     "k": "choose",
+     "target": "cash.method"
+    },
+    {
+     "k": "click",
+     "target": "cash.collect"
+    },
+    {
+     "k": "done"
+    }
+   ]
   },
   {
    "id": "receive-goods",
@@ -1796,7 +1849,8 @@
     "err.account_needs_review",
     "err.collections_unallocated",
     "err.allocation_too_large",
-    "err.review_already_resolved"
+    "err.review_already_resolved",
+    "err.collection_still_pending"
    ]
   },
   {

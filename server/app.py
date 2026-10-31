@@ -96,7 +96,8 @@ class App:
         r("POST", r"/api/returns", lambda a, q, b: self.shop.return_sale(a, b.get("key"), b.get("payload"), self.shop.verify_approval(b.get("approval"), a)))
         r("GET", r"/api/payments/pending", lambda a, q, b: self.shop.pending_payments(a))
         r("POST", r"/api/payments/confirm", lambda a, q, b: self.shop.confirm_payment(a, b.get("key"), b.get("payment_id"), b.get("outcome")))
-        r("POST", r"/api/customers/pay", lambda a, q, b: self.shop.customer_payment(a, b.get("key"), b.get("customer_id"), b.get("amount")))
+        r("POST", r"/api/customers/pay", lambda a, q, b: self.shop.customer_payment(
+            a, b.get("key"), b.get("customer_id"), b.get("amount"), b.get("method") or "cash", b.get("reference")))
         r("POST", r"/api/suppliers/pay", lambda a, q, b: self.shop.supplier_payment(a, b.get("key"), b.get("supplier_id"), b.get("amount"), b.get("note"), b.get("source")))
         r("POST", r"/api/customers/reverse", lambda a, q, b: self.shop.reverse_customer_payment(a, b.get("key"), b.get("entry_id"), b.get("reason")))
         r("GET", r"/api/customers/(\d+)/statement", lambda a, q, b, cid: self.shop.customer_statement(a, int(cid)))
