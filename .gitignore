@@ -11,3 +11,4 @@ dist/
 ENVIRONMENT_REPORT.local.json
 *.log
 pre-upgrade/
+build/
