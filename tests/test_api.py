@@ -140,7 +140,7 @@ class Api(unittest.TestCase):
         for _ in range(5):
             self.call("POST", "/api/login", {"username": "boss", "password": "nope", "workstation": "w"})
         status, body = self.call("POST", "/api/login", {"username": "boss", "password": "long-enough-1", "workstation": "w"})
-        self.assertEqual((status, body["error"]), (401, "account_locked"))
+        self.assertEqual((status, body["error"]), (429, "account_locked"))
 
 
 class TrainingApi(unittest.TestCase):

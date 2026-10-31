@@ -5,8 +5,10 @@ fingerprint, audit). Permissions are checked here, never only in the UI.
 
 import hashlib
 import json
+import pathlib
 import re
 
+from . import backup
 from . import barcode as bc
 from .auth import ROLES, Auth, can, require
 import datetime as _dt
@@ -26,11 +28,33 @@ DEFAULT_SETTINGS = {
     "thaw_shelf_life_days": None,
     # business day (gap row 15): before this hour a posting still belongs to the previous day; shifts follow their opening
     "day_start_hour": 4,
+    # till-fraud guard (review H1): a refund beyond these limits needs a manager's approval
+    "refund_approval_over": 20000, "refund_days_without_approval": 7,
+    # a second place for every verified backup: USB stick, second drive or network share (review H5); "" = none
+    "backup_folder_2": "",
 }
 
 
 def dt_date(text_value):
     return _dt.date.fromisoformat(text_value)
+
+
+def normalize_phone(value):
+    """Egyptian numbers, stored the one way: 01xxxxxxxxx for a mobile (010, 011, 012, 015), 0 + area code for a landline.
+    Arabic-Indic digits, spaces, dashes and a +20 / 0020 prefix are accepted. Empty stays empty (the phone is optional)."""
+    if value is None or str(value).strip() == "":
+        return None
+    digits = str(value).translate(str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"))
+    digits = re.sub(r"[\s\-().]", "", digits)
+    if digits.startswith("+"):
+        digits = digits[1:]
+    if digits.startswith("0020"):
+        digits = digits[2:]
+    if digits.startswith("20") and len(digits) in (11, 12):
+        digits = "0" + digits[2:]
+    if re.fullmatch(r"01[0125]\d{8}", digits) or re.fullmatch(r"0(?:2\d{8}|[3-9]\d{7,8})", digits):
+        return digits
+    raise ShopError("bad_phone")
 
 
 class Shop:
@@ -41,7 +65,7 @@ class Shop:
     # =============== settings & master data ===============
     def settings(self):
         out = dict(DEFAULT_SETTINGS)
-        for row in self.store.all("SELECT key, value FROM settings WHERE key<>'mode'"):
+        for row in self.store.all("SELECT key, value FROM settings WHERE key<>'mode' AND key NOT LIKE '\\_%' ESCAPE '\\'"):
             out[row["key"]] = json.loads(row["value"])
         out["mode"] = self.store.mode
         return out
@@ -55,6 +79,8 @@ class Shop:
             for key, value in changes.items():
                 if key not in DEFAULT_SETTINGS:
                     raise ShopError("unknown_setting", {"key": key})
+                if key == "backup_folder_2":
+                    require(actor, "backup")            # where the shop's copies go is the owner's decision
                 self._check_setting(key, value)
                 self.store.db.execute("INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                                       (key, json.dumps(value)))
@@ -66,6 +92,7 @@ class Shop:
         "near_expiry_days": (0, 60), "cashier_discount_permille": (0, 1000), "receipt_width_mm": (58, 80),
         "cutting_loss_tolerance_permille": (0, 500), "recipe_component_tolerance_permille": (0, 500),
         "thaw_shelf_life_days": (1, 30), "day_start_hour": (0, 8),
+        "refund_approval_over": (0, 100000000), "refund_days_without_approval": (0, 365),
     }
 
     def _check_setting(self, key, value):
@@ -78,6 +105,11 @@ class Shop:
                 raise bad
             if key == "receipt_width_mm" and value not in (58, 80):
                 raise bad
+        elif key == "backup_folder_2":
+            if not isinstance(value, str) or len(value) > 200:
+                raise bad
+            if value:
+                backup.check_external(value, pathlib.Path(self.store.folder).parent)
         elif key in ("block_below_cost", "gtin_equivalence"):
             if type(value) is not bool:
                 raise bad
@@ -206,11 +238,18 @@ class Shop:
     def current_price(self, product_id):
         return self.store.scalar("SELECT price FROM prices WHERE product_id=? ORDER BY id DESC LIMIT 1", (product_id,))
 
-    def add_party(self, actor, kind, name, phone=None, credit_limit=0):
+    def add_party(self, actor, kind, name, phone=None, credit_limit=0, allow_duplicate=False):
         require(actor, "catalog" if kind == "customer" else "receive")
         name = text(name, "bad_name", 120)
+        phone = normalize_phone(phone)
 
         def work():
+            table = {"supplier": "suppliers", "customer": "customers"}.get(kind)
+            if table and not allow_duplicate:                    # a double click or a second entry of the same person (L8)
+                same = " ".join(name.split()).casefold()
+                for row in self.store.all("SELECT id, name, phone FROM %s" % table):
+                    if " ".join(row["name"].split()).casefold() == same and row["phone"] == phone:
+                        raise ShopError("party_duplicate", {"id": row["id"]})
             if kind == "supplier":
                 cur = self.store.db.execute("INSERT INTO suppliers(name,phone,created_at) VALUES(?,?,?)",
                                             (name, phone, now_iso()))
@@ -732,29 +771,60 @@ class Shop:
         return self.store.command("shift_close", key, [counted, note, shift_id], actor, work)
 
     # =============== approvals ===============
-    _approval_failures = {}
+    APPROVAL_WINDOW_S, APPROVAL_FAILS = 300, 5
+    APPROVAL_LOCKS_S = (900, 3600, 4 * 3600, 24 * 3600)      # 15 min, 1 h, 4 h, 24 h: each new lock is longer (review M3)
+    _LOCK_KEY = "_approval_lock"                             # settings row; kept across restarts, never shown by settings()
+
+    def _approval_state(self):
+        row = self.store.scalar("SELECT value FROM settings WHERE key=?", (self._LOCK_KEY,))
+        return json.loads(row) if row else {}
 
     def verify_approval(self, approval, actor=None):
-        """Check typed manager credentials before the command transaction.
-        Failures are limited per REQUESTING user (5 per 5 minutes) and do not
-        lock the manager's own login. Returns {'id', 'role'} or None."""
+        """Check typed manager credentials before the command transaction. Wrong passwords are counted
+        per REQUESTING user in the database (a restart does not reset them): 5 within 5 minutes lock that
+        requester for 15 min, then 1 h, 4 h, 24 h; every failure and every lock is audited, and the manager's
+        own login is never locked by someone else's guesses. Returns {'id', 'role'} or None."""
         if not approval:
             return None
         if not isinstance(approval, dict) or not isinstance(approval.get("username"), str) \
                 or not isinstance(approval.get("password"), str):
             raise ShopError("bad_approval")
-        import time
-        who = actor["id"] if actor else 0
-        recent = [t for t in self._approval_failures.get(who, []) if time.monotonic() - t < 300]
-        if len(recent) >= 5:
-            raise ShopError("approval_attempts_exceeded", status=429)
+        who = str(actor["id"] if actor else 0)
+        moment = _dt.datetime.fromisoformat(now_iso())
+        with self.store.lock:
+            mine = self._approval_state().get(who, {})
+        until = mine.get("until")
+        if until and _dt.datetime.fromisoformat(until) > moment:
+            wait = int((_dt.datetime.fromisoformat(until) - moment).total_seconds()) + 1
+            raise ShopError("approval_attempts_exceeded", {"retry_after": wait}, status=429)
         try:
             with self.store.lock:
                 user = self.auth.verify(approval["username"], approval["password"], count_failures=False)
         except ShopError:
-            self._approval_failures[who] = recent + [time.monotonic()]
+            self._approval_failed(actor, who, approval["username"], moment)
             raise
         return {"id": user["id"], "role": user["role"]}
+
+    def _approval_failed(self, actor, who, typed_username, moment):
+        def work():
+            state = self._approval_state()
+            mine = state.get(who, {})
+            cutoff = moment - _dt.timedelta(seconds=self.APPROVAL_WINDOW_S)
+            recent = [t for t in mine.get("fails", []) if _dt.datetime.fromisoformat(t) > cutoff] + [moment.isoformat(timespec="seconds")]
+            level = mine.get("level", 0)
+            last = mine.get("last")
+            if last and _dt.datetime.fromisoformat(last) < moment - _dt.timedelta(days=2):
+                level = 0                                  # two quiet days: the ladder starts again
+            entry = {"fails": recent[-self.APPROVAL_FAILS:], "level": level, "until": None, "last": moment.isoformat(timespec="seconds")}
+            self.store.audit(actor, "approval.failed", None, {"typed_user": typed_username[:60]})
+            if len(recent) >= self.APPROVAL_FAILS:
+                seconds = self.APPROVAL_LOCKS_S[min(level, len(self.APPROVAL_LOCKS_S) - 1)]
+                entry.update(fails=[], level=level + 1, until=(moment + _dt.timedelta(seconds=seconds)).isoformat(timespec="seconds"))
+                self.store.audit(actor, "approval.locked", None, {"seconds": seconds, "level": level + 1})
+            state[who] = entry
+            self.store.db.execute("INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                                  (self._LOCK_KEY, json.dumps(state, sort_keys=True)))
+        self.store.tx(work)
 
     @staticmethod
     def _approved(actor, approver, permission):
@@ -805,7 +875,7 @@ class Shop:
             line_discount = integer(raw.get("line_discount", 0))
             promo, promo_id = 0, None
             if not pack and prod["measure"] == "unit":       # buy X get Y, set by a manager (row 26)
-                offer = self._promotion_for(prod["id"], today())
+                offer = self._promotion_for(prod["id"], self._offer_day(actor))
                 if offer:
                     promo = self._promo_free(qty, offer["buy_qty"], offer["free_qty"]) * unit_price
                     promo_id = offer["id"] if promo else None
@@ -1642,6 +1712,13 @@ class Shop:
     def _promo_free(qty, buy, free):
         return qty // (buy + free) * free
 
+    def _offer_day(self, actor):
+        """The shop's business day (not the calendar date): an offer that ends 'today' lasts until the shop's day ends (L2)."""
+        try:
+            return self.store.business_day_for(actor["id"] if actor else None)
+        except ShopError:
+            return today()
+
     def _promotion_for(self, product_id, day):
         return self.store.one("""SELECT * FROM promotions WHERE product_id=? AND ended_op IS NULL AND starts<=?
             AND (ends IS NULL OR ends>=?) ORDER BY id DESC LIMIT 1""", (product_id, day, day))
@@ -1824,6 +1901,12 @@ class Shop:
             approved_by = None
             if reason == "change_of_mind" and any(r[0]["pkind"] in ("raw_meat", "prepared") for r in rows):
                 approved_by = self._approved(actor, approver, "release_hold")
+            risk = self._refund_risk(actor, sale, op, total, cash_out, reason)
+            if risk:
+                # till-fraud guard (H1): a manager approves; the approver is recorded on the return and in the audit
+                by = self._approved(actor, approver, "approve_refund")
+                approved_by = approved_by or by
+                self.store.audit(actor, "return.approval", str(sale["id"]), {"why": risk, "approved_by": by, "amount": total})
             rid = self.store.db.execute(
                 """INSERT INTO returns(op_id,sale_id,shift_id,reason,method,amount,user_id,approved_by,at,note)
                 VALUES(?,?,?,?,?,?,?,?,?,?)""",
@@ -1881,6 +1964,26 @@ class Shop:
                     "refunds": [{"method": m, "amount": a} for m, a in refunds_paid.items()]}
         fingerprint_payload = {k: v for k, v in payload.items() if k != "approval"}
         return self.store.command("return", key, fingerprint_payload, actor, work)
+
+    def _refund_risk(self, actor, sale, op, total, cash_out, reason):
+        """Reasons a refund needs a manager (empty list = the cashier may do it alone):
+        over the amount limit, an old sale, another cashier's sale, or cash paid out for
+        'change of mind' / 'other'. A manager or owner acting alone is never held up."""
+        if can(actor, "approve_refund"):
+            return []
+        settings = self.settings()
+        why = []
+        if total > settings["refund_approval_over"]:
+            why.append("amount")
+        today_bd = self.store.scalar("SELECT business_day FROM ops WHERE id=?", (op,))
+        sale_bd = self.store.scalar("SELECT business_day FROM ops WHERE id=?", (sale["op_id"],))
+        if today_bd and sale_bd and (dt_date(today_bd) - dt_date(sale_bd)).days > settings["refund_days_without_approval"]:
+            why.append("old_sale")
+        if sale["user_id"] != actor["id"]:
+            why.append("other_cashier")
+        if cash_out and reason in ("other", "change_of_mind"):
+            why.append("cash_reason")
+        return why
 
     def _promo_refund(self, line, prev_qty, prev_amount, qty):
         """Refund of a buy-X-get-Y line: what was paid and not yet refunded, minus

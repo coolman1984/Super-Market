@@ -71,7 +71,12 @@ class Store:
         """Upgrade rule: a verified copy exists before any migration runs."""
         folder = self.folder / "pre-upgrade"
         folder.mkdir(exist_ok=True)
-        target_path = folder / ("schema-%d-%s.db" % (current, now_iso().replace(":", "")[:15]))
+        stamp = now_iso().replace(":", "").replace("-", "")[:15]            # 20261031T180912: seconds, so two upgrades never collide (L4)
+        target_path = folder / ("schema-%d-%s.db" % (current, stamp))
+        n = 1
+        while target_path.exists():
+            n += 1
+            target_path = folder / ("schema-%d-%s-%d.db" % (current, stamp, n))
         target = sqlite3.connect(str(target_path))
         try:
             self.db.backup(target)
@@ -109,6 +114,11 @@ class Store:
             return self.business_day_for(None)
         except ShopError:
             return today()
+
+    def clock_behind(self):
+        """The closed day the PC clock is behind (dead CMOS battery, wrong date), or None. Posting is refused then (M5)."""
+        closed = self.db.execute("SELECT MAX(day) FROM day_closes").fetchone()[0]
+        return closed if closed is not None and today() < closed else None
 
     def business_day_for(self, user_id=None):
         """The business day a posting belongs to (gap row 15):

@@ -84,3 +84,26 @@ class BusinessDay(ShopFixture, unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClockBehind(ShopFixture, unittest.TestCase):
+    """M5 - a PC date behind a closed day is told to the user with both dates; nothing is posted into the past."""
+
+    def test_state_names_the_closed_date_and_the_pc_date(self):
+        from server.app import App
+        import tempfile
+        self.make_shop()
+        core.set_clock(at(30, 22))
+        self.shop.close_day(self.owner, key(), "2026-10-30")
+        app = App(self.folder / "data")
+        self.addCleanup(app.store.close)      # Windows cannot delete a folder whose database is still open
+        self.addCleanup(app.hub.stop)
+        self.assertIsNone(app.state(None, {}, {})["clock_behind"])
+        core.set_clock(at(29, 12))
+        info = app.state(None, {}, {})["clock_behind"]
+        self.assertEqual(info, {"closed": "2026-10-30", "today": "2026-10-29"})
+        with self.assertRaises(ShopError) as err:
+            self.shop.store.business_day_for(None)
+        self.assertEqual(err.exception.detail["day"], "2026-10-30")        # the error text names the date too
+        core.set_clock(at(31, 9))
+        self.assertIsNone(app.state(None, {}, {})["clock_behind"])         # corrected: normal work again

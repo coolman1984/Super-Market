@@ -191,7 +191,7 @@ SM.errorText = (e) => {
   const msg = t(k);
   const reason = msg === k ? t('err.generic', { code }) : t(k, e.detail || {});
   if (code === 'network') return reason;                       // its own text already says "may be saved"
-  if (code === 'login_required' || code === 'bad_login' || code === 'account_locked') return reason;
+  if (code === 'login_required' || code === 'bad_login' || code === 'account_locked' || code === 'too_many_attempts') return reason;
   const saved = e && e.status && e.status < 500 ? t('err.suffix_not_saved') : t('err.suffix_unknown');
   return reason + ' ' + saved;
 };
