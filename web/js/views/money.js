@@ -35,8 +35,8 @@
           kpi(t('rep.near_expiry'), String(r.near_expiry.length), t('rep.near_expiry_hint'), 2),
           kpi(t('rep.pending_payments'), String(r.pending_payments), t('rep.pending_hint'), 3)));
         const attention = gaps.map(s => h('li', { class: 'gap-row' },
-          h('a', { href: '#reports', onclick: (e) => openGap(s, e) }, h('span', { class: 'badge bad', text: gapText(s, report) })),
-          h('button', { class: 'btn sm', text: t('today.gap_done'), onclick: SM.guard(() => settleGap(s)) })));
+          h('a', { href: '#reports', onclick: (e) => openGap(s, e) }, h('span', { class: 'badge bad' }, gapLabel(s, report))),
+          canCloseGap() ? h('button', { class: 'btn sm gap-done', text: t('today.gap_done'), onclick: SM.guard(() => settleGap(s)) }) : null));
         attention.push(...[...r.near_expiry, ...r.held].slice(0, 12).map(x => h('li', {}, SM.badge(x.state), ' ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); SM.lotDrawer(x.lot_id); } }, SM.name(x) + ' — ' + x.lot_no))));
         if (attention.length) parts.push(h('div', { class: 'card', id: 'today-attention' }, h('header', {}, h('h3', { text: t('today.attention') })), h('ul', {}, attention)));
       }
@@ -45,9 +45,19 @@
     },
   };
 
-  function gapText(s, report) {
+  function canCloseGap() {
+    const role = SM.state.user && SM.state.user.role;
+    return role === 'owner' || role === 'manager';
+  }
+  function closedWhen(s) {
+    if (!s.closed_at) return t('state.open');
+    return h('bdi', { dir: 'ltr', class: 'nowrap', text: s.closed_at.slice(0, 16).replace('T', ' ') });
+  }
+  function gapLabel(s, report) {
     const line = t(s.difference < 0 ? 'today.short' : 'today.over', { name: s.cashier || '—', amount: SM.moneyText(Math.abs(s.difference)) });
-    return s.business_day && report && s.business_day !== report.day ? line + ' — ' + s.business_day : line;
+    if (s.business_day && report && s.business_day !== report.day)
+      return [line + ' — ', h('bdi', { dir: 'ltr', text: s.business_day })];
+    return line;
   }
   function openGap(s, e) {
     e.preventDefault();
@@ -71,7 +81,7 @@
   function shiftTable(rows) {
     return SM.table([{ label: '#', key: 'id' },
       { label: t('rep.cashier'), render: s => s.cashier || '—' },
-      { label: t('rep.closed'), render: s => s.closed_at ? h('span', { class: 'ltr nowrap', text: s.closed_at.slice(0, 16).replace('T', ' ') }) : '—' },
+      { label: t('rep.closed'), render: s => s.closed_at ? closedWhen(s) : '—' },
       { label: t('cash.expected'), num: true, render: s => s.expected === null ? t('state.open') : SM.num(SM.money(s.expected)) },
       { label: t('cash.counted'), num: true, render: s => s.counted === null ? '—' : SM.num(SM.money(s.counted)) },
       { label: t('cash.diff'), num: true, render: s => s.difference === null ? '—' : h('span', { class: 'badge ' + (s.difference ? 'bad' : 'ok') }, SM.num(SM.money(s.difference))) },
@@ -80,7 +90,7 @@
   function shiftCards(rows) {
     return h('div', { class: 'shift-cards' }, rows.map(s => h('article', { class: 'shift-card' },
       h('div', { class: 'shift-line' }, h('b', { text: s.cashier || '—' }),
-        h('span', { class: 'muted ltr nowrap', text: s.closed_at ? s.closed_at.slice(0, 16).replace('T', ' ') : t('state.open') })),
+        h('span', { class: 'muted' }, closedWhen(s))),
       h('div', { class: 'shift-line' }, h('span', { class: 'muted', text: t('cash.diff') }),
         s.difference === null ? '—' : h('span', { class: 'badge ' + (s.difference ? 'bad' : 'ok') }, SM.num(SM.money(s.difference)))),
       h('div', { class: 'shift-line' }, h('span', { class: 'muted', text: t('rep.reason') }), h('span', { class: 'reason', text: s.close_note || '—' })),

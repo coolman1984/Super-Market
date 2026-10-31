@@ -792,8 +792,9 @@ class Shop:
             WHERE """ + where + " ORDER BY s.id", args)
 
     def handle_shift_gap(self, actor, key, shift_id, note=None):
-        """A non-zero difference stays on Today across days until it is explained or marked done."""
-        require(actor, "reports")
+        """A non-zero difference stays on Today across days until the owner or the manager marks it done."""
+        if not actor or actor.get("role") not in ("owner", "manager"):
+            raise Forbidden("forbidden")
         integer(shift_id, 1)
         note = text(note, "bad_note", 200, optional=True)
         row = self.store.one("SELECT id, closed_at, difference, close_note, gap_handled_at FROM shifts WHERE id=?", (shift_id,))

@@ -69,6 +69,21 @@ function cashier() {
 function manager() {
   s.state.user = { id: 3, role: 'manager', permissions: ['shift', 'receive', 'sell', 'count', 'reports', 'close_day'] };
 }
+function accountant() {
+  s.state.user = { id: 4, role: 'accountant', permissions: ['reports', 'export', 'see_cost', 'confirm_payments', 'supplier_pay', 'safe'] };
+}
+function viewer() {
+  s.state.user = { id: 5, role: 'viewer', permissions: ['reports'] };
+}
+function buttons(root, label) {
+  const found = [];
+  (function walk(n) {
+    if (!n || !n.tag) return;
+    if (n.tag === 'button' && n.textContent === label) found.push(n);
+    (n.children || []).forEach(walk);
+  })(root);
+  return found;
+}
 
 const calls = [];
 s.api = async (method, path) => {
@@ -91,6 +106,8 @@ s.api = async (method, path) => {
   assert.ok(text.includes('ميدو: عجز 50.00 ج.م'), text);
   assert.ok(text.includes('سارة: عجز 5.00 ج.م'), text);
   assert.ok(!text.includes('افتح الوردية'), text);
+  assert.equal(buttons(today, 'تم').length, 2, 'the owner can mark each gap done');
+  assert.ok(buttons(today, 'تم').every(b => b.className.includes('gap-done')));
   assert.equal(today.children.find(n => n.attrs && n.attrs.id === 'today-attention') ? 'yes' : 'no', 'yes');
 
   day.shifts = [
@@ -114,6 +131,15 @@ s.api = async (method, path) => {
   await s.views.today.mount(lead);
   assert.ok(lead.textContent.includes('ميدو: زيادة 15.00 ج.م'), lead.textContent);
   assert.ok(lead.textContent.includes('افتح الوردية'), 'a manager without a shift still sees open-shift');
+  assert.equal(buttons(lead, 'تم').length, 1, 'the manager can mark the gap done');
+
+  for (const as of [viewer, accountant]) {
+    as();
+    const reader = new N('root');
+    await s.views.today.mount(reader);
+    assert.ok(reader.textContent.includes('ميدو: زيادة 15.00 ج.م'), reader.textContent);
+    assert.equal(buttons(reader, 'تم').length, 0, as.name + ' must not see تم');
+  }
 
   owner();
   day.shifts = [{ id: 8, cashier: 'ميدو', closed_at: '2026-10-30T22:00:00', expected: 10000, counted: 5000, difference: -5000, close_note: null, business_day: '2026-10-30' }];

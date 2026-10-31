@@ -83,8 +83,10 @@ svg.ean { width: 100%; height: 3.2rem; fill: #000; background: #fff; }
 }
 
 /* Phone: one card per shift. The 7-column table does not fit in 390px. */
+#shifts-card { scroll-margin-top: calc(var(--topbar-h) + 1rem); }
 .shift-cards { display: none; }
 .gap-row { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; }
+.btn.gap-done { min-height: 44px; }
 .shift-card { display: grid; gap: .35rem; min-width: 0; padding: .75rem .85rem; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface-2); }
 .shift-line { display: flex; flex-wrap: wrap; gap: .35rem .6rem; align-items: baseline; min-width: 0; }
 .shift-card .reason { overflow-wrap: anywhere; }

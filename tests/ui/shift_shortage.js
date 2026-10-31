@@ -56,6 +56,8 @@ async function login(page, username, password) {
     });
     const today = await page.locator('#view').innerText();
     assert.ok(!today.includes('افتح الوردية'), today);
+    const doneH = await page.locator('#today-attention .gap-done').first().evaluate(el => el.getBoundingClientRect().height);
+    assert.ok(doneH >= 44, 'done button ' + doneH);
     await page.locator('#today-attention').screenshot({ path: out + '/today-shortage-ar.png' });
     await page.screenshot({ path: out + '/today-owner-ar.png', fullPage: true });
     await page.locator('#today-attention a').first().click();
@@ -72,7 +74,14 @@ async function login(page, username, password) {
     });
     assert.equal(seen, true);
     await page.locator('#shifts-card').screenshot({ path: out + '/shifts-report-ar.png' });
-    const desk = await page.locator('#shifts-card').evaluate(el => ({ w: el.clientWidth, sw: el.scrollWidth, table: getComputedStyle(el.querySelector('.table-wrap')).display }));
+    const desk = await page.locator('#shifts-card').evaluate(el => ({
+      w: el.clientWidth, sw: el.scrollWidth,
+      table: getComputedStyle(el.querySelector('.table-wrap')).display,
+      margin: parseFloat(getComputedStyle(el).scrollMarginTop),
+      dir: el.querySelector('bdi') && el.querySelector('bdi').dir,
+    }));
+    assert.ok(desk.margin >= 44, 'scroll margin ' + desk.margin);
+    assert.equal(desk.dir, 'ltr');
     assert.ok(desk.sw <= desk.w + 1, JSON.stringify(desk));
     assert.equal(desk.table, 'block');
     await page.setViewportSize({ width: 390, height: 844 });

@@ -11,9 +11,9 @@ import shutil
 import subprocess
 import unittest
 
-from helpers import CAIRO, ShopFixture, key
+from helpers import CAIRO, PASSWORD, ShopFixture, key
 from server import core
-from server.core import ShopError
+from server.core import Forbidden, ShopError
 
 NODE = shutil.which("node")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -80,6 +80,27 @@ class ShiftGap(ShopFixture, unittest.TestCase):
         self.assertTrue(kept["gap_handled_at"])
         again = self.shop.handle_shift_gap(self.owner, key(), noted["shift"])
         self.assertTrue(again["already"])
+
+    def test_only_the_owner_or_the_manager_can_mark_a_gap_done(self):
+        self.store.tx(lambda: (
+            self.shop.auth.create_user("acct", "Accountant", "accountant", PASSWORD),
+            self.shop.auth.create_user("view", "Viewer", "viewer", PASSWORD)))
+        self.open_shift(self.cash1, 10000)
+        closed = self.shop.close_shift(self.cash1, key(), 5000, "نقص في العد")
+        sid = closed["shift"]
+        for who in (self.actor("view"), self.actor("acct")):
+            with self.assertRaises(Forbidden) as err:
+                self.shop.handle_shift_gap(who, key(), sid)
+            self.assertEqual(err.exception.status, 403)
+        self.assertIsNone(self.store.scalar("SELECT gap_handled_at FROM shifts WHERE id=?", (sid,)))
+        done = self.shop.handle_shift_gap(self.manager, key(), sid)
+        self.assertTrue(done["handled"])
+        self.assertNotIn("already", done)
+        self.assertTrue(self.store.scalar("SELECT gap_handled_at FROM shifts WHERE id=?", (sid,)))
+        self.open_shift(self.cash2, 2000)
+        other = self.shop.close_shift(self.cash2, key(), 1500, "باقي ناقص")["shift"]
+        self.assertTrue(self.shop.handle_shift_gap(self.owner, key(), other)["handled"])
+        self.assertTrue(self.store.scalar("SELECT gap_handled_at FROM shifts WHERE id=?", (other,)))
 
     @unittest.skipUnless(NODE, "node renders the today and shifts screens")
     def test_owner_today_names_the_shortage_and_the_report_shows_the_reason(self):
