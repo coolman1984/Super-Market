@@ -8,9 +8,14 @@
   SM.views.today = {
     icon: 'home',
     async mount(root) {
-      const shift = SM.can('shift') ? await SM.api('GET', '/api/shift').catch(() => null) : null;
+      const [shift, report] = await Promise.all([
+        SM.can('shift') ? SM.api('GET', '/api/shift').catch(() => null) : null,
+        SM.can('reports') ? SM.api('GET', '/api/reports/day').catch(() => null) : null,
+      ]);
+      const gaps = ((report && report.shifts) || []).filter(s => s.difference);
       const steps = [];
-      if (SM.can('shift') && !shift) steps.push(['cash', 'today.step_shift']);
+      // a drawer gap is the news; "open a shift" would hide it
+      if (SM.can('shift') && !shift && !gaps.length) steps.push(['cash', 'today.step_shift']);
       if (SM.can('receive')) steps.push(['receive', 'today.step_receive']);
       if (SM.can('cutting') || SM.can('produce')) steps.push(['prepare', 'today.step_prepare']);
       if (SM.can('sell') && shift) steps.push(['sell', 'today.step_sell']);
@@ -19,18 +24,17 @@
       const next = h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('today.next') })),
         h('ol', { class: 'steps' }, steps.map(([v, k]) => h('li', {}, h('a', { href: '#' + v, text: t(k) })))));
       const parts = [next];
-      if (SM.can('reports')) {
-        const r = await SM.api('GET', '/api/reports/day').catch(() => null);
-        if (r) {
-          const kpi = (label, value, hint, i) => h('div', { class: 'card kpi', style: { '--i': i } }, h('div', { class: 'label', text: label }), h('div', { class: 'value' }, SM.num(value)), hint ? h('div', { class: 'hint', text: hint }) : null);
-          parts.unshift(h('div', { class: 'grid cols-4' },
-            kpi(t('rep.net_sales'), SM.money(r.net_sales), t('rep.net_sales_hint'), 0),
-            kpi(t('rep.sales_count'), String(r.sales_count), null, 1),
-            kpi(t('rep.near_expiry'), String(r.near_expiry.length), t('rep.near_expiry_hint'), 2),
-            kpi(t('rep.pending_payments'), String(r.pending_payments), t('rep.pending_hint'), 3)));
-          if (r.held.length || r.near_expiry.length) parts.push(h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('today.attention') })),
-            h('ul', {}, [...r.near_expiry, ...r.held].slice(0, 12).map(x => h('li', {}, SM.badge(x.state), ' ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); SM.lotDrawer(x.lot_id); } }, SM.name(x) + ' — ' + x.lot_no))))));
-        }
+      if (report) {
+        const r = report;
+        const kpi = (label, value, hint, i) => h('div', { class: 'card kpi', style: { '--i': i } }, h('div', { class: 'label', text: label }), h('div', { class: 'value' }, SM.num(value)), hint ? h('div', { class: 'hint', text: hint }) : null);
+        parts.unshift(h('div', { class: 'grid cols-4' },
+          kpi(t('rep.net_sales'), SM.money(r.net_sales), t('rep.net_sales_hint'), 0),
+          kpi(t('rep.sales_count'), String(r.sales_count), null, 1),
+          kpi(t('rep.near_expiry'), String(r.near_expiry.length), t('rep.near_expiry_hint'), 2),
+          kpi(t('rep.pending_payments'), String(r.pending_payments), t('rep.pending_hint'), 3)));
+        const attention = gaps.map(s => h('li', {}, h('a', { href: '#reports' }, h('span', { class: 'badge bad', text: t(s.difference < 0 ? 'today.short' : 'today.over', { name: s.cashier || '—', amount: SM.moneyText(Math.abs(s.difference)) }) }))));
+        attention.push(...[...r.near_expiry, ...r.held].slice(0, 12).map(x => h('li', {}, SM.badge(x.state), ' ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); SM.lotDrawer(x.lot_id); } }, SM.name(x) + ' — ' + x.lot_no))));
+        if (attention.length) parts.push(h('div', { class: 'card', id: 'today-attention' }, h('header', {}, h('h3', { text: t('today.attention') })), h('ul', {}, attention)));
       }
       if (SM.state.mode === 'training') parts.unshift(h('div', { class: 'tip' }, icon('school'), h('div', { text: t('today.training') })));
       SM.put(root, ...parts);
@@ -224,10 +228,13 @@
           h('div', { class: 'card' }, h('h3', { text: t('rep.by_method') }), h('p', { class: 'muted', text: t('rep.sales_not_cash') }),
             h('dl', { class: 'kv' }, r.by_method.map(m => kv(t('pay.m.' + m.method) + (m.state !== 'settled' ? ' (' + t('state.' + m.state) + ')' : ''), SM.money(m.amount)))),
             r.refunds_by_method && r.refunds_by_method.length ? [h('h4', { text: t('rep.refunds') }), h('dl', { class: 'kv' }, r.refunds_by_method.map(m => kv(t('refund.' + m.method), SM.money(m.amount))))] : null),
-          h('div', { class: 'card' }, h('h3', { text: t('rep.shifts') }), r.shifts.length ? SM.table([{ label: '#', key: 'id' },
+          h('div', { class: 'card', id: 'shifts-card', style: { gridColumn: '1 / -1' } }, h('h3', { text: t('rep.shifts') }), r.shifts.length ? SM.table([{ label: '#', key: 'id' },
+            { label: t('rep.cashier'), render: s => s.cashier || '—' },
+            { label: t('rep.closed'), render: s => s.closed_at ? h('span', { class: 'ltr nowrap', text: s.closed_at.slice(0, 16).replace('T', ' ') }) : '—' },
             { label: t('cash.expected'), num: true, render: s => s.expected === null ? t('state.open') : SM.num(SM.money(s.expected)) },
             { label: t('cash.counted'), num: true, render: s => s.counted === null ? '—' : SM.num(SM.money(s.counted)) },
-            { label: t('cash.diff'), num: true, render: s => s.difference === null ? '—' : h('span', { class: 'badge ' + (s.difference ? 'bad' : 'ok') }, SM.num(SM.money(s.difference))) }], r.shifts) : h('p', { text: t('none') })),
+            { label: t('cash.diff'), num: true, render: s => s.difference === null ? '—' : h('span', { class: 'badge ' + (s.difference ? 'bad' : 'ok') }, SM.num(SM.money(s.difference))) },
+            { label: t('rep.reason'), render: s => s.close_note || '—' }], r.shifts) : h('p', { text: t('none') })),
           r.rejected_payments.length ? h('div', { class: 'card' }, h('h3', { text: t('rep.rejected') }), h('ul', {}, r.rejected_payments.map(x => h('li', { class: 'ltr', text: x.no + ' — ' + t('pay.m.' + x.method) + ' — ' + SM.money(x.amount) })))) : null,
           h('div', { class: 'card' }, h('h3', { text: t('rep.waste') }), r.waste.length ? h('dl', { class: 'kv' }, r.waste.map(w => kv(t('waste.' + w.reason), SM.money(w.cost)))) : h('p', { text: t('none') })),
           h('div', { class: 'card' }, h('h3', { text: t('rep.checks') }), h('p', {}, rec && rec.ok ? h('span', { class: 'badge ok', text: t('rep.reconcile_ok') }) : h('span', { class: 'badge bad', text: t('rep.reconcile_bad') })),

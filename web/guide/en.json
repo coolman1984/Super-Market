@@ -140,7 +140,7 @@
  "guide.day-report.2": "Choose the day.",
  "guide.day-report.3": "Read sales, returns and net sales.",
  "guide.day-report.4": "Net sales are not cash: they include credit and transfers waiting for confirmation.",
- "guide.day-report.5": "Done. Details are under each number.",
+ "guide.day-report.5": "Done. Shifts show the cashier name and the reason for the difference.",
  "guide.close-day.title": "Close the day",
  "guide.close-day.why": "After closing, the day's figures are kept, and each later correction is listed under it.",
  "guide.close-day.ok": "\"Closed\" shows, with later corrections below it.",

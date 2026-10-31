@@ -2920,9 +2920,12 @@ class Shop:
             WHERE kind='rebate' AND receipt_id IS NULL AND op_id IN {OPS}"""), (day,))
         gifts = self.store.scalar(q("""SELECT COUNT(*) FROM receipt_lines rl JOIN receipts r ON r.id=rl.receipt_id
             WHERE rl.line_kind<>'purchase' AND r.op_id IN {OPS}"""), (day,))
-        shifts = self.store.all("""SELECT id, user_id, opened_at, closed_at, expected, counted, difference,
-            COALESCE(business_day, substr(opened_at,1,10)) business_day FROM shifts
-            WHERE COALESCE(business_day, substr(opened_at,1,10))=?""", (day,))
+        # name and closing note travel with the row: the owner must see who was short and why
+        shifts = self.store.all("""SELECT s.id, s.user_id, u.display_name cashier, s.opened_at, s.closed_at,
+            s.expected, s.counted, s.difference, s.close_note,
+            COALESCE(s.business_day, substr(s.opened_at,1,10)) business_day
+            FROM shifts s JOIN users u ON u.id=s.user_id
+            WHERE COALESCE(s.business_day, substr(s.opened_at,1,10))=? ORDER BY s.id""", (day,))
         rejected = self.store.all(q("""SELECT s.no, p.method, p.amount, c.at FROM payment_confirmations c
             JOIN payments p ON p.id=c.payment_id JOIN sales s ON s.id=p.sale_id
             WHERE c.outcome='rejected' AND c.op_id IN {OPS}"""), (day,))
