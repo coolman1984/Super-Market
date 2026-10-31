@@ -3,7 +3,6 @@ Label-printing scales: the layout is found from ONE real sticker. Scales cabled 
 the weight text of the common protocols is read as integer grams, never as a float."""
 
 import os
-import pty
 import time
 import unittest
 
@@ -119,8 +118,9 @@ class Reader(unittest.TestCase):
         self.assertTrue(self.wait(lambda: r.reading()["grams"] == 1250))
         self.assertEqual(port.asked[0], b"W")
 
+    @unittest.skipUnless(hasattr(os, "openpty"), "a virtual serial port (pty) exists on Linux/macOS only; the Windows COM path is in docs/FIELD_TEST.md")
     def test_a_continuous_scale_on_a_real_virtual_port(self):
-        master, slave = pty.openpty()
+        master, slave = os.openpty()
         self.addCleanup(os.close, master)
         hub = ScannerHub()
         self.addCleanup(hub.stop)
