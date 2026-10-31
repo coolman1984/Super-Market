@@ -201,6 +201,7 @@ class CloudBackup(ShopFixture, unittest.TestCase):
         empty.close()
         with mock.patch.object(launcher, "HOME", new_home), mock.patch.object(launcher, "running_here", return_value=None), \
                 mock.patch("builtins.input", return_value=c.recovery_code()):
+            launcher.console_utf8()      # what main() does for the Start menu commands (Windows CI prints through cp1252)
             self.assertEqual(launcher.cloud_restore(new_home / "shop-data"), 0)
             restored = Store(new_home / "shop-data", "shop")
             self.addCleanup(restored.close)

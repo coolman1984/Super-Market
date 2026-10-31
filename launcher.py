@@ -198,6 +198,16 @@ def stop(port, data):
         return False
 
 
+def console_utf8():
+    """Arabic in a console window or a redirected output on Windows: a cp1252 or OEM code page
+    would crash the print (found by CI). UTF-8 always encodes it; an odd byte never stops the command."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def cloud_code(data):
     """Start menu «كود استعادة السحابة»: shown only on this PC, for the owner to keep on paper."""
     from server.db import Store
@@ -258,6 +268,8 @@ def start_cloud(app, mode, stop_event):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] in (["owner-recovery"], ["cloud-code"], ["cloud-restore"]):
+        console_utf8()
     if argv[:1] == ["owner-recovery"]:              # Start menu: «استعادة دخول المالك» (opens in a console window)
         return owner_recovery(HOME / "shop-data")
     if argv[:1] == ["cloud-code"]:
