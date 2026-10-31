@@ -246,8 +246,22 @@
     const others = [];
     const otherBox = h('div', { class: 'stack' });
     const customers = SM.api('GET', '/api/parties?kind=customer').catch(() => []);
+    /* An added card, wallet, transfer or credit row is a choice. An empty amount
+       must not be dropped: that used to save the whole sale as cash. */
+    const rowAmount = (input) => {
+      const raw = (input.value || '').trim();
+      if (!raw) return { empty: true };
+      const value = SM.parseMoney(raw);
+      if (value === null) return { bad: true };
+      if (value <= 0) return { empty: true };
+      return { value };
+    };
     const addOther = (method) => {
-      const amount = h('input', { class: 'input', inputmode: 'decimal', autocomplete: 'off', maxlength: '12' });
+      let taken = 0;
+      for (const o of others) { const r = rowAmount(o.amount); if (r.value) taken += r.value; }
+      const amount = h('input', { class: 'input', inputmode: 'decimal', autocomplete: 'off', maxlength: '12', 'aria-label': t('pay.m.' + method) });
+      const left = tot.total - taken;
+      if (left > 0) amount.value = SM.money(left).replace(/,/g, '');
       const ref = h('input', { class: 'input', autocomplete: 'off', maxlength: '80', placeholder: t('pay.reference') });
       const row = { method, amount, ref };
       others.push(row);
@@ -264,6 +278,7 @@
         });
       }
       amount.focus();
+      update();
     };
     const totalBox = h('div', { class: 'pay-total' });
     function showTotal(note) {
@@ -274,12 +289,24 @@
     // a buy-X-get-Y offer is applied by the server: it is not a price change
     showTotal(estimate.total - (quote.promo || 0) !== quote.total ? t('pay.price_updated', { old: SM.money(estimate.total), now: SM.money(quote.total) }) : null);
     function update() {
-      let nonCash = 0, bad = false;
-      for (const o of others) { const v = SM.parseMoney(o.amount.value || '0'); if (v === null) bad = true; else nonCash += v; }
+      let nonCash = 0, bad = false, emptyRow = null;
+      for (const o of others) {
+        const r = rowAmount(o.amount);
+        if (r.bad) bad = true;
+        else if (r.empty) { if (!emptyRow) emptyRow = o; }
+        else nonCash += r.value;
+      }
       const due = tot.total - nonCash;
       const got = cash.value ? SM.parseMoney(cash.value) : due;
       SM.put(changeOut);
-      if (bad || got === null) { changeOut.append(h('span', { class: 'badge bad', text: t('err.bad_amount') })); return null; }
+      const stop = (text) => {
+        const note = h('span', { class: 'badge bad', role: 'alert', text });
+        changeOut.append(note);
+        if (note.scrollIntoView) note.scrollIntoView({ block: 'nearest' });
+        return null;
+      };
+      if (bad || got === null) return stop(t('err.bad_amount'));
+      if (emptyRow) return stop(t('pay.amount_required', { method: t('pay.m.' + emptyRow.method) }));
       if (due < 0) { changeOut.append(h('span', { class: 'badge bad', text: t('err.payment_exceeds_total') })); return null; }
       changeOut.append(h('div', {}, t('pay.cash_due'), ' ', SM.num(SM.moneyText(due))));
       if (got < due) { changeOut.append(h('span', { class: 'badge warn', text: t('pay.short', { amount: SM.money(due - got) }) })); return null; }
@@ -296,16 +323,18 @@
     });
     const quick = h('div', { class: 'row wrap' }, h('button', { class: 'btn sm', text: t('pay.exact'), onclick: () => { cash.value = SM.money(tot.total).replace(/,/g, ''); update(); } }),
       [5000, 10000, 20000, 50000].map(v => h('button', { class: 'btn sm', onclick: () => { cash.value = String(v / 100); update(); } }, SM.money(v))));
-    const methods = h('div', { class: 'row wrap' }, ['card', 'wallet', 'transfer', 'credit'].map(m => h('button', { class: 'btn sm ghost', onclick: () => addOther(m) }, icon('plus', 'sm'), t('pay.m.' + m))));
+    const methodLabel = (method) => method === 'transfer' ? t('pay.transfer_choice') : t('pay.m.' + method);
+    const methods = h('div', { class: 'row wrap' }, ['card', 'wallet', 'transfer', 'credit'].map(m => h('button', { class: 'btn sm ghost', onclick: () => addOther(m) }, icon('plus', 'sm'), methodLabel(m))));
     const payBtn = h('button', { class: 'btn primary lg', 'data-guide': 'pay.confirm', text: t('pay.confirm') });
     let busy = false;
     payBtn.onclick = async () => {
       const v = update();
       if (!v || busy) return;
+      const payments = others.map(o => ({ method: o.method, amount: rowAmount(o.amount).value, reference: o.ref.value || undefined }));
+      if (payments.some(p => !(p.amount > 0))) return;
       busy = true; payBtn.disabled = true; payBtn.textContent = t('pay.saving');
       const payload = Object.assign(cartPayload(), {
-        payments: others.map(o => ({ method: o.method, amount: SM.parseMoney(o.amount.value || '0'), reference: o.ref.value || undefined })).filter(p => p.amount > 0),
-        cash_tendered: v.due > 0 ? v.got : 0, expected_total: tot.total, quote_hash: tot.hash,
+        payments, cash_tendered: v.due > 0 ? v.got : 0, expected_total: tot.total, quote_hash: tot.hash,
       });
       try {
         const sale = await SM.commandWithApproval('/api/sales', key, payload);
@@ -333,7 +362,7 @@
       }
     };
     const d = SM.dialog({ title: t('pay.title'), wide: true,
-      body: [totalBox, SM.field(t('pay.cash_received'), cash, t('pay.cash_help')), quick, h('h3', { text: t('pay.other') }), methods, otherBox, changeOut],
+      body: [totalBox, SM.field(t('pay.cash_received'), cash, t('pay.cash_help')), quick, h('h3', { text: t('pay.other') }), h('p', { class: 'muted', text: t('pay.transfer_help') }), methods, otherBox, changeOut],
       actions: [h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => d.close() }), payBtn] });
     update();
   }

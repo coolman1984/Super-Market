@@ -38,6 +38,7 @@ tr.clickable { cursor: pointer; }
 .pay-total { font-size: 2rem; font-weight: 700; }
 .pay-row { display: grid; grid-template-columns: 7rem 1fr 1fr auto; gap: .5rem; align-items: center; }
 .pay-change { display: grid; gap: .4rem; font-size: 1.1rem; }
+.pay-change .badge { white-space: normal; border-radius: var(--r-2); max-width: 100%; }
 .change-big { font-size: 1.8rem; font-weight: 700; color: var(--ok); }
 
 /* receipt & labels: screen preview + print */

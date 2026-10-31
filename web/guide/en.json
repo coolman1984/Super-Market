@@ -243,6 +243,8 @@
  "problem.payments.why": "A customer message is not proof; a transfer counts once confirmed.",
  "problem.payments.do.1": "Type the transfer or card reference.",
  "problem.payments.do.2": "For credit, choose the customer and check the credit limit.",
+ "problem.payments.do.3": "For InstaPay press [[pay.transfer_choice]]. The amount fills in.",
+ "problem.payments.do.4": "A row with no amount is not saved as cash. Type the amount or remove the row.",
  "problem.payments.still": "Ask the manager to confirm or reject the transfer.",
  "problem.returns.see": "The return is refused or the amount is lower than expected.",
  "problem.returns.why": "You never refund more than was sold or paid by each method.",
