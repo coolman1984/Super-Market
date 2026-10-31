@@ -137,7 +137,7 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 - **Where:** `server/app.py:~587` (`ThreadingHTTPServer`, `daemon_threads=True`, no handler `timeout`; `rfile.read(length)` at `:512`).
 - **Fix:** set `Handler.timeout = 15`, read body with deadline, cap concurrent connections (e.g. 64); test with a client that sends headers and stalls.
 
-### [ ] M5 — Clock set behind a closed business day refuses everything shop-wide
+### [x] M5 — Clock set behind a closed business day refuses everything shop-wide
 - **Where:** `server/db.py:113-122 business_day_for` (`today() < closed` → `day_closed` for everyone).
 - **Impact:** a dead CMOS battery/wrong date freezes the shop with an unclear message.
 - **Fix:** detect at start-up and show a dedicated Arabic screen "ساعة الجهاز خاطئة — صحّحها (التاريخ الصحيح …)"; allow the owner to continue only after correcting; never auto-post to the past. Add test that the message names the closed date.

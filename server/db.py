@@ -115,6 +115,11 @@ class Store:
         except ShopError:
             return today()
 
+    def clock_behind(self):
+        """The closed day the PC clock is behind (dead CMOS battery, wrong date), or None. Posting is refused then (M5)."""
+        closed = self.db.execute("SELECT MAX(day) FROM day_closes").fetchone()[0]
+        return closed if closed is not None and today() < closed else None
+
     def business_day_for(self, user_id=None):
         """The business day a posting belongs to (gap row 15):
         1. the person's open shift: the day the shift was opened on (a sale at 01:30 in a

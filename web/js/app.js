@@ -21,6 +21,7 @@
     try { state = await SM.api('GET', '/api/state'); } catch (e) { SM.put(document.body, h('p', { class: 'empty', text: t('err.server_down') })); return; }
     SM.state.mode = state.mode; SM.state.instance = state.instance; SM.state.businessDay = state.business_day; SM.state.version = state.version; SM.state.trainingLogin = state.training_login;
     document.title = (state.shop_name || t('app.name')) + (state.mode === 'training' ? ' — ' + t('mode.training') : '');
+    if (state.clock_behind) return clockScreen(state);
     if (state.setup_needed) return setupScreen(state);
     if (!state.user) return loginScreen(state);
     SM.state.user = state.user;
@@ -45,6 +46,13 @@
   let gateShown = false;
 
   /* Locked till: only the SAME user's password opens it; "switch user" logs out (drafts stay per user). */
+  /* Review M5: the PC date is behind a closed day: say so plainly instead of refusing every sale with a vague error. */
+  function clockScreen(state) {
+    const c = state.clock_behind;
+    authFrame(t('clock.title'), t('clock.body', { today: '\u2066' + c.today + '\u2069', closed: '\u2066' + c.closed + '\u2069' }),
+      h('button', { class: 'btn primary lg', id: 'clock-retry', text: t('clock.retry'), onclick: () => boot() }));
+  }
+
   function lockScreen(state) {
     const pass = h('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
     SM.scanner.handler = null;

@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import guidebook, backup, training
 from .auth import Auth, can, require
-from .core import Forbidden, ShopError, integer, text
+from .core import Forbidden, ShopError, integer, text, today
 from .db import Store
 from .scanner import ScannerHub, list_serial_ports
 from .services import Shop
@@ -168,6 +168,7 @@ class App:
         s = self.shop.settings()
         return {"version": VERSION, "mode": self.store.mode, "setup_needed": not self.auth.has_users(),
                 "user": actor, "shop_name": s["shop_name"], "business_day": self.store.current_business_day(), "instance": s.get("instance_id"), "lan": self.lan,
+                "clock_behind": ({"closed": self.store.clock_behind(), "today": today()} if self.store.clock_behind() else None),
                 "training_login": {"users": [u for u, _, _ in training.TRAINING_USERS], "password": training.TRAINING_PASSWORD}
                 if self.store.mode == "training" else None}
 
