@@ -47,7 +47,7 @@ from server import cloud  # noqa: E402
 KEEP_DAILY = 30
 MESSAGES = {
     "stopped": ("أُغلق البرنامج. كل العمليات المحفوظة موجودة.", "The program was stopped. Every saved operation is kept."),
-    "not_running": ("البرنامج غير شغّال الآن.", "The program is not running now."),
+    "not_running": ("البرنامج لا يعمل الآن.", "The program is not running now."),
     "not_writable": ("لا يمكن الكتابة في مجلد البرنامج:\n{folder}\n\nانقل مجلد البرنامج كله إلى مكان تملكه مثل C:\\SuperMarket ثم شغّله من جديد.",
                      "The program folder is not writable:\n{folder}\n\nMove the whole folder to a place you own, e.g. C:\\SuperMarket, and start again."),
     "port_busy": ("المنفذ {port} مستخدم من برنامج آخر. أغلق البرنامج الآخر أو اتصل بالدعم.",

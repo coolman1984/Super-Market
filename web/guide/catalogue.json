@@ -1647,7 +1647,9 @@
     "err.duplicate_credit_note",
     "err.unknown_receipt",
     "err.lot_not_from_supplier",
-    "err.unknown_supplier_return"
+    "err.unknown_supplier_return",
+    "err.cost_trace_incomplete",
+    "err.supplier_return_closed"
    ],
    "guide": "pay-supplier"
   },
@@ -1671,7 +1673,8 @@
     "err.output_expiry_out_of_bounds",
     "err.prepared_needs_recipe",
     "err.bad_cost_method",
-    "err.meat_is_weighed"
+    "err.meat_is_weighed",
+    "err.cutting_needs_raw_meat"
    ],
    "guide": "cut-meat"
   },

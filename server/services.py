@@ -1184,6 +1184,9 @@ class Shop:
         if not can(actor, "see_cost"):
             for r in returns:
                 r.pop("cost", None)
+                r.pop('difference_from_cost', None)
+                if r.get('settlement'):
+                    r['settlement'].pop('cost_difference', None)
         return {"supplier": supplier, "lines": lines, "balance": running, "open_returns": returns}
 
     # =============== supplier returns and credit notes ===============
@@ -1231,11 +1234,15 @@ class Shop:
                 raise ShopError("unknown_supplier_return")
             if self.store.scalar("SELECT 1 FROM supplier_credit_notes WHERE supplier_id=? AND reference=?", (ret["supplier_id"], reference)):
                 raise ShopError("duplicate_credit_note")
+            if self.store.scalar('SELECT 1 FROM supplier_return_closes WHERE return_id=?', (return_id,)):
+                raise ShopError('supplier_return_closed')
             self.store.db.execute("INSERT INTO supplier_credit_notes(op_id,return_id,supplier_id,amount,reference,user_id,at) VALUES(?,?,?,?,?,?,?)",
                                   (op, return_id, ret["supplier_id"], amount, reference, actor["id"], now_iso()))
             self.store.db.execute("INSERT INTO supplier_entries(supplier_id,op_id,kind,amount,at) VALUES(?,?,'credit_note',?,?)",
                                   (ret["supplier_id"], op, -amount, now_iso()))
-            return {"balance": self.supplier_balance(ret["supplier_id"]), "difference_from_cost": amount - ret["cost"]}
+            credited = self.store.scalar('SELECT SUM(amount) FROM supplier_credit_notes WHERE return_id=?', (return_id,))
+            return {"balance": self.supplier_balance(ret["supplier_id"]), 'credit_note_amount': amount,
+                    'credited_total': credited, "difference_from_cost": credited - ret["cost"]}
         return self.store.command("supplier_credit_note", key, [return_id, amount, reference], actor, work)
 
     def supplier_open_returns(self, supplier_id):
@@ -1244,8 +1251,30 @@ class Shop:
             FROM supplier_returns r JOIN lots l ON l.id=r.lot_id JOIN products p ON p.id=l.product_id
             WHERE r.supplier_id=? ORDER BY r.id""", (supplier_id,))
         for r in rows:
-            r["open"] = r["credited"] < r["cost"]          # a part-credit does not complete a return
+            r['settlement'] = self.store.one('SELECT reason,credited,difference AS cost_difference,at FROM supplier_return_closes WHERE return_id=?', (r['id'],))
+            r['difference_from_cost'] = r['credited'] - r['cost']
+            r["open"] = r["credited"] < r["cost"] and not r['settlement']
         return rows
+
+    def close_supplier_return(self, actor, key, return_id, reason):
+        """Close a disputed/short-credit claim without inventing supplier money."""
+        require(actor, 'supplier_pay')
+        return_id = integer(return_id, 1)
+        reason = text(reason, 'reason_required', 200)
+
+        def work(op):
+            ret = self.store.one('SELECT * FROM supplier_returns WHERE id=?', (return_id,))
+            if not ret:
+                raise ShopError('unknown_supplier_return')
+            if self.store.scalar('SELECT 1 FROM supplier_return_closes WHERE return_id=?', (return_id,)):
+                raise ShopError('supplier_return_closed')
+            credited = self.store.scalar('SELECT COALESCE(SUM(amount),0) FROM supplier_credit_notes WHERE return_id=?', (return_id,))
+            difference = credited - ret['cost']
+            self.store.db.execute('INSERT INTO supplier_return_closes VALUES(?,?,?,?,?,?,?)',
+                (return_id, op, reason, credited, difference, actor['id'], now_iso()))
+            return {'return': return_id, 'credited_total': credited, 'difference_from_cost': difference,
+                    'balance': self.supplier_balance(ret['supplier_id'])}
+        return self.store.command('supplier_return_close', key, [return_id, reason], actor, work)
 
     # =============== supplier invoices before goods (matrix rows 1-2) ===============
     def _invoice_left(self, invoice_id):
@@ -1401,8 +1430,11 @@ class Shop:
                         raise ShopError("lines_do_not_add_up")
                 else:
                     weights = [l["landed_cost"] for l in lines]
-                    if not lines or not sum(weights):
+                    if not lines:
                         raise ShopError("nothing_to_adjust")
+                    if not sum(weights):
+                        # A provisional zero price still has measured quantities.
+                        weights = [l['paid_qty'] + l['free_qty'] for l in lines]
                     parts = list(zip(lines, allocate(delta, weights)))
                 for line, amount in parts:
                     if not amount:
@@ -1414,25 +1446,51 @@ class Shop:
                     to_sold += sold
             self.store.db.execute("INSERT INTO supplier_entries(supplier_id,op_id,kind,amount,at) VALUES(?,?,?,?,?)",
                                   (supplier, op, "cost_correction" if kind == "invoice_correction" else "rebate", delta, now_iso()))
-            return {"adjustment": aid, "amount": delta, "to_stock": to_stock, "to_cost_of_sales": to_sold,
+            detail = {r['category']: r['amount'] for r in self.store.all(
+                'SELECT category,SUM(amount) amount FROM cost_adjustment_parts WHERE op_id=? GROUP BY category', (op,))}
+            return {"adjustment": aid, "amount": delta, "to_stock": to_stock, "to_cost_of_sales": detail.get('sale', 0),
+                    'to_losses': detail.get('loss', 0), 'to_supplier_returns': detail.get('supplier_return', 0),
+                    'to_variance': detail.get('variance', 0),
                     "unassigned": delta if not receipt else 0, "balance": self.supplier_balance(supplier)}
         return self.store.command("supplier_adjustment", key, payload, actor, work)
 
     def _spread_cost_change(self, op, line, amount):
-        """Share of a cost change: units of this receipt line still in stock take
-        their part (by location); the rest belongs to goods already gone."""
-        received = line["paid_qty"] + line["free_qty"]
-        places = self.store.all("SELECT location_id, qty, cost FROM stock_balances WHERE lot_id=? AND qty>0 ORDER BY location_id",
-                                (line["lot_id"],))
-        still = min(sum(p["qty"] for p in places), received)
-        stock_part = allocate(amount, [still, received - still])[0] if received else 0
+        """Trace the change through measured movements, not just the original lot."""
+        from . import costtrace
+        rows = costtrace.exposure(self.store, line['lot_id'])
+        parts = costtrace.split(amount, rows)
         posted = 0
-        for place, share in zip(places, allocate(stock_part, [p["qty"] for p in places]) if places else []):
-            share = max(share, -place["cost"])        # a cost never goes below zero; the rest is cost of sales
+        for (category, lot, loc, sale_line, _), share in zip(rows, parts):
+            if not share:
+                continue
+            basis = None
+            if category == 'stock':
+                actual = max(share, -self._balance(lot, loc)[1])
+                if actual != share:
+                    self._cost_part(op, line['id'], 'variance', lot, loc, 0, None, share - actual)
+                share = actual
+                if share:
+                    self._entry(op, 'cost_adjustment', lot, loc, 0, share)
+                    posted += share
+            elif category == 'sale':
+                basis = self.store.scalar('''SELECT l.qty-COALESCE((SELECT SUM(r.qty) FROM return_lines r WHERE r.sale_line_id=l.id),0)
+                    FROM sale_lines l WHERE l.id=?''', (sale_line,))
+                remaining_cost = self.store.scalar('''SELECT l.cost
+                    -COALESCE((SELECT SUM(r.cost) FROM return_lines r WHERE r.sale_line_id=l.id),0)
+                    +COALESCE((SELECT SUM(p.amount) FROM cost_adjustment_parts p WHERE p.category='sale' AND p.sale_line_id=l.id),0)
+                    FROM sale_lines l WHERE l.id=?''', (sale_line,))
+                actual = max(share, -max(0, remaining_cost))
+                if actual != share:
+                    self._cost_part(op, line['id'], 'variance', 0, 0, sale_line, None, share - actual)
+                share = actual
             if share:
-                self._entry(op, "cost_adjustment", line["lot_id"], place["location_id"], 0, share)
-                posted += share
+                self._cost_part(op, line['id'], category, lot, loc, sale_line, basis, share)
         return posted, amount - posted
+
+    def _cost_part(self, op, line, category, lot, loc, sale_line, basis, amount):
+        self.store.db.execute('''INSERT INTO cost_adjustment_parts
+            (op_id,receipt_line_id,category,lot_id,location_id,sale_line_id,basis_qty,amount) VALUES(?,?,?,?,?,?,?,?)''',
+            (op, line, category, lot or None, loc or None, sale_line or None, basis, amount))
 
     # =============== closed days and dated corrections (row 38) ===============
     def _closed(self, day):
@@ -1533,6 +1591,12 @@ class Shop:
             raise ShopError("use_thaw")
         if dst["kind"] == "freezer" and src["kind"] != "freezer" and self._thawed(lot_id):
             raise ShopError("no_refreeze")
+        self._storage_destination(lot_id, dst)
+
+    def _storage_destination(self, lot_id, dst):
+        """Inherited thaw state is checked wherever usable stock is added."""
+        if self._thawed(lot_id) and dst['kind'] not in (*self.THAW_PLACES, 'quarantine', 'waste'):
+            raise ShopError('thaw_needs_fridge')
 
     def _thawed(self, lot_id):
         """True when this lot, or any lot it was made from, was thawed here."""
@@ -1743,7 +1807,10 @@ class Shop:
                     amount = self._promo_refund(line, prev["q"], prev["a"], qty)
                 else:
                     amount = cumulative_share(line["net"], line["qty"], prev["q"], prev["a"], qty)
-                cost = cumulative_share(line["cost"], line["qty"], prev["q"], prev["c"], qty)
+                carried = self.store.scalar('''SELECT COALESCE(SUM(a.amount),0) FROM return_cost_adjustments a
+                    JOIN return_lines r ON r.return_id=a.return_id JOIN cost_adjustment_parts p ON p.id=a.part_id
+                    WHERE r.sale_line_id=? AND p.sale_line_id=r.sale_line_id''', (line['id'],))
+                cost = cumulative_share(line["cost"], line["qty"], prev["q"], prev["c"] - carried, qty)
                 restock = bool(raw.get("restock")) and line["pkind"] == "grocery" and reason in ("change_of_mind", "wrong_item")
                 rows.append((line, qty, amount, cost, restock))
                 total += amount
@@ -1778,6 +1845,15 @@ class Shop:
                 for a in allocations:
                     self.store.db.execute("INSERT OR IGNORE INTO lot_edges VALUES(?,?)", (a["lot_id"], lot))
                 location = allocations[0]["location_id"] if restock else self._quarantine_location()
+                self._storage_destination(lot, self._location(location))
+                for part in self.store.all("SELECT * FROM cost_adjustment_parts WHERE category='sale' AND sale_line_id=?", (line['id'],)):
+                    prev = self.store.one('SELECT COALESCE(SUM(qty),0) qty,COALESCE(SUM(amount),0) amount FROM return_cost_adjustments WHERE part_id=?', (part['id'],))
+                    # Signed cumulative allocation: last returned unit takes the
+                    # remainder; previous returns before the correction are excluded.
+                    full = abs(part['amount']) * (prev['qty'] + qty) // part['basis_qty']
+                    share = (full if part['amount'] > 0 else -full) - prev['amount']
+                    self.store.db.execute('INSERT INTO return_cost_adjustments VALUES(?,?,?,?)', (rid, part['id'], qty, share))
+                    cost += share
                 self._entry(op, "return", lot, location, qty, cost)
                 self.store.db.execute("INSERT INTO return_lines VALUES(?,?,?,?,?,?,?)",
                                       (rid, line["id"], qty, amount, cost, lot, "restock" if restock else "quarantine"))
@@ -2152,6 +2228,9 @@ class Shop:
             if status == "released" and lot_id in self.recall_blocked():
                 # only lifting the recall itself (separate, documented act) can end it
                 raise ShopError("lot_under_recall", {"lot": lot["lot_no"]})
+            if status == 'released':
+                for place in self.store.all('SELECT location_id FROM stock_balances WHERE lot_id=? AND qty>0', (lot_id,)):
+                    self._storage_destination(lot_id, self._location(place['location_id']))
             self.store.db.execute("UPDATE lots SET status=? WHERE id=?", (status, lot_id))
             self.store.db.execute("INSERT INTO lot_events(lot_id,status,reason,op_id,at) VALUES(?,?,?,?,?)",
                                   (lot_id, status, reason, op, now_iso()))
@@ -2408,6 +2487,8 @@ class Shop:
                     raise ShopError("duplicate_input")
                 seen.add((lot_id, loc_id))
                 lot = self._usable_lot(lot_id, day)
+                if kind == 'cutting' and lot['pkind'] != 'raw_meat':
+                    raise ShopError('cutting_needs_raw_meat')
                 if self._location(loc_id)["kind"] == "freezer":
                     raise ShopError("use_thaw")         # frozen inputs are thawed first, with their shorter date (review case 6)
                 self._check_free(lot_id, loc_id, qty)   # stock promised to labelled packs stays (audit E02)
@@ -2441,6 +2522,8 @@ class Shop:
                     raise ShopError("bad_output_product")
                 if kind == "cutting" and prod["kind"] == "prepared":
                     raise ShopError("prepared_needs_recipe")
+                if kind == 'cutting' and prod['kind'] != 'raw_meat':
+                    raise ShopError('cutting_needs_raw_meat')
                 weight = integer(raw.get("value_weight", 1), 1) if method == "value" else 1
                 clean_out.append(dict(prod=prod, qty=integer(raw.get("qty"), 1), loc=self._location(integer(raw.get("location_id"), 1))["id"],
                                       expires=iso_date(raw.get("expires"), optional=True), weight=weight))
@@ -2484,6 +2567,9 @@ class Shop:
                 lot, lot_no = self._new_lot(op, o["prod"]["id"], "production", expires, "released", allergens=lot_allergens)
                 for parent in sorted(set(parents)):
                     self.store.db.execute("INSERT OR IGNORE INTO lot_edges VALUES(?,?)", (parent, lot))
+                self._storage_destination(lot, self._location(o['loc']))
+                self.store.db.execute('INSERT INTO production_cost_weights VALUES(?,?)',
+                                      (lot, integer(o['qty'] * o['weight'], 1)))
                 self._entry(op, "production_out", lot, o["loc"], o["qty"], cost)
                 out.append({"lot": lot, "lot_no": lot_no, "product": o["prod"]["id"], "name_ar": o["prod"]["name_ar"],
                             "name_en": o["prod"]["name_en"], "qty": o["qty"], "cost": cost,
@@ -2502,6 +2588,11 @@ class Shop:
                     meat = integer(pk["meat_g"], 1) if pk.get("meat_g") is not None else None
                     if meat is not None and meat > net:
                         raise ShopError("meat_exceeds_net")
+                    if not version:
+                        most = meat_in * net // food_in
+                        if meat is not None and meat > most:
+                            raise ShopError('meat_claim_exceeds_input', {'max_g': most})
+                        basis = 'declared' if meat is not None else None
                     if version:
                         # meat on the label comes from meat really used, shared by weight;
                         # losses are assumed to fall evenly on every ingredient
@@ -2624,6 +2715,7 @@ class Shop:
                     cost = self._consume(op, "count", row["lot_id"], count["location_id"], -diff, "count_difference", check=False)
                     diffs.append({"lot": row["lot_id"], "diff": diff, "cost": -cost})
                 else:
+                    self._storage_destination(row['lot_id'], self._location(count['location_id']))
                     qty, cost = self._balance(row["lot_id"], count["location_id"])
                     if not qty:
                         first = self.store.one("SELECT qty, cost FROM stock_entries WHERE lot_id=? AND qty>0 ORDER BY id LIMIT 1",
@@ -2692,7 +2784,11 @@ class Shop:
         count_diff = self.store.scalar(q("SELECT COALESCE(SUM(cost),0) FROM stock_entries WHERE kind='count' AND op_id IN {OPS}"), (day,))
         # later supplier price changes: the part for goods already gone is a cost of THIS day (rows 3, 6)
         adjusted = self.store.scalar(q("""SELECT COALESCE(SUM(c.to_cost_of_sales),0) FROM cost_adjustments c
-            JOIN supplier_adjustments a ON a.id=c.adjustment_id WHERE a.op_id IN {OPS}"""), (day,))
+            JOIN supplier_adjustments a ON a.id=c.adjustment_id WHERE a.op_id IN {OPS}
+            AND NOT EXISTS(SELECT 1 FROM cost_adjustment_parts p WHERE p.op_id=a.op_id AND p.receipt_line_id=c.receipt_line_id)"""), (day,))
+        adjustment_parts = {r['category']: r['amount'] for r in self.store.all(q('''SELECT category,SUM(amount) amount
+            FROM cost_adjustment_parts WHERE op_id IN {OPS} GROUP BY category'''), (day,))}
+        adjusted += adjustment_parts.get('sale', 0)
         rebates = self.store.scalar(q("""SELECT COALESCE(SUM(-amount),0) FROM supplier_adjustments
             WHERE kind='rebate' AND receipt_id IS NULL AND op_id IN {OPS}"""), (day,))
         gifts = self.store.scalar(q("""SELECT COUNT(*) FROM receipt_lines rl JOIN receipts r ON r.id=rl.receipt_id
@@ -2716,9 +2812,12 @@ class Shop:
                "gift_lines": gifts, "closed": self._closed(day),
                "notes": ["sales_not_cash", "margin_before_expenses", "tax_unverified"]}
         if can(actor, "see_cost"):
-            waste_cost = sum(w["cost"] for w in waste) + abnormal - count_diff
+            waste_cost = sum(w["cost"] for w in waste) + abnormal - count_diff + adjustment_parts.get('loss', 0)
             cogs = cost - returns["cost"] + adjusted
             out.update(cost_of_sales=cogs, cost_adjustments=adjusted, supplier_rebates=rebates,
+                       cost_adjustment_parts=adjustment_parts,
+                       supplier_return_adjustments=adjustment_parts.get('supplier_return', 0),
+                       purchase_variance=adjustment_parts.get('variance', 0),
                        gross_margin=net_sales - cogs, losses=waste_cost, margin_after_recorded_losses=net_sales - cogs - waste_cost)
         return out
 
@@ -2743,6 +2842,12 @@ class Shop:
             check = self.account_check(c["id"])
             if not check["ok"]:
                 accounts.append({"customer": c["id"], "problems": check["problems"]})
-        ok = not (bad or packs or pay or missing or over or unsold or accounts)
+        cost_attribution = self.store.all('''SELECT c.adjustment_id,c.receipt_line_id FROM cost_adjustments c
+            JOIN supplier_adjustments a ON a.id=c.adjustment_id
+            WHERE EXISTS(SELECT 1 FROM cost_adjustment_parts p WHERE p.op_id=a.op_id AND p.receipt_line_id=c.receipt_line_id)
+            AND (c.amount<>(SELECT SUM(amount) FROM cost_adjustment_parts p WHERE p.op_id=a.op_id AND p.receipt_line_id=c.receipt_line_id)
+            OR c.to_stock<>COALESCE((SELECT SUM(amount) FROM cost_adjustment_parts p WHERE p.op_id=a.op_id
+                AND p.receipt_line_id=c.receipt_line_id AND p.category='stock'),0))''')
+        ok = not (bad or packs or pay or missing or over or unsold or accounts or cost_attribution)
         return {"ok": ok, "balances": bad, "missing_balances": missing, "packs": packs + unsold,
-                "packs_over_stock": over, "payments": pay, "accounts": accounts}
+                "packs_over_stock": over, "payments": pay, "accounts": accounts, 'cost_attribution': cost_attribution}

@@ -51,7 +51,15 @@
         { label: t('party.return_reason'), render: r => t('reason.' + r.reason) },
         { label: t('party.cost'), num: true, render: r => SM.can('see_cost') && r.cost !== undefined ? SM.num(SM.money(r.cost)) : '—' },
         { label: t('party.credited'), num: true, render: r => SM.num(SM.money(r.credited)) },
-        { label: '', render: r => SM.can('supplier_pay') ? h('button', { class: 'btn sm', text: t('party.credit_note'), onclick: () => creditNoteDialog(r, () => { d.close(); after(); }) }) : null }], open)));
+        { label: t('party.credit_difference'), num: true, render: r => SM.can('see_cost') ? SM.num(SM.money(r.difference_from_cost)) : '—' },
+        { label: t('set.state'), render: r => r.settlement ? t('party.claim_closed') : (r.open ? t('party.claim_open') : t('party.claim_covered')) },
+        { label: '', render: r => SM.can('supplier_pay') && !r.settlement ? h('div', { class: 'toolbar' },
+          h('button', { class: 'btn sm', text: t('party.credit_note'), onclick: () => creditNoteDialog(r, () => { d.close(); after(); }) }),
+          h('button', { class: 'btn sm', text: t('party.close_claim'), onclick: SM.guard(async () => {
+            const reason = prompt(t('party.close_claim_q')); if (!reason) return;
+            try { await SM.command('/api/supplier-returns/close', SM.newKey(), undefined, { return_id: r.id, reason });
+              SM.toast(t('saved')); d.close(); after(); } catch (e) { SM.fail(e); }
+          }) })) : null }], open)));
     }
     const invoices = await SM.api('GET', '/api/supplier-invoices?supplier=' + s.id).catch(() => []);
     if (invoices.length) {

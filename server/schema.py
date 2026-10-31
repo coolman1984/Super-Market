@@ -609,3 +609,44 @@ def m007(conn):
 
 MIGRATIONS.append((7, "business day for shifts past midnight", m007))
 SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+def m008(conn):
+    run_script(conn, """
+CREATE TABLE production_cost_weights(
+  lot_id INTEGER PRIMARY KEY REFERENCES lots(id), weight INTEGER NOT NULL CHECK(weight>0));
+INSERT INTO production_cost_weights
+SELECT e.lot_id, CASE WHEN p.cost_method='weight' THEN e.qty ELSE e.cost END
+FROM stock_entries e JOIN productions p ON p.op_id=e.op_id
+WHERE e.kind='production_out' AND (e.cost>0 OR p.cost_method='weight');
+CREATE TABLE cost_adjustment_parts(
+  id INTEGER PRIMARY KEY, op_id INTEGER NOT NULL REFERENCES ops(id), receipt_line_id INTEGER NOT NULL REFERENCES receipt_lines(id),
+  category TEXT NOT NULL CHECK(category IN ('stock','sale','loss','supplier_return','variance')),
+  lot_id INTEGER, location_id INTEGER, sale_line_id INTEGER, basis_qty INTEGER,
+  amount INTEGER NOT NULL CHECK(amount<>0));
+CREATE INDEX cost_parts_op ON cost_adjustment_parts(op_id);
+CREATE INDEX cost_parts_sale ON cost_adjustment_parts(sale_line_id);
+CREATE TABLE return_cost_adjustments(
+  return_id INTEGER NOT NULL REFERENCES returns(id), part_id INTEGER NOT NULL REFERENCES cost_adjustment_parts(id),
+  qty INTEGER NOT NULL CHECK(qty>0), amount INTEGER NOT NULL,
+  PRIMARY KEY(return_id,part_id));
+CREATE TABLE supplier_return_closes(
+  return_id INTEGER PRIMARY KEY REFERENCES supplier_returns(id), op_id INTEGER NOT NULL UNIQUE REFERENCES ops(id),
+  reason TEXT NOT NULL, credited INTEGER NOT NULL, difference INTEGER NOT NULL, user_id INTEGER NOT NULL, at TEXT NOT NULL);
+""")
+    # An existing training copy has a fixed known seed (the training product codes),
+    # not a moving MAX over every future product created by its owner.
+    import json
+    mode = conn.execute("SELECT value FROM settings WHERE key='mode'").fetchone()
+    if mode and mode[0] == 'training':
+        seed = conn.execute("""SELECT COALESCE(MAX(a.id),0) FROM audit a JOIN products p ON CAST(p.id AS TEXT)=a.ref
+            WHERE a.action='product.add' AND p.code IN ('1001','1002','2001','2002','2003','2004','3001','3002','4001')""").fetchone()[0]
+        conn.execute("INSERT OR IGNORE INTO settings VALUES('training_seed_audit',?)", (json.dumps(seed),))
+    for table in ('production_cost_weights', 'cost_adjustment_parts', 'return_cost_adjustments', 'supplier_return_closes'):
+        for action in ('UPDATE', 'DELETE'):
+            conn.execute(f"CREATE TRIGGER {table}_no_{action.lower()} BEFORE {action} ON {table} "
+                         "BEGIN SELECT RAISE(ABORT,'posted_is_immutable'); END")
+
+
+MIGRATIONS.append((8, "review C: cost exposure, supplier settlements and fixed training seed", m008))
+SCHEMA_VERSION = MIGRATIONS[-1][0]

@@ -288,6 +288,7 @@ class Cloud:
                 raise
             self._drop(meta["name"])
             self.status_["last_copy"] = meta["name"]
+            self.status_["last_ok_at"] = now().isoformat(timespec="seconds")
             sent += 1
         return sent
 
@@ -315,7 +316,7 @@ class Cloud:
                 if self.queued() and (force or time.time() >= self.next_try):
                     self.send()
                     self.failures, self.next_try = 0, 0.0
-                    self.status_.update({"last_ok_at": now().isoformat(timespec="seconds"), "error": None})
+                    self.status_["error"] = None
                 elif not self.queued() and not self.connected():
                     self.connect()
             except CloudError as e:

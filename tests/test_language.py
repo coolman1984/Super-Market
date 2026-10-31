@@ -28,7 +28,8 @@ def sources():
     return "\n".join(f.read_text(encoding="utf-8") for f in files)
 
 
-BANNED_AR = ["الجارد", "جارد", "حد الآجل", "سطح المكتب", "يا عم", "يا باشا", "يسطا", "ياسطى", "يا معلم", "بتاع إيه", "اخرس", "غبي", "حمار"]
+BANNED_AR = ["الجارد", "جارد", "حد الآجل", "سطح المكتب", "يا عم", "يا باشا", "يسطا", "ياسطى", "يا معلم", "بتاع إيه", "اخرس", "غبي", "حمار",
+             "اللي", "دلوقتي", "مفيش", "مينفعش", "بتاعتك", "عشان", "تاني", "بكام", "اتحصّل", "ماتحفظش", "مبقاش", "تلاقي", "لازم", "بيك"]
 
 
 @unittest.skipUnless(NODE, "node is needed to read the browser dictionaries")
@@ -70,8 +71,7 @@ class Language(unittest.TestCase):
         self.assertEqual(bad, [])
 
     def test_formal_arabic_terms_and_no_colloquial_words(self):
-        # owner direction 31 Oct 2026: respectful Egyptian Arabic is welcome ("ابدأ ورديتك", "في الدرج كام؟");
-        # what stays out is the disrespectful, the street slang and the ambiguous (docs/LANGUAGE_GUIDE.md)
+        # Current owner direction: clear formal Arabic throughout product text.
         banned = BANNED_AR
         hits = []
         for k, v in self.ar.items():
@@ -81,6 +81,15 @@ class Language(unittest.TestCase):
         self.assertEqual(hits, [])
         for term in ("أمين الصندوق", "مسؤول الجرد", "رصيد بداية الوردية", "إغلاق الوردية", "الحد الائتماني", "الوزن الصافي", "حجز للفحص", "استدعاء"):
             self.assertTrue(any(term in v for v in self.ar.values()), term)
+
+    def test_guide_and_current_user_docs_use_formal_arabic(self):
+        guide = json.loads((ROOT / 'web/guide/ar.json').read_text())
+        texts = list(guide.values()) + [(ROOT / 'docs' / p).read_text() for p in
+            ('USER_GUIDE.md', 'CLOUD_BACKUP.md', 'SUPPORT_GUIDE.md', 'WINDOWS.md')]
+        banned = ('اللي', 'دلوقتي', 'مفيش', 'مينفعش', 'بتاعتك', 'عشان', 'تاني', 'بكام', 'تلاقي', 'ماتحفظش')
+        for text in texts:
+            for word in banned:
+                self.assertIsNone(re.search(r'(?<![\u0621-\u064A])' + word + r'(?![\u0621-\u064A])', text), word)
 
     def test_no_text_tells_the_user_to_invent_a_loss(self):
         phrases_ar = ["حتى يتوازن", "حتى تتوازن", "ليتوازن الوزن", "اكتب الفاقد حتى", "سجّل فاقدًا ليتوازن", "اخترع"]
