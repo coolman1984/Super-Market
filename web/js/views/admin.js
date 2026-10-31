@@ -27,14 +27,34 @@
     },
   };
 
+  /* SM-02: a typed price is either a real number or a clear refusal. Zero asks once. */
+  function readPrice(raw) {
+    const text = String(raw == null ? '' : raw).trim();
+    if (!text) return { empty: true };
+    const price = SM.parseMoney(text);
+    if (price === null || price < 0) return { bad: true };
+    return { price };
+  }
+  function askZeroPrice() {
+    return SM.confirm(t('cat.zero_price_title'), t('cat.zero_price_q'), { yes: t('yes'), no: t('no'), large: true, focus: 'no' });
+  }
+  function markPrice(input, note, bad) {
+    input.classList.toggle('invalid', bad);
+    if (bad) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
+    if (note) note.textContent = bad ? t('err.bad_price') : '';
+  }
+
   async function productDrawer(p) {
     const full = await SM.api('GET', '/api/products/' + p.id);
     const acts = [];
     if (SM.can('prices')) acts.push(h('button', { class: 'btn', text: t('cat.change_price'), onclick: async () => {
-      const v = await SM.ask(t('cat.new_price_q') + (full.measure === 'g' ? ' (' + t('cat.per_kg') + ')' : ''), { inputmode: 'decimal', title: t('cat.change_price') });
+      const v = await SM.ask(t('cat.new_price_q') + (full.measure === 'g' ? ' (' + t('cat.per_kg') + ')' : ''), {
+        inputmode: 'decimal', title: t('cat.change_price'), large: true,
+        accept: (raw) => (readPrice(raw).bad ? t('err.bad_price') : '') });
       if (v === null) return;
-      const price = SM.parseMoney(v); if (price === null || price <= 0) return SM.toast(t('err.bad_price'), 'bad');
-      try { await SM.command('/api/prices', SM.newKey(), undefined, { product_id: full.id, price }); SM.toast(t('saved')); d.close(); } catch (e) { SM.fail(e); }
+      const price = readPrice(v).price;
+      if (price === 0 && !(await askZeroPrice())) return;
+      try { await SM.command('/api/prices', SM.newKey(), undefined, { product_id: full.id, price }); SM.toast(t('saved')); d.close(); SM.go('catalog'); } catch (e) { SM.fail(e); }
     } }));
     if (SM.can('catalog')) acts.push(h('button', { class: 'btn', text: t('cat.add_barcode'), onclick: () => barcodeDialog(full, () => d.close()) }));
     if (full.kind === 'prepared' && SM.can('recipes')) acts.push(h('button', { class: 'btn', text: t('cat.recipe'), onclick: () => recipeDialog(full) }));
@@ -108,9 +128,13 @@
       carton: h('input', { class: 'input', inputmode: 'numeric', placeholder: '12' }), carton_barcode: h('input', { class: 'input', dir: 'ltr' }) };
     // report M6: the four things every item needs first; the rest folded under "more options"
     f.code.placeholder = t('cat.code_auto');
+    const priceNote = h('p', { class: 'field-error', role: 'alert' });
+    const priceField = SM.field(t('cat.price'), f.price, t('cat.price_help'));
+    priceField.append(priceNote);
+    f.price.addEventListener('input', () => markPrice(f.price, priceNote, false));
     const d = SM.dialog({ title: t('cat.add'), wide: true, body: [h('div', { class: 'grid cols-2' },
       SM.field(t('cat.name_ar'), f.name_ar), SM.field(t('cat.kind'), f.kind, t('cat.kind_help')),
-      SM.field(t('cat.price'), f.price, t('cat.price_help')), SM.field(t('cat.barcode'), f.barcode, t('cat.barcode_help'))),
+      priceField, SM.field(t('cat.barcode'), f.barcode, t('cat.barcode_help'))),
       h('details', { class: 'advanced' }, h('summary', { text: t('cat.more_options') }), h('div', { class: 'grid cols-2' },
         SM.field(t('cat.code'), f.code, t('cat.code_help')), SM.field(t('cat.name_en'), f.name_en),
         SM.field(t('cat.carton_units'), f.carton), SM.field(t('cat.carton_barcode'), f.carton_barcode),
@@ -118,8 +142,10 @@
         h('label', { class: 'row' }, f.needs_expiry, t('cat.needs_expiry'))))],
       actions: [h('button', { class: 'btn primary', text: t('save'), onclick: async () => {
         const weighed = ['raw_meat', 'prepared', 'ingredient'].includes(f.kind.value);
-        const price = f.price.value.trim() ? SM.parseMoney(f.price.value) : undefined;
-        if (price === null || (price !== undefined && price <= 0)) { SM.toast(t('err.bad_price'), 'bad'); f.price.focus(); return; }
+        const read = readPrice(f.price.value);
+        if (read.bad) { markPrice(f.price, priceNote, true); f.price.focus(); return; }
+        const price = read.empty ? undefined : read.price;
+        if (price === 0 && !(await askZeroPrice())) return;
         const body = { code: f.code.value, name_ar: f.name_ar.value, name_en: f.name_en.value || f.name_ar.value, kind: f.kind.value,
           measure: weighed ? 'g' : 'unit', needs_expiry: f.needs_expiry.checked, allergens: f.allergens.value,
           price, barcodes: f.barcode.value ? [f.barcode.value.trim()] : [] };

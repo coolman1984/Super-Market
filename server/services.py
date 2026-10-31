@@ -13,7 +13,7 @@ from . import barcode as bc
 from .auth import ROLES, Auth, can, require
 import datetime as _dt
 from .core import (MAX_SALE_GRAMS, MAX_SALE_UNITS, Conflict, Forbidden, ShopError, add_days, allocate,
-                   cumulative_share, integer, iso_date, now_iso, price_piastres, text, today, weighed_amount)
+                   cumulative_share, integer, iso_date, now_iso, sale_price, text, today, weighed_amount)
 
 LOCATION_KINDS = ("shelf", "store", "display_fridge", "prep_fridge", "freezer", "quarantine", "waste")
 PRODUCT_KINDS = ("grocery", "raw_meat", "prepared", "ingredient", "packaging")
@@ -158,6 +158,9 @@ class Shop:
             raise ShopError("bad_product")
         if kind in ("raw_meat", "prepared") and measure != "g":
             raise ShopError("meat_is_weighed")
+        # A missing price is allowed (the price is set later). A present price must be
+        # an integer in piastres, including zero. Null and text are not "no price".
+        price_value = sale_price(p["price"]) if "price" in p else None
         needs_expiry = 1 if kind in ("raw_meat", "prepared", "ingredient") else int(bool(p.get("needs_expiry")))
         meat_share = p.get("meat_permille")
         if meat_share is not None:
@@ -188,9 +191,9 @@ class Shop:
                 self._add_packaging(pid, pk)
             for code_text in p.get("barcodes", []):
                 self._add_barcode(code_text, pid, None)
-            if p.get("price") is not None:
+            if price_value is not None:
                 self.store.db.execute("INSERT INTO prices(product_id,price,effective_at,user_id) VALUES(?,?,?,?)",
-                                      (pid, price_piastres(p["price"]), now_iso(), actor["id"]))
+                                      (pid, price_value, now_iso(), actor["id"]))
             self.store.audit(actor, "product.add", str(pid))
             return pid
         return self.store.tx(work)
@@ -235,8 +238,7 @@ class Shop:
 
     def set_price(self, actor, key, product_id, price):
         require(actor, "prices")
-        integer(product_id, 1)
-        price = price_piastres(price)
+        product_id, price = integer(product_id, 1), sale_price(price)
 
         def work(op):
             if not self.store.scalar("SELECT 1 FROM products WHERE id=?", (product_id,)):

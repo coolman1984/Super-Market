@@ -309,7 +309,7 @@
  "problem.settings-values.do.1": "Type a number within the range shown under the field.",
  "problem.settings-values.do.2": "Leave the field empty if no value is approved yet.",
  "problem.settings-values.still": "Ask technical support about the range.",
- "problem.typing.see": "\"Wrong number\" or \"write the reason\" shows.",
+ "problem.typing.see": "\"Selling price is not a number\", \"Wrong number\", or \"write the reason\" shows.",
  "problem.typing.why": "A field is empty or has a number that cannot be read.",
  "problem.typing.do.1": "Type the number with one decimal mark. Example: 12,50 or 12.50.",
  "problem.typing.do.2": "Write the reason in its field clearly.",

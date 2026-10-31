@@ -1684,7 +1684,6 @@
     "err.lines_required",
     "err.bad_line",
     "err.bad_quantity",
-    "err.bad_price",
     "err.qty_impossible",
     "err.unknown_product"
    ],
@@ -2072,6 +2071,7 @@
    ],
    "errors": [
     "err.bad_amount",
+    "err.bad_price",
     "err.bad_number",
     "err.bad_note",
     "err.bad_reason",

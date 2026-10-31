@@ -101,9 +101,10 @@ const out = process.argv[3] || '.';
     await owner.screenshot({ path: out + '/d-ask.png' });
     await owner.fill('#ask-input', '0');
     await owner.click('#ask-ok');
-    await owner.waitForSelector('.toast');
-    res.M4_zero_price_asks_first = (await owner.locator('.toast').last().innerText()).includes(await T(owner, 'err.bad_price'));
+    await owner.waitForSelector('#confirm-yes');
+    res.M4_zero_price_asks_first = (await owner.locator('#ask-layer h2').innerText()) === await T(owner, 'cat.zero_price_title');
     await owner.keyboard.press('Escape');
+    await owner.waitForSelector('#confirm-yes', { state: 'detached' });
   } else res.M9_program_window_not_prompt = 'no product drawer found';
   // review PR #18: cancelling the zero-price question keeps the new-item form and what was typed
   await owner.evaluate(() => { const p = document.getElementById('panels'); if (p) SM.put(p); });
@@ -112,9 +113,10 @@ const out = process.argv[3] || '.';
   await owner.waitForSelector('.dialog [data-guide="cat.name_ar"]');
   await owner.fill('.dialog [data-guide="cat.name_ar"]', 'صنف بسعر صفر'); await owner.fill('.dialog [data-guide="cat.price"]', '0');
   await owner.click('.dialog footer .btn.primary');
-  await owner.waitForSelector('.toast');
-  res.zero_price_cancel_keeps_the_form = await owner.locator('.dialog [data-guide="cat.name_ar"]').inputValue().catch(() => '') === 'صنف بسعر صفر'
-    && await owner.locator('#confirm-yes').count() === 0;
+  await owner.waitForSelector('#confirm-yes');
+  await owner.keyboard.press('Escape');
+  await owner.waitForSelector('#confirm-yes', { state: 'detached' });
+  res.zero_price_cancel_keeps_the_form = await owner.locator('.dialog [data-guide="cat.name_ar"]').inputValue().catch(() => '') === 'صنف بسعر صفر';
   await owner.keyboard.press('Escape');
   await owner.waitForSelector('.dialog', { state: 'detached' });
   await owner.evaluate(() => SM.go('scanner')); await owner.waitForSelector('#scale-sticker');

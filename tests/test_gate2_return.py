@@ -16,20 +16,20 @@ class PriceAndQuantityGuards(ShopFixture, unittest.TestCase):
     def setUp(self):
         self.make_shop()
 
-    def test_price_zero_and_absurd_values_are_refused(self):
+    def test_zero_is_a_real_price_and_absurd_values_are_refused(self):
         pid = self.grocery()
-        for bad in (0, -1, MAX_PRICE + 1, 10 ** 11):
+        for bad in (-1, MAX_PRICE + 1, 10 ** 11, True, 20.5, "abc"):
             with self.subTest(price=bad):
                 with self.assertRaises(ShopError) as err:
                     self.shop.set_price(self.owner, key(), pid, bad)
                 self.assertEqual(err.exception.code, "bad_price")
                 self.assertEqual(self.shop.current_price(pid), 1500)
+        self.assertEqual(self.shop.set_price(self.owner, key(), pid, 0)["price"], 0)
         self.assertEqual(self.shop.set_price(self.owner, key(), pid, 1)["price"], 1)
         self.assertEqual(self.shop.set_price(self.owner, key(), pid, MAX_PRICE)["price"], MAX_PRICE)
-        with self.assertRaises(ShopError) as err:
-            self.shop.add_product(self.owner, {"code": "FREE", "name_ar": "مجاني", "name_en": "Free",
-                                               "kind": "grocery", "measure": "unit", "price": 0})
-        self.assertEqual(err.exception.code, "bad_price")
+        free = self.shop.add_product(self.owner, {"code": "FREE", "name_ar": "مجاني", "name_en": "Free",
+                                                  "kind": "grocery", "measure": "unit", "price": 0})
+        self.assertEqual(self.shop.current_price(free), 0)
 
     def test_a_sale_of_250kg_is_refused(self):
         meat = self.meat()
