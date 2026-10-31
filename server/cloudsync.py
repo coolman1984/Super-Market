@@ -1,5 +1,6 @@
-"""Optional cloud copy of the shop (Cloudflare Worker + D1): backup, and a read-only feed for phones.
-Standard library only; nothing here runs unless the owner connected the shop (tools/syncctl.py setup).
+"""Cloud copy of the shop (Cloudflare Worker + D1): backup, and a read-only feed for phones.
+Standard library only. The installed program connects ITSELF on its first run (enroll): no address, no code, no
+step for the owner. Source runs and CI never connect (SM_CLOUD_URL=off or no address).
 
 Rules (docs/CLOUD_SYNC.md):
 * The shop PC's database stays the ONE source of truth. The cloud holds the latest copy of every row.
@@ -48,7 +49,8 @@ USER_AGENT = "SuperMarket-CloudCopy/1"
 # (every call is signed with a per-device secret that only exists after the one-time pairing).
 # SM_CLOUD_URL points a test somewhere else; SM_CLOUD_URL=off (or empty) turns the cloud off.
 BUILT_IN_URL = "https://super-market-sync.mflma2040.workers.dev"
-CONNECT_PREFIX = "SMC2-"       # one string the vendor hands over: SMC2-<store id>-<one-time code>
+CONNECT_PREFIX = "SMC2-"       # support fallback only: SMC2-<store id>-<one-time pairing code>
+INSTALL_NAME = "install.json"  # this installation's random id (made before the first request, so a lost answer never makes a second store)
 
 
 def cloud_url(compiled):
@@ -60,6 +62,28 @@ def cloud_url(compiled):
         env = env.strip()
         return "" if env.lower() in ("", "off") else env.rstrip("/")
     return BUILT_IN_URL if compiled else ""
+
+
+def enroll_token():
+    """The build token that lets this program make its own store. Release builds carry it (written by
+    tools/build_windows.py from the encrypted secret SM_ENROLL_TOKEN into server/_enroll.py); a test may set
+    SM_ENROLL_TOKEN. It is not a customer secret: the service limits, revokes and rate-limits it."""
+    env = os.environ.get("SM_ENROLL_TOKEN")
+    if env is not None:
+        return env.strip()
+    try:
+        from . import _enroll
+        return str(_enroll.TOKEN).strip()
+    except (ImportError, AttributeError):
+        return ""
+
+
+def normalize_recovery_code(text):
+    """`XXXXX-XXXXX-XXXXX-XXXXX` from whatever the owner typed (case, spaces, dashes). Raises bad_recovery_code."""
+    raw = "".join(ch for ch in str(text or "").upper() if ch.isalnum())
+    if len(raw) != 20:
+        raise ShopError("bad_recovery_code")
+    return "-".join(raw[i:i + 5] for i in range(0, 20, 5))
 
 
 def parse_connect_code(text):
@@ -279,6 +303,8 @@ def error_kind(exc):
         return "busy"
     if exc.status == 507:
         return "pc_full"
+    if exc.status == 403:
+        return "rejected_device"       # suspended store or a build that was cut off: the owner contacts support
     return "other"
 
 
@@ -288,6 +314,43 @@ def pair(url, store_id, code, name):
                       {"Content-Type": "application/json"}, 30)
     return {"url": url.rstrip("/"), "store_id": answer["store_id"], "device_id": answer["device_id"],
             "secret": answer["secret"], "role": answer["role"]}
+
+
+def install_id(folder):
+    """The random id of this installation; saved BEFORE the first request."""
+    path = pathlib.Path(folder) / INSTALL_NAME
+    try:
+        value = json.loads(path.read_text(encoding="utf-8")).get("install_id", "")
+        if len(value) == 32:
+            return value
+    except (OSError, ValueError, AttributeError):
+        pass
+    value = secrets.token_hex(16)
+    path.write_text(json.dumps({"install_id": value}), encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return value
+
+
+def _config_from(url, answer):
+    return {"url": url.rstrip("/"), "store_id": answer["store_id"], "device_id": answer["device_id"], "secret": answer["secret"],
+            "role": answer["role"], "status": answer.get("status"), "recovery_code": answer.get("recovery_code")}
+
+
+def enroll(url, token, install, name):
+    """First run: the service makes this installation's own store (status 'pending' = trial) and device."""
+    answer = _request("POST", url.rstrip("/") + "/v1/enroll",
+                      json.dumps({"token": token, "install_id": install, "name": name}).encode(), {"Content-Type": "application/json"}, 30)
+    return _config_from(url, answer)
+
+
+def recover(url, token, install, code, name):
+    """A replacement PC: the owner's recovery code gives it the same store (every older PC of the store is cut off)."""
+    answer = _request("POST", url.rstrip("/") + "/v1/recover",
+                      json.dumps({"token": token, "install_id": install, "code": code, "name": name}).encode(), {"Content-Type": "application/json"}, 30)
+    return _config_from(url, answer)
 
 
 def admin_call(url, admin_key, method, path, payload=None):
@@ -588,6 +651,93 @@ class CloudSync:
         return {"pending_here": self.pending(), "cloud_changes": cloud["seq"], "last_push": cloud["last_push"],
                 "waiting_commands": cloud["pending_commands"], "tables_differ": differ,
                 "complete": not self.pending() and not differ}
+
+
+class CloudAuto:
+    """What the installed program runs: it connects itself, then copies. Zero steps for the owner.
+
+    * First run (no `sync.json`): makes this installation's own cloud store with the build token (enroll), saves the
+      credentials, turns change capture on (every row that exists is queued once) and starts copying. If the
+      internet is down it simply tries again later: selling never waits for any of this.
+    * Already connected (also after a restore on a new PC): makes sure capture is on, then copies.
+    The settings screen reads `status_light()`; it never contains the secret or the address."""
+
+    def __init__(self, folder, url, token, mode="shop"):
+        self.folder = pathlib.Path(folder)
+        self.url = url
+        self.token = token
+        self.mode = mode
+        self.sync = None
+        self.wake = threading.Event()
+        self.last_error_kind = None
+        self.enrolling = False
+        self._config = load_config(self.folder)
+
+    def _attach(self, config):
+        sync = CloudSync(self.folder, cloud=Cloud(config))
+        try:
+            if meta(sync.db, "enabled") != "1":      # first run, or a PC restored from the cloud (sync_meta is not copied)
+                enable(sync.db, self.mode)
+        except BaseException:
+            sync.close()
+            raise
+        sync.wake = self.wake
+        self.sync = sync
+
+    def enroll_now(self):
+        config = enroll(self.url, self.token, install_id(self.folder), device_name())
+        save_config(self.folder, config)
+        self._config = config
+        return config
+
+    def run_forever(self, stop, interval=15, max_wait=600):
+        wait = interval
+        try:
+            while not stop.is_set() and self.sync is None:
+                try:
+                    config = self._config
+                    if not config:
+                        self.enrolling = True
+                        config = self.enroll_now()
+                    self._attach(config)
+                    self.enrolling = False
+                    self.last_error_kind = None
+                except CloudError as exc:
+                    self.last_error_kind = error_kind(exc)
+                    wait = min(max_wait, wait * 2) if exc.status != 403 else 3600
+                    log.warning("cloud: could not connect yet (%s); next try in %ds", exc, wait)
+                    stop.wait(wait)
+                except Exception:
+                    self.last_error_kind = "other"
+                    wait = min(max_wait, wait * 2)
+                    log.exception("cloud: connecting failed")
+                    stop.wait(wait)
+            if self.sync is not None and not stop.is_set():
+                self.sync.run_forever(stop, interval, max_wait)
+        finally:
+            if self.sync is not None:
+                try:
+                    self.sync.close()
+                except sqlite3.Error:
+                    pass
+
+    def now_please(self):
+        self.wake.set()
+        return {"started": True}
+
+    def status_light(self):
+        if self.sync is not None:
+            out = self.sync.status_light()
+        else:
+            out = {"enabled": False, "connected": False, "queued": 0, "last_ok_at": None, "last_copy": None,
+                   "error": self.last_error_kind, "busy": False, "pc": None}
+        out["enrolling"] = self.sync is None
+        out["recovery_available"] = bool((self._config or {}).get("recovery_code"))
+        out["trial"] = (self._config or {}).get("status") == "pending"
+        return out
+
+    def recovery_code(self):
+        return (self._config or {}).get("recovery_code")
 
 
 # ---------------------------------------------------------------- restore from the cloud

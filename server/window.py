@@ -11,6 +11,7 @@ Order of tries, each skip written to the server log:
   1. Microsoft Edge application window,
   2. Google Chrome application window (a PC without Edge),
   3. the default browser (not Windows, or neither browser found) - the behaviour of 1.1.11.
+The window has its own profile folder (see profile_dir): it never shares the person's browser.
 
 `open_ui()` starts the window and returns at once how it was shown: 'edge-app', 'chrome-app' or 'browser'. The system keeps running
 when the window is closed (the mailbox and the other office PCs still need it); opening the program again shows the window again.
@@ -55,10 +56,19 @@ def chrome_path():
     return _find(_CHROME)
 
 
-def app_command(exe, url):
-    """The command line of an application window. The person's own browser profile is used on purpose: it has already passed the
-    browser's first-run questions, so no welcome page or sign-in question ever covers the program."""
-    return [exe, f'--app={url}', '--start-maximized', '--no-first-run', '--no-default-browser-check']
+def profile_dir():
+    """The program's OWN browser profile (review L12): the window shares nothing with the person's Edge or Chrome (no tabs, no
+    sign-in, no extensions, no cookies, no history of theirs), and the browser's own settings never touch the till. It is per
+    Windows user, next to that user's other program data."""
+    base = os.environ.get('LOCALAPPDATA') or os.environ.get('TEMP') or os.path.expanduser('~')
+    return os.path.join(base, 'SuperMarket', 'window-profile')
+
+
+def app_command(exe, url, profile=None):
+    """The command line of an application window with its own profile: nothing of the person's browser is shared, and the
+    first-run questions of that new profile are switched off so no welcome page or sign-in question covers the program."""
+    return [exe, f'--app={url}', f'--user-data-dir={profile or profile_dir()}', '--start-maximized', '--no-first-run',
+            '--no-default-browser-check', '--disable-sync', '--disable-extensions', '--disable-features=msEdgeSignIn']
 
 
 def _try_app(name, exe, url, log):

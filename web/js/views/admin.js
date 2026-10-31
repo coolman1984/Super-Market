@@ -397,20 +397,27 @@
       } })));
   }
 
-  // Live copy of the shop to the owner's Cloudflare space (server/cloudsync.py). Never shows the secret or the address.
+  // Live copy of the shop in the cloud (server/cloudsync.py). The program connects itself; the owner only sees the state
+  // and, if he wants, his recovery code for a replacement PC. Never shows the secret or the address.
   async function cloudCard() {
     const st = await SM.api('GET', '/api/cloud').catch(() => ({ unknown: true }));
     const known = ['offline', 'certificate', 'clock', 'busy', 'not_ready', 'pc_full', 'copy_failed', 'rejected_device'];
-    const lines = st.unknown ? [t('set.cloud_unknown')] : !st.enabled ? [t(st.available ? 'set.cloud_not_joined' : 'set.cloud_off')] : [
+    const problem = st.error ? t('set.cloud_problem', { why: t('cloud.' + (known.includes(st.error) ? st.error : 'other')) }) : null;
+    const lines = st.unknown ? [t('set.cloud_unknown')] : !st.enabled ? (st.enrolling ? [t('set.cloud_enrolling'), problem] : [t('set.cloud_off')]) : [
       st.last_ok_at ? t('set.cloud_ok', { at: '\u2066' + st.last_ok_at.replace('T', ' ').slice(0, 16) + '\u2069' }) : t('set.cloud_never'),
       st.last_copy ? t('set.cloud_copy', { name: '\u2066' + st.last_copy + '\u2069' }) : null,
       st.queued ? t('set.cloud_wait', { n: st.queued }) : null,
-      st.error ? t('set.cloud_problem', { why: t('cloud.' + (known.includes(st.error) ? st.error : 'other')) }) : null].filter(Boolean);
+      problem].filter(Boolean);
+    const shown = h('p', { class: 'recovery-code', id: 'cloud-recovery-code', dir: 'ltr' });
     return h('div', { class: 'card', id: 'cloud-card' }, h('h3', { text: t('set.cloud') }), h('p', { class: 'muted', text: t('set.cloud_help') }),
-      lines.map(x => h('p', { class: st.error ? 'warn' : '', text: x })),
+      lines.filter(Boolean).map(x => h('p', { class: st.error ? 'warn' : '', text: x })),
       st.enabled ? h('button', { class: 'btn', id: 'cloud-now', text: t('set.cloud_now'), onclick: async () => {
         try { await SM.api('POST', '/api/cloud/now', {}); SM.toast(t('set.cloud_started')); setTimeout(() => SM.go('settings'), 4000); } catch (e) { SM.fail(e); }
-      } }) : null);
+      } }) : null,
+      st.recovery_available && SM.can('settings') ? [h('p', { class: 'muted', text: t('set.cloud_recovery_help') }),
+        h('button', { class: 'btn', id: 'cloud-recovery', text: t('set.cloud_recovery_show'), onclick: async () => {
+          try { const r = await SM.api('GET', '/api/cloud/recovery'); shown.textContent = '\u2066' + r.code + '\u2069'; } catch (e) { SM.fail(e); }
+        } }), shown] : null);
   }
 
 })();

@@ -300,9 +300,10 @@ def cloud_leave(data):
 
 
 def cloud_restore(data):
-    """Start menu «استعادة من السحابة» on a NEW PC: the cloud copy of the old shop fills this PC.
-    Needs a connection code for role «shop» made by the vendor (one-time). Refused if this PC already
-    has shop data (nothing is ever overwritten). Passwords are not in the cloud: the owner types a new one."""
+    """Start menu «استعادة المحل من السحابة» on a NEW PC: the cloud copy of the old shop fills this PC.
+    The owner types his RECOVERY CODE (shown in the settings screen of the old PC). Support can also read it out, or
+    give an `SMC2-` pairing code (admin fallback). Refused if this PC already has shop data (nothing is ever
+    overwritten). Passwords are not in the cloud: the owner types a new one."""
     url = cloudsync.cloud_url(COMPILED)
     if not url:
         print("النسخ على السحابة غير متاح في هذا التشغيل.")
@@ -322,26 +323,42 @@ def cloud_restore(data):
         if used:
             print("يوجد على هذا الجهاز بيانات محل بالفعل. الاستعادة تكون على جهاز جديد فقط؛ لم يتغير شيء.")
             return 1
+    typed = input("اكتب كود الاستعادة (٢٠ حرفًا، مثل XXXXX-XXXXX-XXXXX-XXXXX): ").strip()
+    fallback = typed.upper().startswith(cloudsync.CONNECT_PREFIX)
     try:
-        store_id, code = cloudsync.parse_connect_code(input("الصق كود الاستعادة الذي أخذته من الدعم (يبدأ بـ SMC2-): "))
-    except ShopError as exc:
-        print("لم تتم الاستعادة ولم يتغير شيء:", exc.code)
+        if fallback:
+            store_id, code = cloudsync.parse_connect_code(typed)
+        else:
+            code = cloudsync.normalize_recovery_code(typed)
+    except ShopError:
+        print("الكود غير مكتوب كما ينبغي. اكتب الأحرف والأرقام العشرين كما هي (الشرطات اختيارية). لم يتغير شيء.")
         return 1
     aside = None
     try:
-        config = cloudsync.pair(url, store_id, code, cloudsync.device_name())
-        if (data / "shop.db").exists():
+        # a new random id for this PC: the empty folder this PC may have enrolled by itself must not tie it to that empty store
+        fresh_install = secrets.token_hex(16)
+        if fallback:
+            config = cloudsync.pair(url, store_id, code, cloudsync.device_name())
+        else:
+            config = cloudsync.recover(url, cloudsync.enroll_token(), fresh_install, code, cloudsync.device_name())
+        if (data / "shop.db").exists() or data.exists():
             import datetime   # a new PC opened the program once after Setup: that empty folder is kept aside, never deleted
             aside = data.with_name("shop-data-empty-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
             data.rename(aside)
         report = cloudsync.restore_from_cloud(cloudsync.Cloud(config), data)
         cloudsync.save_config(data, config)
-    except (cloudsync.CloudError, ShopError) as exc:
+        (data / cloudsync.INSTALL_NAME).write_text(json.dumps({"install_id": fresh_install}), encoding="utf-8")
+    except (cloudsync.CloudError, ShopError, OSError) as exc:
         if aside is not None:          # nothing half-restored is left behind; the empty folder goes back
             import shutil
             shutil.rmtree(data, ignore_errors=True)
             aside.rename(data)
-        print("لم تتم الاستعادة ولم يتغير شيء:", getattr(exc, "code", None) or exc)
+        if isinstance(exc, cloudsync.CloudError) and exc.status in (401, 403, 404):
+            print("لم تتم الاستعادة ولم يتغير شيء. الكود غير صحيح أو لم يعد صالحًا. راجع الكود في شاشة الإعدادات على الجهاز القديم أو اتصل بالدعم.")
+        elif isinstance(exc, cloudsync.CloudError) and exc.status in (0, 429, 502, 503, 504):
+            print("لم تتم الاستعادة ولم يتغير شيء. تأكد من الإنترنت وأعد المحاولة بعد قليل.")
+        else:
+            print("لم تتم الاستعادة ولم يتغير شيء:", getattr(exc, "code", None) or exc)
         return 1
     print("تمت الاستعادة (%d صفًا). مطابقة الأرصدة والحسابات: %s" % (report.get("rows", 0), "سليمة" if report.get("ok") else "راجع الدعم قبل البيع"))
     print("كلمات المرور لا تُحفظ على السحابة. اكتب الآن كلمة مرور جديدة لصاحب المحل:\n")
@@ -349,16 +366,22 @@ def cloud_restore(data):
 
 
 def start_cloud(app, mode, stop_event, data):
-    """Copy to the owner's cloud (changes every few seconds, retry with growing waits when offline).
-    Only the real shop, only when it was connected with «ربط بالسحابة»; training never. A failure here never reaches the till."""
-    if mode != "shop" or os.environ.get("SM_CLOUD_URL", "x").strip().lower() in ("", "off"):
-        return None                       # training never; SM_CLOUD_URL=off (CI, test machines) never
-    app.cloud_available = bool(cloudsync.cloud_url(COMPILED))
+    """The shop copies itself to the cloud with no step from the owner: on the first run the program makes its own
+    cloud store (CloudAuto), then copies every few seconds, retrying with growing waits when the internet is down.
+    Only the real shop; training never; source runs and CI never (SM_CLOUD_URL=off or no address). A failure here
+    never reaches the till: selling never waits for the network."""
+    if mode != "shop":
+        return None
+    url = cloudsync.cloud_url(COMPILED)
+    app.cloud_available = bool(url)
+    if not url:
+        return None                       # SM_CLOUD_URL=off (CI, test machines) and plain source runs never connect
     import logging
     try:
-        if not cloudsync.load_config(data):
-            return None
-        sync = cloudsync.CloudSync(data)
+        token = cloudsync.enroll_token()
+        if not cloudsync.load_config(data) and not token:
+            return None                   # no way to connect: a build without a token (a developer's copy)
+        sync = cloudsync.CloudAuto(data, url, token)
     except Exception:
         logging.getLogger("supermarket").exception("cloud sync not started")
         return None

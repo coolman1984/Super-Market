@@ -32,6 +32,23 @@ const out = process.argv[3] || '.';
   await page.locator('#cloud-card').screenshot({ path: out + '/cloud-card-ar.png' });
   await page.click('#cloud-now'); await page.waitForTimeout(300);
   res.send_now_called = sent === 1;
+  // first minutes of a new install: it connects by itself, nothing to press, nothing technical
+  await page.unroute('**/api/cloud');
+  await page.route('**/api/cloud', r => r.fulfill({ json: { enabled: false, enrolling: true, available: true, error: 'offline' } }));
+  await page.evaluate(() => SM.go('home')); await page.evaluate(() => SM.go('settings')); await page.waitForSelector('#cloud-card');
+  const enr = await page.locator('#cloud-card').innerText();
+  res.enrolling_says_it_is_automatic = enr.includes(await T('set.cloud_enrolling'));
+  res.enrolling_has_no_button = await page.locator('#cloud-now').count() === 0 && await page.locator('#cloud-recovery').count() === 0;
+  // connected: the owner can read his recovery code (and only that)
+  await page.unroute('**/api/cloud');
+  await page.route('**/api/cloud', r => r.fulfill({ json: { enabled: true, connected: true, queued: 0, last_ok_at: '2026-10-31T13:00:00', error: null, recovery_available: true } }));
+  await page.route('**/api/cloud/recovery', r => r.fulfill({ json: { code: 'ABCDE-FGHJK-LMNPQ-23456' } }));
+  await page.evaluate(() => SM.go('home')); await page.evaluate(() => SM.go('settings')); await page.waitForSelector('#cloud-recovery');
+  res.recovery_hidden_until_asked = !(await page.locator('#cloud-card').innerText()).includes('ABCDE');
+  await page.click('#cloud-recovery'); await page.waitForTimeout(300);
+  res.recovery_shown = (await page.locator('#cloud-recovery-code').innerText()).includes('ABCDE-FGHJK-LMNPQ-23456');
+  await page.locator('#cloud-card').screenshot({ path: out + '/cloud-card-recovery-ar.png' });
+  await page.unroute('**/api/cloud/recovery');
   await page.unroute('**/api/cloud'); await page.unroute('**/api/cloud/now');
   // a cashier cannot read the cloud status from the server
   const p2 = await (await browser.newContext()).newPage();

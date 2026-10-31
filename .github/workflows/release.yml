@@ -1,0 +1,109 @@
+name: release
+# A tag `vX.Y.Z` builds the customer installer on a real Windows machine and attaches it to a DRAFT GitHub Release
+# (the owner publishes it himself after trying it). Needs ONE repository secret: SM_ENROLL_TOKEN, the cloud build token
+# that lets every installed program connect itself on its first run (docs/RELEASE.md). Optional signing secrets:
+# SM_SIGN_PFX_BASE64 + SM_SIGN_PFX_PASSWORD (a code-signing certificate; without them the installer is unsigned and
+# Windows SmartScreen warns on first download).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:        # a dry run: builds and uploads the installer as an artifact, creates no release
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    env:
+      SM_CLOUD_URL: "off"                       # tests and journeys on this runner never take a cloud space
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: The tag matches the program's version
+        shell: pwsh
+        run: |
+          $v = python -c "from server.version import VERSION; print(VERSION)"
+          Write-Host "program version: $v, ref: $env:GITHUB_REF_NAME"
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$v") { throw "tag $env:GITHUB_REF_NAME does not match server/version.py ($v)" }
+      - name: All tests
+        run: python tools/ci_tests.py
+      - name: Cloud Worker tests
+        working-directory: cloud
+        run: npm test
+      - name: Frontend audit checks
+        run: node tests/ui/audit_ui.js
+      - name: Build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "nuitka>=2.5,<3" ordered-set zstandard
+          choco upgrade innosetup -y --no-progress
+      - name: Build the customer installer (carries the cloud build token)
+        env:
+          SM_ENROLL_TOKEN: ${{ secrets.SM_ENROLL_TOKEN }}
+          TO_BUILD_CHANNEL: commercial
+        run: python tools/build_windows.py
+      - name: The built program starts, serves its pages and stops cleanly
+        shell: pwsh
+        run: |
+          $h = Join-Path $env:RUNNER_TEMP 'sm-built'
+          python tools/journey_exe.py first $h build\launcher.dist\SuperMarket.exe
+          if ($LASTEXITCODE -ne 0) { throw 'the built program failed the journey' }
+      - name: Sign the installer (only when the certificate secrets exist)
+        shell: pwsh
+        env:
+          PFX: ${{ secrets.SM_SIGN_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.SM_SIGN_PFX_PASSWORD }}
+        run: |
+          if (-not $env:PFX) { Write-Host 'No signing certificate configured: the installer is UNSIGNED (SmartScreen will warn).'; exit 0 }
+          $pfx = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe | Where-Object { $_.FullName -match 'x64' } | Select-Object -Last 1
+          Get-ChildItem dist\SuperMarket-Setup-*.exe | ForEach-Object {
+            & $signtool.FullName sign /f $pfx /p $env:PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw 'signing failed' }
+          }
+          Remove-Item $pfx -Force
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist\SuperMarket-Setup-*.exe | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)" | Out-File -Append -Encoding ascii dist\SHA256SUMS.txt
+          }
+          Get-Content dist\SHA256SUMS.txt
+      - name: Silent install, first journey on the installed program, uninstall keeps the data
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist/SuperMarket-Setup-*.exe | Select-Object -First 1
+          (Start-Process -FilePath $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru).WaitForExit()
+          $exe = Join-Path ${env:ProgramFiles} 'SuperMarket\SuperMarket.exe'
+          if (-not (Test-Path $exe)) { throw 'the installed program is missing' }
+          python tools/journey_exe.py first installed $exe
+          if ($LASTEXITCODE -ne 0) { throw 'the installed program failed the journey' }
+          $un = Get-ChildItem (Join-Path ${env:ProgramFiles} 'SuperMarket') -Filter 'unins*.exe' | Select-Object -First 1
+          (Start-Process -FilePath $un.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru).WaitForExit()
+          exit 0
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: SuperMarket-Setup
+          path: |
+            dist/SuperMarket-Setup-*.exe
+            dist/SHA256SUMS.txt
+          retention-days: 30
+      - name: Draft GitHub Release with the installer (the owner publishes it)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = "Customer installer of Super Market $env:GITHUB_REF_NAME.`n`nDownload SuperMarket-Setup-*.exe, run it, open Super Market and sell: the program connects to its cloud copy by itself.`nSHA-256 checksums are in SHA256SUMS.txt.`nDraft: published by the owner after a trial installation."
+          $notes | Out-File -Encoding utf8 release-notes.md
+          gh release create $env:GITHUB_REF_NAME --draft --verify-tag --title "Super Market $env:GITHUB_REF_NAME" --notes-file release-notes.md (Get-ChildItem dist\SuperMarket-Setup-*.exe).FullName dist\SHA256SUMS.txt
