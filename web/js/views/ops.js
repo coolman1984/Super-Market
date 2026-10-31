@@ -171,11 +171,40 @@
       const actions = h('div', { class: 'toolbar' }, filter, seg,
         SM.can('waste') ? h('button', { class: 'btn', onclick: () => moveDialog('waste', rows, load) }, t('stock.waste')) : null,
         SM.can('transfer') ? h('button', { class: 'btn', onclick: () => moveDialog('transfer', rows, load) }, t('stock.transfer')) : null,
+        SM.can('waste') ? h('button', { class: 'btn', onclick: () => wastePackDialog(load) }, t('stock.waste_pack')) : null,
+        SM.can('recall') ? h('button', { class: 'btn', onclick: () => recallsDialog(load) }, t('recall.list')) : null,
         SM.can('export') ? h('a', { class: 'btn ghost', href: '/api/export/stock.csv', download: 'stock.csv' }, t('stock.export')) : null);
       SM.put(root, actions, box);
       load();
     },
   };
+
+  /* Audit R12: stock promised to a labelled pack leaves only with that pack. */
+  function wastePackDialog(after) {
+    const code = SM.scanner.field({ placeholder: t('stock.pack_scan'), onEnter: (raw) => { code.value = raw.trim(); } });
+    const reason = SM.select(['expired', 'damaged', 'cold_chain', 'internal_use', 'sample', 'owner_draw', 'abnormal_loss', 'unknown'].map(v => ({ value: v, label: t('waste.' + v) })));
+    const key = SM.newKey();
+    const d = SM.dialog({ title: t('stock.waste_pack'), body: [SM.field(t('sell.pack'), code), SM.field(t('waste.reason'), reason)],
+      actions: [h('button', { class: 'btn primary', text: t('save'), onclick: SM.guard(async () => {
+        try { await SM.command('/api/packs/waste', key, undefined, { code: code.value.trim(), reason: reason.value }); d.close(); SM.toast(t('saved')); after(); }
+        catch (e) { SM.fail(e); }
+      }) })] });
+  }
+
+  /* Audit R03: a recall ends only by a separate, written decision; lots then
+     still need inspection and release one by one. */
+  async function recallsDialog(after) {
+    const rows = await SM.api('GET', '/api/recalls').catch(e => { SM.fail(e); return []; });
+    const d = SM.dialog({ title: t('recall.list'), wide: true, body: rows.length ? SM.table([
+      { label: t('stock.lot'), render: r => h('span', { class: 'ltr', text: r.lot_no }) }, { label: t('stock.product'), render: r => SM.name(r) },
+      { label: t('ret.reason'), key: 'reason' },
+      { label: t('stock.state'), render: r => r.lifted_at ? h('span', { class: 'badge ok', text: t('recall.lifted') + ': ' + r.lift_reason }) :
+        h('button', { class: 'btn sm', text: t('recall.lift'), onclick: SM.guard(async () => {
+          const reason = prompt(t('recall.lift_q')); if (!reason) return;
+          try { await SM.command('/api/recalls/lift', SM.newKey(), undefined, { recall_id: r.id, reason }); SM.toast(t('recall.lifted_toast')); d.close(); after(); }
+          catch (e) { SM.fail(e); }
+        }) }) }], rows) : h('p', { text: t('none') }) });
+  }
 
   async function moveDialog(kind, rows, after) {
     const locs = await locations();

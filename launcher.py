@@ -28,6 +28,10 @@ MESSAGES = {
                      "The program folder is not writable:\n{folder}\n\nMove the whole folder to a place you own, e.g. C:\\SuperMarket, and start again."),
     "port_busy": ("المنفذ {port} مستخدم من برنامج آخر. أغلق البرنامج الآخر أو اتصل بالدعم.",
                   "Port {port} is used by another program. Close it or call support."),
+    "other_shop": ("برنامج سوبر ماركت آخر (مجلد بيانات مختلف) يعمل على المنفذ {port}.\nأغلق نافذته أولًا ثم شغّل هذا المحل.",
+                   "Another Super Market (a different data folder) is running on port {port}.\nClose its window first, then start this shop."),
+    "restart_for_lan": ("البرنامج يعمل الآن لهذا الجهاز فقط.\nلتشغيله للكاشيرات الأخرى: أغلق نافذته ثم شغّل start-lan.bat.",
+                        "The program is running for this PC only.\nTo serve other tills: close its window, then run start-lan.bat."),
     "start_failed": ("تعذر تشغيل البرنامج: {error}\n\nسجل التفاصيل في:\n{log}", "The program could not start: {error}\n\nDetails in:\n{log}"),
 }
 
@@ -53,16 +57,39 @@ def writable(folder):
         return False
 
 
-def running_here(port, mode):
-    """Our own server already answers on this port -> just open the browser."""
+def local_instance(data):
+    """Instance id stored in THIS folder's database (read-only), or None."""
+    path = data / "shop.db"
+    if not path.exists():
+        return None
+    import sqlite3
+    try:
+        conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            row = conn.execute("SELECT value FROM settings WHERE key='instance_id'").fetchone()
+        finally:
+            conn.close()
+        return json.loads(row[0]) if row else None
+    except (sqlite3.Error, ValueError):
+        return None
+
+
+def running_here(port, mode, data=None):
+    """None: port free. 'same': this very shop answers. 'other': another
+    Super Market (other folder/mode). False: some other program."""
     try:
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
         conn.request("GET", "/api/state")
         state = json.loads(conn.getresponse().read())
         conn.close()
-        return state.get("mode") == mode and "version" in state
     except (OSError, ValueError):
         return None if port_free(port) else False
+    if "version" not in state or state.get("mode") != mode:
+        return "other" if "version" in state else False
+    mine = local_instance(data) if data is not None else None
+    if mine is not None and state.get("instance") != mine:
+        return "other"
+    return ("same", bool(state.get("lan")))
 
 
 def port_free(port):
@@ -105,9 +132,15 @@ def main(argv=None):
     if not writable(data):
         tell("not_writable", folder=ROOT)
         return 2
-    state = running_here(port, mode)
+    state = running_here(port, mode, data)
     url = "http://127.0.0.1:%d/" % port
-    if state:
+    if state == "other":
+        tell("other_shop", port=port)
+        return 3
+    if isinstance(state, tuple):
+        if lan and not state[1]:
+            tell("restart_for_lan")
+            return 5
         webbrowser.open(url)
         return 0
     if state is False:

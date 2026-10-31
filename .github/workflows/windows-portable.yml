@@ -21,6 +21,27 @@ jobs:
           python-version: "3.13"
       - name: Unit and integration tests on Windows
         run: python tools/ci_tests.py
+      - name: PowerShell tools - parse, read-only inventory, Excel tool without Office
+        shell: powershell
+        run: |
+          foreach ($f in Get-ChildItem tools\*.ps1) {
+            $errs = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs)
+            if ($errs) { $errs | Format-List; throw "syntax errors in $($f.Name)" }
+          }
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\Discover-Environment.ps1
+          if (-not (Test-Path ENVIRONMENT_REPORT.local.json)) { throw 'inventory not written' }
+          $r = Get-Content ENVIRONMENT_REPORT.local.json -Raw | ConvertFrom-Json
+          "os=$($r.os) ps=$($r.powershell) writable=$($r.program_folder_writable) excel=$($r.office_com_registered.'Excel.Application') printers=$(@($r.printers).Count) serial=$(@($r.serial_ports).Count)"
+          if (-not $r.office_com_registered.'Excel.Application') {
+            powershell -NoProfile -ExecutionPolicy Bypass -File tools\Read-ExcelViaCom.ps1 -Path README.md -Out x.csv
+            if ($LASTEXITCODE -ne 3) { throw "expected a clear 'Excel missing' exit 3, got $LASTEXITCODE" }
+          }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Frontend audit checks (R16 R17 R18)
+        run: node tests/ui/audit_ui.js
       - name: Build portable package (pinned Python from NuGet, SHA-512 checked)
         run: python tools/build_portable.py --out dist
       - name: Start the package with its own Python only

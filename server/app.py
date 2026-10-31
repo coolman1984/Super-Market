@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import backup, training
 from .auth import Auth, can, require
-from .core import ShopError, integer
+from .core import ShopError, integer, text
 from .db import Store
 from .scanner import ScannerHub, list_serial_ports
 from .services import Shop
@@ -38,7 +38,8 @@ log = logging.getLogger("supermarket")
 
 
 class App:
-    def __init__(self, data_folder, mode="shop", backup_folder=None):
+    def __init__(self, data_folder, mode="shop", backup_folder=None, lan=False):
+        self.lan = lan
         self.store = Store(data_folder, mode)
         self.shop = Shop(self.store)
         self.auth = Auth(self.store)
@@ -68,13 +69,22 @@ class App:
         r("POST", r"/api/shift/open", lambda a, q, b: self.shop.open_shift(a, b.get("key"), b.get("opening_float")))
         r("POST", r"/api/shift/close", lambda a, q, b: self.shop.close_shift(a, b.get("key"), b.get("counted"), b.get("note"), b.get("shift_id")))
         r("POST", r"/api/cash", lambda a, q, b: self.shop.cash_move(a, b.get("key"), b.get("kind"), b.get("amount"), b.get("note")))
-        r("POST", r"/api/sales", lambda a, q, b: self.shop.sell(a, b.get("key"), b.get("payload"), self.shop.verify_approval(b.get("approval"), a)))
+        r("POST", r"/api/quote", lambda a, q, b: self.shop.quote(a, b.get("payload")))
+        r("GET", r"/api/sales/([\w-]+)/receipt", lambda a, q, b, sid: self.shop.reprint(a, sid))
+        r("POST", r"/api/sales", self.sell)
         r("GET", r"/api/sales/([\w-]+)", lambda a, q, b, sid: self.shop.sale_detail(a, sid))
         r("POST", r"/api/returns", lambda a, q, b: self.shop.return_sale(a, b.get("key"), b.get("payload"), self.shop.verify_approval(b.get("approval"), a)))
         r("GET", r"/api/payments/pending", lambda a, q, b: self.shop.pending_payments(a))
         r("POST", r"/api/payments/confirm", lambda a, q, b: self.shop.confirm_payment(a, b.get("key"), b.get("payment_id"), b.get("outcome")))
         r("POST", r"/api/customers/pay", lambda a, q, b: self.shop.customer_payment(a, b.get("key"), b.get("customer_id"), b.get("amount")))
-        r("POST", r"/api/suppliers/pay", lambda a, q, b: self.shop.supplier_payment(a, b.get("key"), b.get("supplier_id"), b.get("amount"), b.get("note")))
+        r("POST", r"/api/suppliers/pay", lambda a, q, b: self.shop.supplier_payment(a, b.get("key"), b.get("supplier_id"), b.get("amount"), b.get("note"), b.get("source")))
+        r("POST", r"/api/customers/reverse", lambda a, q, b: self.shop.reverse_customer_payment(a, b.get("key"), b.get("entry_id"), b.get("reason")))
+        r("GET", r"/api/customers/(\d+)/statement", lambda a, q, b, cid: self.shop.customer_statement(a, int(cid)))
+        r("GET", r"/api/suppliers/(\d+)/statement", lambda a, q, b, sid: self.shop.supplier_statement(a, int(sid)))
+        r("POST", r"/api/safe", lambda a, q, b: self.shop.safe_move(a, b.get("key"), b.get("kind"), b.get("amount"), b.get("note")))
+        r("POST", r"/api/packs/waste", lambda a, q, b: self.shop.waste_pack(a, b.get("key"), b.get("code"), b.get("reason"), b.get("note")))
+        r("GET", r"/api/recalls", lambda a, q, b: self.shop.recalls(a))
+        r("POST", r"/api/recalls/lift", lambda a, q, b: self.shop.lift_recall(a, b.get("key"), b.get("recall_id"), b.get("reason")))
         r("POST", r"/api/transfer", lambda a, q, b: self.shop.transfer(a, b.get("key"), b.get("lot_id"), b.get("from"), b.get("to"), b.get("qty")))
         r("POST", r"/api/waste", lambda a, q, b: self.shop.waste(a, b.get("key"), b.get("lot_id"), b.get("location_id"), b.get("qty"), b.get("reason"), b.get("note")))
         r("POST", r"/api/lots/status", lambda a, q, b: self.shop.set_lot_status(a, b.get("key"), b.get("lot_id"), b.get("status"), b.get("reason")))
@@ -100,6 +110,7 @@ class App:
         r("GET", r"/api/scanner/ports", self.ports)
         r("POST", r"/api/scanner/devices", self.save_devices)
         r("GET", r"/api/scanner/events", self.scanner_events, lock=False)
+        r("POST", r"/api/scanner/claim", self.scanner_claim)
         r("POST", r"/api/scanner/inspect", self.inspect_scan)
         r("GET", r"/api/users", self.users)
         r("POST", r"/api/users", self.add_user)
@@ -114,7 +125,7 @@ class App:
     def state(self, actor, q, body):
         s = self.shop.settings()
         return {"version": VERSION, "mode": self.store.mode, "setup_needed": not self.auth.has_users(),
-                "user": actor, "shop_name": s["shop_name"],
+                "user": actor, "shop_name": s["shop_name"], "instance": s.get("instance_id"), "lan": self.lan,
                 "training_login": {"users": [u for u, _, _ in training.TRAINING_USERS], "password": training.TRAINING_PASSWORD}
                 if self.store.mode == "training" else None}
 
@@ -231,7 +242,10 @@ class App:
         for d in devices:
             if not isinstance(d, dict) or d.get("type") not in ("serial", "tcp") or not re.match(r"^[\w-]{1,20}$", str(d.get("id", ""))):
                 raise ShopError("bad_devices")
-            item = {"id": d["id"], "type": d["type"], "enabled": bool(d.get("enabled", True)),
+            ws = d.get("workstation")
+            if ws is not None and not re.match(r"^[\w-]{1,64}$", str(ws)):
+                raise ShopError("bad_devices")
+            item = {"id": d["id"], "type": d["type"], "enabled": bool(d.get("enabled", True)), "workstation": ws,
                     "suffix": d.get("suffix", "CR") if d.get("suffix") in (None, "CR", "LF", "CRLF", "TAB", "ETX", "EOT") else "CR",
                     "prefix": str(d.get("prefix", ""))[:4], "gap_ms": integer(d.get("gap_ms", 80), 10, maximum=2000),
                     "partial_ms": integer(d.get("partial_ms", 1500), 100, maximum=10000)}
@@ -254,11 +268,32 @@ class App:
         self.hub.configure(clean)
         return {"devices": self.hub.status()}
 
+    def sell(self, actor, q, body):
+        """The till must send back the server-quoted total it showed (R14):
+        a price change after scanning is reported, never charged silently."""
+        payload = body.get("payload")
+        if isinstance(payload, dict) and payload.get("expected_total") is None:
+            raise ShopError("quote_required")
+        return self.shop.sell(actor, body.get("key"), payload, self.shop.verify_approval(body.get("approval"), actor))
+
+    def scanner_claim(self, actor, q, body):
+        """The selling window of THIS till takes the till's devices (R09)."""
+        require(actor, "sell") if not can(actor, "receive") and not can(actor, "count") else None
+        window = text(body.get("window"), "bad_window", 64)
+        self.hub.claim(actor["workstation"], window)
+        return {"epoch": self.hub.epoch, "last": self.hub.next_id - 1,
+                "devices": [d for d in self.hub.status() if d["workstation"] == actor["workstation"]]}
+
     def scanner_events(self, actor, q, body):
-        require(actor, "scanner_setup")
         wait = min(_int(q.get("wait"), 0), 20)
-        events, last = self.hub.since(_int(q.get("after"), 0), wait, q.get("device") or None)
-        return {"events": events, "last": last, "devices": self.hub.status()}
+        if q.get("diag"):   # setup screen: read-only view of every device, for the shop's admin only
+            require(actor, "settings")
+            events, last = self.hub.since(_int(q.get("after"), 0), wait, q.get("device") or None)
+            return {"events": events, "last": last, "epoch": self.hub.epoch, "devices": self.hub.status()}
+        window = text(q.get("window"), "bad_window", 64)
+        events, last, info = self.hub.take(actor["workstation"], window, _int(q.get("after"), 0), wait, q.get("epoch"))
+        return {"events": events, "last": last, **info,
+                "devices": [d for d in self.hub.status() if d["workstation"] == actor["workstation"]]}
 
     def inspect_scan(self, actor, q, body):
         """Scanner test wizard: show exactly what arrived, safely."""
@@ -455,7 +490,7 @@ def make_handler(app, allowed_lan):
 
 
 def serve(data_folder, mode="shop", host="127.0.0.1", port=8765, lan=False):
-    app = App(data_folder, mode)
+    app = App(data_folder, mode, lan=lan)
     bind = "0.0.0.0" if lan else host
     httpd = ThreadingHTTPServer((bind, port), make_handler(app, lan))
     httpd.daemon_threads = True

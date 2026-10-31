@@ -1,0 +1,14 @@
+{"id": "R01", "fault_reproduces": false, "how": "old faulty outcome no longer happens"}
+{"id": "R02", "fault_reproduces": false, "how": "refused: return_exceeds_sold"}
+{"id": "R03", "fault_reproduces": false, "how": "refused: insufficient_stock"}
+{"id": "R04", "fault_reproduces": false, "how": "refused: recipe_component_missing"}
+{"id": "R05", "fault_reproduces": false, "how": "refused: scanned_label_expired"}
+{"id": "R06", "fault_reproduces": false, "how": "refused: drawer_insufficient"}
+{"id": "R07", "fault_reproduces": false, "how": "old faulty outcome no longer happens"}
+{"id": "R09", "fault_reproduces": true, "observed": {"two_consumers_receive_same_event": true, "no_workstation_argument": true}}
+{"id": "R10", "fault_reproduces": false, "how": "refused: request_key_other_user"}
+{"id": "R11", "fault_reproduces": false, "how": "old faulty outcome no longer happens"}
+{"id": "R12", "fault_reproduces": false, "how": "refused: stock_reserved_by_packs"}
+{"id": "R13", "fault_reproduces": true, "observed": {"old_cursor": 2, "new_server_last": 1, "events_delivered": 0, "browser_cursor_after_poll": 2}}
+{"id": "R14", "fault_reproduces": true, "observed": {"cart_price_at_scan": 10000, "charged_without_quote_confirmation": 15000, "cash_received": 20000}}
+{"id": "R15", "fault_reproduces": false, "how": "refused: packaging_other_product"}

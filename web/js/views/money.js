@@ -55,25 +55,27 @@
       }
       const moves = h('div', { class: 'card' }, h('h3', { text: t('cash.moves') }));
       if (SM.can('cash_moves')) {
+        const moveKey = SM.newKey();
         const kind = SM.select(['expense', 'drop', 'deposit', 'owner_draw'].map(k => ({ value: k, label: t('cash.k.' + k) })));
         const amount = h('input', { class: 'input', inputmode: 'decimal' });
         const note = h('input', { class: 'input', maxlength: '200' });
         moves.append(h('div', { class: 'grid cols-3' }, SM.field(t('cash.kind'), kind), SM.field(t('cash.amount'), amount), SM.field(t('cash.note'), note)),
-          h('button', { class: 'btn', text: t('save'), onclick: async () => {
+          h('button', { class: 'btn', text: t('save'), onclick: SM.guard(async () => {
             const v = SM.parseMoney(amount.value); if (!v) return SM.toast(t('err.bad_amount'), 'bad');
-            try { await SM.command('/api/cash', SM.newKey(), undefined, { kind: kind.value, amount: v, note: note.value || undefined }); SM.toast(t('saved')); SM.go('cash'); } catch (e) { SM.fail(e); }
-          } }));
+            try { await SM.command('/api/cash', moveKey, undefined, { kind: kind.value, amount: v, note: note.value || undefined }); SM.toast(t('saved')); SM.go('cash'); } catch (e) { SM.fail(e); }
+          }) }));
       } else moves.append(h('p', { class: 'muted', text: t('cash.moves_manager') }));
       const debt = h('div', { class: 'card' }, h('h3', { text: t('cash.debt') }));
       const customers = await SM.api('GET', '/api/parties?kind=customer').catch(() => []);
       if (customers.length) {
         const c = SM.select(customers.map(x => ({ value: x.id, label: x.name + ' — ' + SM.money(x.balance) })));
         const a = h('input', { class: 'input', inputmode: 'decimal' });
+        const payKey = SM.newKey();
         debt.append(h('div', { class: 'grid cols-2' }, SM.field(t('cash.customer'), c), SM.field(t('cash.amount'), a)),
-          h('button', { class: 'btn', text: t('cash.collect'), onclick: async () => {
+          h('button', { class: 'btn', text: t('cash.collect'), onclick: SM.guard(async () => {
             const v = SM.parseMoney(a.value); if (!v) return SM.toast(t('err.bad_amount'), 'bad');
-            try { await SM.command('/api/customers/pay', SM.newKey(), undefined, { customer_id: parseInt(c.value, 10), amount: v }); SM.toast(t('saved')); SM.go('cash'); } catch (e) { SM.fail(e); }
-          } }));
+            try { await SM.command('/api/customers/pay', payKey, undefined, { customer_id: parseInt(c.value, 10), amount: v }); SM.toast(t('saved')); SM.go('cash'); } catch (e) { SM.fail(e); }
+          }) }));
       }
       const counted = h('input', { class: 'input big', inputmode: 'decimal' });
       const note = h('input', { class: 'input', maxlength: '200' });
@@ -95,9 +97,27 @@
         s.noncash.length ? h('ul', {}, s.noncash.map(n => h('li', {}, t('pay.m.' + n.method), ' ', SM.badge(n.state), ' ', SM.num(SM.money(n.amount))))) : null,
         s.expected !== undefined ? h('p', {}, t('cash.expected'), ' ', SM.num(SM.moneyText(s.expected))) : h('p', { class: 'muted', text: t('cash.expected_hidden') }));
       const pending = SM.can('confirm_payments') ? await pendingCard() : null;
-      SM.put(root, h('div', { class: 'grid cols-2' }, info, close, moves, debt), pending);
+      const safe = SM.can('safe') ? safeCard() : null;
+      SM.put(root, h('div', { class: 'grid cols-2' }, info, close, moves, debt), pending, safe);
     },
   };
+
+  /* The safe: drops from drawers come in, supplier payments go out (audit R11). */
+  function safeCard() {
+    const card = h('div', { class: 'card' }, h('h3', { text: t('safe.title') }), h('p', { class: 'muted', text: t('safe.help') }));
+    const amount = h('input', { class: 'input', inputmode: 'decimal' }), note = h('input', { class: 'input', maxlength: '200' });
+    const kind = SM.select([{ value: 'deposit', label: t('safe.deposit') }, { value: 'withdrawal', label: t('safe.withdrawal') }]);
+    const balance = h('p', {});
+    const key = SM.newKey();
+    SM.api('GET', '/api/reports/day').then(r => { if (r.safe !== null && r.safe !== undefined) SM.put(balance, t('safe.balance'), ' ', SM.num(SM.moneyText(r.safe))); }).catch(() => {});
+    card.append(balance, h('div', { class: 'grid cols-3' }, SM.field(t('cash.kind'), kind), SM.field(t('cash.amount'), amount), SM.field(t('cash.note'), note)),
+      h('button', { class: 'btn', text: t('save'), onclick: SM.guard(async () => {
+        const v = SM.parseMoney(amount.value); if (!v) return SM.toast(t('err.bad_amount'), 'bad');
+        try { await SM.command('/api/safe', key, undefined, { kind: kind.value, amount: v, note: note.value || undefined }); SM.toast(t('saved')); SM.go('cash'); }
+        catch (e) { SM.fail(e); }
+      }) }));
+    return card;
+  }
 
   async function pendingCard() {
     const rows = await SM.api('GET', '/api/payments/pending').catch(() => []);
@@ -105,10 +125,11 @@
     if (!rows.length) { card.append(h('p', { text: t('none') })); return card; }
     card.append(SM.table([{ label: t('receipt.no'), render: r => h('span', { class: 'ltr', text: r.no }) }, { label: t('pay.method'), render: r => t('pay.m.' + r.method) },
       { label: t('pay.reference'), render: r => r.reference || '—' }, { label: t('cash.amount'), num: true, render: r => SM.num(SM.money(r.amount)) },
-      { label: '', render: r => h('div', { class: 'row' }, h('button', { class: 'btn sm', text: t('pay.confirmed'), onclick: () => decide(r, 'confirmed') }),
-        h('button', { class: 'btn sm danger', text: t('pay.rejected'), onclick: () => decide(r, 'rejected') })) }], rows));
-    async function decide(r, outcome) {
-      try { await SM.command('/api/payments/confirm', SM.newKey(), undefined, { payment_id: r.id, outcome }); SM.toast(t('saved')); SM.go('cash'); } catch (e) { SM.fail(e); }
+      { label: '', render: r => { r.key = SM.newKey(); return h('div', { class: 'row' }, h('button', { class: 'btn sm', text: t('pay.confirmed'), onclick: SM.guard(() => decide(r, 'confirmed')) }),
+        h('button', { class: 'btn sm danger', text: t('pay.rejected'), onclick: SM.guard(() => decide(r, 'rejected')) })); } }], rows));
+    async function decide(r, outcome) {   // one key per payment row: a second click cannot decide twice
+      try { const res = await SM.command('/api/payments/confirm', r.key, undefined, { payment_id: r.id, outcome });
+        SM.toast(res.follow_up ? t('pay.follow_' + res.follow_up) : t('saved')); SM.go('cash'); } catch (e) { SM.fail(e); }
     }
     return card;
   }
@@ -126,7 +147,7 @@
         const qtys = sale.lines.map(l => h('input', { class: 'input', inputmode: 'decimal', placeholder: '0' }));
         const restock = sale.lines.map(() => h('input', { type: 'checkbox' }));
         const reason = SM.select(['quality', 'change_of_mind', 'wrong_item', 'other'].map(r => ({ value: r, label: t('ret.r.' + r) })));
-        const method = SM.select(['cash', 'credit_note', 'original'].map(r => ({ value: r, label: t('ret.m.' + r) })));
+        const method = SM.select(['original', 'cash', 'credit_note'].map(r => ({ value: r, label: t('ret.m.' + r) })));
         SM.put(box, h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('ret.sale', { no: sale.no }) }), h('span', { class: 'ltr muted', text: sale.at.slice(0, 16) })),
           SM.table([{ label: t('sell.item'), render: l => SM.name(l) }, { label: t('ret.sold'), render: l => SM.num(SM.qty(l.qty, l.measure)) },
             { label: t('ret.returned'), render: l => SM.num(SM.qty(l.returned_qty, l.measure)) }, { label: t('sell.amount'), num: true, render: l => SM.num(SM.money(l.net)) },
@@ -144,7 +165,8 @@
             if (!lines.length) return;
             try {
               const r = await SM.commandWithApproval('/api/returns', key, { sale_id: sale.id, lines, reason: reason.value, method: method.value });
-              SM.dialog({ title: t('ret.done'), body: [h('p', {}, t('ret.amount'), ' ', SM.num(SM.moneyText(r.amount))), h('ul', {}, r.lines.map(x => h('li', {}, SM.badge(x.disposition), ' ', h('span', { class: 'ltr', text: x.lot }))))] });
+              SM.dialog({ title: t('ret.done'), body: [h('p', {}, t('ret.amount'), ' ', SM.num(SM.moneyText(r.amount))),
+                h('ul', {}, (r.refunds || []).map(x => h('li', {}, t('refund.' + x.method), ' ', SM.num(SM.money(x.amount))))), h('ul', {}, r.lines.map(x => h('li', {}, SM.badge(x.disposition), ' ', h('span', { class: 'ltr', text: x.lot }))))] });
               SM.put(box);
             } catch (e) { SM.fail(e); }
           } }))));

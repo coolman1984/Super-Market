@@ -8,7 +8,7 @@ import re
 
 from . import barcode as bc
 from .auth import ROLES, Auth, can, require
-from .core import (Forbidden, ShopError, add_days, allocate, cumulative_share, integer,
+from .core import (Conflict, Forbidden, ShopError, add_days, allocate, cumulative_share, integer,
                    iso_date, now_iso, text, today, weighed_amount)
 
 LOCATION_KINDS = ("shelf", "store", "display_fridge", "prep_fridge", "freezer", "quarantine", "waste")
@@ -18,7 +18,7 @@ DEFAULT_SETTINGS = {
     "cashier_discount_permille": 50, "block_below_cost": True,
     "cutting_loss_tolerance_permille": None, "pack_prefix": "28",
     "price_label_policy": "block", "pack_price_policy": "label",
-    "gtin_equivalence": False, "tax_mode": "unverified",
+    "gtin_equivalence": False, "tax_mode": "unverified", "recipe_component_tolerance_permille": 50,
     "receipt_footer": "", "receipt_width_mm": 80,
 }
 
@@ -54,7 +54,7 @@ class Shop:
 
     SETTING_RULES = {
         "near_expiry_days": (0, 60), "cashier_discount_permille": (0, 1000), "receipt_width_mm": (58, 80),
-        "cutting_loss_tolerance_permille": (0, 500),
+        "cutting_loss_tolerance_permille": (0, 500), "recipe_component_tolerance_permille": (0, 500),
     }
 
     def _check_setting(self, key, value):
@@ -161,6 +161,9 @@ class Shop:
             raise ShopError("barcode_reserved_for_packs")
         if self.store.scalar("SELECT 1 FROM barcodes WHERE code=?", (code_text,)):
             raise ShopError("barcode_taken")
+        if packaging_id is not None and self.store.scalar("SELECT product_id FROM packagings WHERE id=?",
+                                                          (integer(packaging_id, 1),)) != pid:
+            raise ShopError("packaging_other_product")
         self.store.db.execute("INSERT INTO barcodes VALUES(?,?,?,?)", (code_text, pid, packaging_id, now_iso()))
 
     def add_barcode(self, actor, code_text, product_id, packaging_id=None):
@@ -249,15 +252,24 @@ class Shop:
         """FEFO candidates: released, not expired, expiry present when required,
         sellable location, positive balance."""
         day = on_date or today()
-        return self.store.all("""SELECT b.lot_id, b.location_id, b.qty, b.cost, l.expires, l.lot_no
+        rows = self.store.all("""SELECT b.lot_id, b.location_id, b.qty, b.cost, l.expires, l.lot_no, l.supplier_lot
             FROM stock_balances b JOIN lots l ON l.id=b.lot_id JOIN locations c ON c.id=b.location_id
             JOIN products p ON p.id=l.product_id
             WHERE l.product_id=? AND l.status='released' AND c.sellable=1 AND b.qty>0
               AND ((l.expires IS NULL AND p.needs_expiry=0) OR l.expires>=?)
             ORDER BY l.expires IS NULL, l.expires, l.id, c.id""", (product_id, day))
+        blocked = self.recall_blocked()
+        return [r for r in rows if r["lot_id"] not in blocked]
 
     def available(self, product_id):
         return sum(r["qty"] for r in self.sellable_lots(product_id))
+
+    def recall_blocked(self):
+        """Every lot under an ACTIVE recall: the recalled lot and everything made
+        or returned from it, including lots created after the recall."""
+        return {r[0] for r in self.store.db.execute("""WITH RECURSIVE t(id) AS (
+            SELECT lot_id FROM recalls WHERE id NOT IN (SELECT recall_id FROM recall_lifts)
+            UNION SELECT e.child FROM lot_edges e JOIN t ON e.parent=t.id) SELECT id FROM t""")}
 
     def resolve_scan(self, actor, raw, profile=None):
         """Scan text -> what it is and what product/qty it proposes. Never
@@ -373,7 +385,7 @@ class Shop:
             JOIN products p ON p.id=l.product_id WHERE l.id=?""", (lot_id,))
         if not lot:
             raise ShopError("unknown_lot")
-        if lot["status"] == "recalled":
+        if lot["status"] == "recalled" or lot_id in self.recall_blocked():
             raise ShopError("lot_recalled", {"lot": lot["lot_no"]})
         if lot["status"] == "held":
             raise ShopError("lot_held", {"lot": lot["lot_no"]})
@@ -515,6 +527,7 @@ class Shop:
                                       (supplier, op, "invoice", total, now_iso()))
                 if paid:
                     shift = self._open_shift_of(actor)
+                    self._check_drawer(shift["id"], paid)
                     self.store.db.execute("INSERT INTO supplier_entries(supplier_id,op_id,kind,amount,at) VALUES(?,?,?,?,?)",
                                           (supplier, op, "payment", -paid, now_iso()))
                     self.store.db.execute("INSERT INTO cash_entries(shift_id,op_id,kind,amount,note,at) VALUES(?,?,?,?,?,?)",
@@ -522,21 +535,49 @@ class Shop:
             return {"receipt": rid, "total": total, "lines": out_lines}  # cost redacted in app layer
         return self.store.command("receipt", key, payload, actor, work)
 
-    def supplier_payment(self, actor, key, supplier_id, amount, note=None):
+    def supplier_payment(self, actor, key, supplier_id, amount, note=None, source=None):
+        """Pay a supplier from the cashier drawer (own open shift) or from the
+        safe (back-office cash fed by drops); never more than the source holds."""
         require(actor, "supplier_pay")
         integer(supplier_id, 1), integer(amount, 1)
         note = text(note, "bad_note", 200, optional=True)
+        if source is None:   # back office (no shift of its own) pays from the safe
+            source = "drawer" if can(actor, "shift") else "safe"
+        if source not in ("drawer", "safe"):
+            raise ShopError("bad_request")
 
         def work(op):
             if not self.store.scalar("SELECT 1 FROM suppliers WHERE id=?", (supplier_id,)):
                 raise ShopError("unknown_supplier")
-            shift = self._open_shift_of(actor)
+            if source == "safe":
+                self._check_safe(amount)
+                self.store.db.execute("INSERT INTO safe_entries(op_id,kind,amount,note,at) VALUES(?,?,?,?,?)",
+                                      (op, "supplier_pay", -amount, note, now_iso()))
+            else:
+                shift = self._open_shift_of(actor)
+                self._check_drawer(shift["id"], amount)
+                self.store.db.execute("INSERT INTO cash_entries(shift_id,op_id,kind,amount,note,at) VALUES(?,?,?,?,?,?)",
+                                      (shift["id"], op, "supplier_pay", -amount, note, now_iso()))
             self.store.db.execute("INSERT INTO supplier_entries(supplier_id,op_id,kind,amount,at) VALUES(?,?,?,?,?)",
                                   (supplier_id, op, "payment", -amount, now_iso()))
-            self.store.db.execute("INSERT INTO cash_entries(shift_id,op_id,kind,amount,note,at) VALUES(?,?,?,?,?,?)",
-                                  (shift["id"], op, "supplier_pay", -amount, note, now_iso()))
-            return {"supplier": supplier_id, "balance": self.supplier_balance(supplier_id)}
-        return self.store.command("supplier_payment", key, [supplier_id, amount, note], actor, work)
+            return {"supplier": supplier_id, "balance": self.supplier_balance(supplier_id), "source": source}
+        return self.store.command("supplier_payment", key, [supplier_id, amount, note, source], actor, work)
+
+    def safe_move(self, actor, key, kind, amount, note=None):
+        """Owner puts cash into / takes cash out of the safe (with a note)."""
+        require(actor, "safe")
+        if kind not in ("deposit", "withdrawal"):
+            raise ShopError("bad_request")
+        integer(amount, 1)
+        note = text(note, "bad_note", 200, optional=True)
+
+        def work(op):
+            if kind == "withdrawal":
+                self._check_safe(amount)
+            self.store.db.execute("INSERT INTO safe_entries(op_id,kind,amount,note,at) VALUES(?,?,?,?,?)",
+                                  (op, kind, amount if kind == "deposit" else -amount, note, now_iso()))
+            return {"safe": self.safe_balance()}
+        return self.store.command("safe_move", key, [kind, amount, note], actor, work)
 
     def supplier_balance(self, supplier_id):
         return self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM supplier_entries WHERE supplier_id=?", (supplier_id,))
@@ -573,9 +614,14 @@ class Shop:
 
         def work(op):
             shift = self._open_shift_of(actor)
+            if self.CASH_SIGNS[kind] < 0:
+                self._check_drawer(shift["id"], amount)
             self.store.db.execute("INSERT INTO cash_entries(shift_id,op_id,kind,amount,note,at) VALUES(?,?,?,?,?,?)",
                                   (shift["id"], op, kind, self.CASH_SIGNS[kind] * amount,
                                    text(note, "bad_note", 200, optional=True), now_iso()))
+            if kind == "drop":   # the drawer's loss is the safe's gain
+                self.store.db.execute("INSERT INTO safe_entries(op_id,kind,amount,note,at) VALUES(?,?,?,?,?)",
+                                      (op, "drop", amount, "shift %d" % shift["id"], now_iso()))
             return {"shift": shift["id"]}
         return self.store.command("cash_move", key, [kind, amount, note], actor, work)
 
@@ -590,8 +636,8 @@ class Shop:
             require(actor, "close_others_shift")
         by_kind = self.store.all("SELECT kind, SUM(amount) amount, COUNT(*) n FROM cash_entries WHERE shift_id=? GROUP BY kind",
                                  (shift["id"],))
-        noncash = self.store.all("""SELECT p.method, p.state, SUM(p.amount) amount FROM payments p JOIN sales s ON s.id=p.sale_id
-            WHERE s.shift_id=? AND p.method<>'cash' GROUP BY p.method, p.state""", (shift["id"],))
+        noncash = self.store.all("""SELECT p.method, p.eff_state state, SUM(p.amount) amount FROM payment_states p
+            JOIN sales s ON s.id=p.sale_id WHERE s.shift_id=? AND p.method<>'cash' GROUP BY p.method, p.eff_state""", (shift["id"],))
         out = {"shift": shift, "sales": self.store.scalar("SELECT COUNT(*) FROM sales WHERE shift_id=?", (shift["id"],)),
                "noncash": noncash}
         # blind close: the cashier sees the expected drawer only after counting
@@ -657,6 +703,76 @@ class Shop:
         raise Forbidden("approval_required", {"permission": permission})
 
     # =============== selling ===============
+    def _price(self, actor, payload, settings, approver=None, check=True):
+        """Authoritative prices for a cart (used by quote and by sell). With
+        check=False nothing is approved or refused for permissions."""
+        approved_by = None
+        lines, seen_packs = [], set()
+        for raw in payload["lines"]:
+            if not isinstance(raw, dict):
+                raise ShopError("bad_line")
+            pack = None
+            if raw.get("pack_code"):
+                pack = self.store.one("SELECT * FROM packs WHERE code=?", (str(raw["pack_code"]),))
+                if not pack:
+                    raise ShopError("unknown_pack")
+                if pack["status"] != "available" or pack["removed_op"] is not None or pack["id"] in seen_packs:
+                    raise ShopError("pack_already_sold", {"pack": pack["code"]})
+                seen_packs.add(pack["id"])
+                prod = self.store.one("SELECT * FROM products WHERE id=?", (pack["product_id"],))
+                qty = pack["net_g"]
+            else:
+                prod = self.store.one("SELECT * FROM products WHERE id=?", (integer(raw.get("product_id"), 1),))
+                if not prod:
+                    raise ShopError("unknown_product")
+                qty = integer(raw.get("qty"), 1, "bad_quantity", 10_000_000)
+            if prod["kind"] in ("ingredient", "packaging"):
+                raise ShopError("not_for_sale", {"product": prod["code"]})
+            current = self.current_price(prod["id"])
+            if pack and settings["pack_price_policy"] == "label":
+                gross, unit_price, basis = pack["price"], pack["price_per_kg"] or pack["price"], "pack_label"
+            else:
+                if current is None:
+                    raise ShopError("no_price", {"product": prod["code"]})
+                unit_price = current
+                if raw.get("unit_price") is not None and integer(raw["unit_price"]) != current:
+                    approved_by = None if not check else self._approved(actor, approver, "price_override")
+                    unit_price = raw["unit_price"]
+                basis = "per_kg" if prod["measure"] == "g" else "per_unit"
+                gross = weighed_amount(unit_price, qty) if prod["measure"] == "g" else unit_price * qty
+            line_discount = integer(raw.get("line_discount", 0))
+            if line_discount > gross:
+                raise ShopError("discount_exceeds_price")
+            lines.append(dict(prod=prod, qty=qty, pack=pack, unit_price=unit_price, basis=basis, gross=gross,
+                              line_discount=line_discount, scanned=str(raw.get("scanned") or "")[:128] or None))
+        gross_total = sum(l["gross"] for l in lines)
+        line_disc = sum(l["line_discount"] for l in lines)
+        inv_disc = integer(payload.get("invoice_discount", 0))
+        if inv_disc > gross_total - line_disc:
+            raise ShopError("discount_exceeds_price")
+        discount = line_disc + inv_disc
+        if discount:
+            require(actor, "discount") if (check and not approver) else None
+            if discount * 1000 > gross_total * settings["cashier_discount_permille"]:
+                approved_by = None if not check else self._approved(actor, approver, "discount_large")
+            elif not can(actor, "discount"):
+                approved_by = None if not check else self._approved(actor, approver, "discount")
+        shares = allocate(inv_disc, [l["gross"] - l["line_discount"] for l in lines])
+        total = gross_total - discount
+        return dict(lines=lines, gross_total=gross_total, line_disc=line_disc, inv_disc=inv_disc, discount=discount,
+                    shares=shares, total=total, approved_by=approved_by)
+
+    def quote(self, actor, payload):
+        """Price the cart now, from the server, without posting anything (R14).
+        The till shows this total and sends it back as expected_total."""
+        require(actor, "sell")
+        if not isinstance(payload, dict) or not isinstance(payload.get("lines"), list) or not payload["lines"]:
+            raise ShopError("lines_required")
+        priced = self._price(actor, payload, self.settings(), check=False)
+        return {"total": priced["total"], "gross": priced["gross_total"], "discount": priced["discount"],
+                "lines": [{"product": l["prod"]["id"], "qty": l["qty"], "unit_price": l["unit_price"], "gross": l["gross"],
+                           "basis": l["basis"], "pack": l["pack"]["code"] if l["pack"] else None} for l in priced["lines"]]}
+
     def sell(self, actor, key, payload, approver=None):
         """payload: lines [{product_id, qty, pack_code?, scanned?, line_discount?,
         unit_price?}], invoice_discount, customer_id, payments [{method, amount,
@@ -676,58 +792,15 @@ class Shop:
             if customer is not None:
                 if not self.store.scalar("SELECT 1 FROM customers WHERE id=?", (integer(customer, 1),)):
                     raise ShopError("unknown_customer")
-            lines, seen_packs = [], set()
-            for raw in payload["lines"]:
-                if not isinstance(raw, dict):
-                    raise ShopError("bad_line")
-                pack = None
-                if raw.get("pack_code"):
-                    pack = self.store.one("SELECT * FROM packs WHERE code=?", (str(raw["pack_code"]),))
-                    if not pack:
-                        raise ShopError("unknown_pack")
-                    if pack["status"] != "available" or pack["id"] in seen_packs:
-                        raise ShopError("pack_already_sold", {"pack": pack["code"]})
-                    seen_packs.add(pack["id"])
-                    prod = self.store.one("SELECT * FROM products WHERE id=?", (pack["product_id"],))
-                    qty = pack["net_g"]
-                else:
-                    prod = self.store.one("SELECT * FROM products WHERE id=?", (integer(raw.get("product_id"), 1),))
-                    if not prod:
-                        raise ShopError("unknown_product")
-                    qty = integer(raw.get("qty"), 1, "bad_quantity", 10_000_000)
-                if prod["kind"] in ("ingredient", "packaging"):
-                    raise ShopError("not_for_sale", {"product": prod["code"]})
-                current = self.current_price(prod["id"])
-                if pack and settings["pack_price_policy"] == "label":
-                    gross, unit_price, basis = pack["price"], pack["price_per_kg"] or pack["price"], "pack_label"
-                else:
-                    if current is None:
-                        raise ShopError("no_price", {"product": prod["code"]})
-                    unit_price = current
-                    if raw.get("unit_price") is not None and integer(raw["unit_price"]) != current:
-                        approved_by = self._approved(actor, approver, "price_override")
-                        unit_price = raw["unit_price"]
-                    basis = "per_kg" if prod["measure"] == "g" else "per_unit"
-                    gross = weighed_amount(unit_price, qty) if prod["measure"] == "g" else unit_price * qty
-                line_discount = integer(raw.get("line_discount", 0))
-                if line_discount > gross:
-                    raise ShopError("discount_exceeds_price")
-                lines.append(dict(prod=prod, qty=qty, pack=pack, unit_price=unit_price, basis=basis, gross=gross,
-                                  line_discount=line_discount, scanned=str(raw.get("scanned") or "")[:64] or None))
-            gross_total = sum(l["gross"] for l in lines)
-            line_disc = sum(l["line_discount"] for l in lines)
-            inv_disc = integer(payload.get("invoice_discount", 0))
-            if inv_disc > gross_total - line_disc:
-                raise ShopError("discount_exceeds_price")
-            discount = line_disc + inv_disc
-            if discount:
-                require(actor, "discount") if not approver else None
-                if discount * 1000 > gross_total * settings["cashier_discount_permille"]:
-                    approved_by = self._approved(actor, approver, "discount_large")
-                elif not can(actor, "discount"):
-                    approved_by = self._approved(actor, approver, "discount")
-            shares = allocate(inv_disc, [l["gross"] - l["line_discount"] for l in lines])
-            total = gross_total - discount
+            priced = self._price(actor, payload, settings, approver)
+            lines, gross_total, line_disc, inv_disc = priced["lines"], priced["gross_total"], priced["line_disc"], priced["inv_disc"]
+            discount, shares, total, approved_by = priced["discount"], priced["shares"], priced["total"], priced["approved_by"]
+            expected = payload.get("expected_total")
+            if expected is not None and integer(expected) != total:
+                # the till showed another total: tell the cashier, change nothing
+                raise Conflict("price_changed", {"total": total, "shown": expected,
+                                                 "lines": [{"product": l["prod"]["id"], "unit_price": l["unit_price"],
+                                                            "gross": l["gross"]} for l in lines]})
             # ---- payments ----
             payments = payload.get("payments", [])
             if not isinstance(payments, list):
@@ -821,18 +894,49 @@ class Shop:
                       "training": self.store.mode == "training", "approved_by": approved_by}
             if can(actor, "see_cost"):
                 result["cost"] = total_cost
+            result["receipt"] = self.receipt_model(sid)
             return result
 
         fingerprint_payload = {k: v for k, v in payload.items() if k != "approval"}
         return self.store.command("sale", key, fingerprint_payload, actor, work)
 
+    def _label_constraint(self, prod, scanned, day):
+        """Lot/expiry printed on the scanned label (GS1 AI 10/17). The sale must
+        take exactly that stock; FEFO never hides a different physical piece."""
+        if not scanned:
+            return None
+        try:
+            info = bc.classify(scanned, {}, self.label_templates(), self.settings()["pack_prefix"])
+        except bc.ScanError as exc:
+            raise ShopError(exc.code) from exc
+        fields = info.get("fields") or {}
+        expiry, batch = fields.get("expiry"), fields.get("batch")
+        if not expiry and not batch:
+            return None
+        if expiry and expiry < day:
+            raise ShopError("scanned_label_expired", {"expiry": expiry})
+        gtin = fields.get("gtin")
+        if gtin and self.store.scalar("SELECT product_id FROM barcodes WHERE code=?", (gtin,)) not in (None, prod["id"]):
+            raise ShopError("scanned_label_other_product")
+        return {"expiry": expiry, "batch": batch}
+
+    @staticmethod
+    def _matches_label(cand, constraint):
+        if constraint["batch"] and cand.get("supplier_lot") != constraint["batch"]:
+            return False
+        if constraint["expiry"] and cand.get("expires") != constraint["expiry"]:
+            return False
+        return True
+
     def _allocate_sale(self, op, line, day):
         prod, qty = line["prod"], line["qty"]
+        constraint = None if line["pack"] else self._label_constraint(prod, line.get("scanned"), day)
         if line["pack"]:
             lot = line["pack"]["lot_id"]
             self._usable_lot(lot, day)
             rows = self.store.all("""SELECT b.location_id, b.qty FROM stock_balances b JOIN locations c ON c.id=b.location_id
-                WHERE b.lot_id=? AND c.sellable=1 AND b.qty>0 ORDER BY c.id""", (lot,))
+                WHERE b.lot_id=? AND c.sellable=1 AND b.qty>0 ORDER BY b.location_id IS NOT ?, c.id""",
+                                  (lot, line["pack"]["location_id"]))
             left, out = qty, []
             for r in rows:
                 take = min(left, r["qty"])
@@ -845,14 +949,11 @@ class Shop:
             return out
         left, out = qty, []
         for cand in self.sellable_lots(prod["id"], day):
-            take = min(left, cand["qty"])
-            # packs reserved in this lot are not free stock for loose selling
-            reserved = self.store.scalar("SELECT COALESCE(SUM(net_g),0) FROM packs WHERE lot_id=? AND status='available'",
-                                         (cand["lot_id"],))
-            lot_total = self.store.scalar("""SELECT COALESCE(SUM(b.qty),0) FROM stock_balances b JOIN locations c
-                ON c.id=b.location_id WHERE b.lot_id=? AND c.sellable=1""", (cand["lot_id"],))
-            free = max(0, lot_total - reserved)
-            take = min(take, free)
+            if constraint and not self._matches_label(cand, constraint):
+                continue
+            # stock promised to labelled packs at this place is not loose stock
+            free = cand["qty"] - self._packed(cand["lot_id"], cand["location_id"])
+            take = min(left, free)
             if take <= 0:
                 continue
             out.append((cand["lot_id"], cand["location_id"], take,
@@ -861,6 +962,8 @@ class Shop:
             if not left:
                 break
         if left:
+            if constraint:
+                raise ShopError("scanned_lot_not_in_stock", {"batch": constraint["batch"], "expiry": constraint["expiry"]})
             raise ShopError("insufficient_stock", {"product": prod["code"], "short": left})
         return out
 
@@ -877,7 +980,16 @@ class Shop:
                 raise ShopError("payment_already_decided")
             self.store.db.execute("INSERT INTO payment_confirmations VALUES(?,?,?,?,?)",
                                   (payment_id, op, outcome, actor["id"], now_iso()))
-            return {"payment": payment_id, "outcome": outcome}
+            follow_up = None
+            if outcome == "rejected":
+                customer = self.store.scalar("SELECT customer_id FROM sales WHERE id=?", (pay["sale_id"],))
+                if customer:   # the money never arrived: the known customer owes it
+                    self.store.db.execute("INSERT INTO customer_entries(customer_id,op_id,kind,amount,at) VALUES(?,?,?,?,?)",
+                                          (customer, op, "rejected_payment", pay["amount"], now_iso()))
+                    follow_up = "customer_debt"
+                else:
+                    follow_up = "uncollected"   # listed in the day report until resolved
+            return {"payment": payment_id, "outcome": outcome, "follow_up": follow_up}
         return self.store.command("payment_confirm", key, [payment_id, outcome], actor, work)
 
     def pending_payments(self, actor):
@@ -900,6 +1012,15 @@ class Shop:
                 raise ShopError("payment_exceeds_debt", {"balance": balance})
             eid = self.store.db.execute("INSERT INTO customer_entries(customer_id,op_id,kind,amount,at) VALUES(?,?,?,?,?)",
                                         (customer_id, op, "payment", -amount, now_iso())).lastrowid
+            left = amount
+            for sale in self.store.all("SELECT id FROM sales WHERE customer_id=? ORDER BY id", (customer_id,)):
+                due = self._sale_outstanding(sale["id"])
+                take = min(left, due)
+                if take > 0:   # oldest open sale first; any rest stays unallocated (opening balance)
+                    self.store.db.execute("INSERT INTO credit_allocations VALUES(?,?,?)", (eid, sale["id"], take))
+                    left -= take
+                if not left:
+                    break
             self.store.db.execute("INSERT INTO cash_entries(shift_id,op_id,kind,amount,note,at) VALUES(?,?,?,?,?,?)",
                                   (shift["id"], op, "debt_collect", amount, "customer %d" % customer_id, now_iso()))
             return {"entry": eid, "balance": balance - amount}
@@ -916,12 +1037,44 @@ class Shop:
             if self.store.scalar("SELECT 1 FROM customer_entries WHERE reverses=?", (entry_id,)):
                 raise ShopError("already_reversed")
             shift = self._open_shift_of(actor)
-            self.store.db.execute("INSERT INTO customer_entries(customer_id,op_id,kind,amount,at,reverses) VALUES(?,?,?,?,?,?)",
-                                  (entry["customer_id"], op, "payment_reversal", -entry["amount"], now_iso(), entry_id))
+            self._check_drawer(shift["id"], -entry["amount"])
+            rev = self.store.db.execute("INSERT INTO customer_entries(customer_id,op_id,kind,amount,at,reverses) VALUES(?,?,?,?,?,?)",
+                                        (entry["customer_id"], op, "payment_reversal", -entry["amount"], now_iso(), entry_id)).lastrowid
+            for a in self.store.all("SELECT sale_id, amount FROM credit_allocations WHERE entry_id=?", (entry_id,)):
+                self.store.db.execute("INSERT INTO credit_allocations VALUES(?,?,?)", (rev, a["sale_id"], -a["amount"]))
             self.store.db.execute("INSERT INTO cash_entries(shift_id,op_id,kind,amount,note,at) VALUES(?,?,?,?,?,?)",
                                   (shift["id"], op, "debt_collect", entry["amount"], reason, now_iso()))
+            self.store.audit(actor, "customer.payment_reversal", str(entry_id), {"reason": reason})
             return {"balance": self.customer_balance(entry["customer_id"])}
         return self.store.command("customer_payment_reverse", key, [entry_id, reason], actor, work)
+
+    def customer_statement(self, actor, customer_id):
+        require(actor, "shift") if not can(actor, "reports") else None
+        customer = self.store.one("SELECT * FROM customers WHERE id=?", (integer(customer_id, 1),))
+        if not customer:
+            raise ShopError("unknown_customer")
+        lines = self.store.all("""SELECT e.id, e.kind, e.amount, e.at, e.reverses, s.no sale_no,
+            (SELECT 1 FROM customer_entries r WHERE r.reverses=e.id) reversed
+            FROM customer_entries e LEFT JOIN sales s ON s.op_id=e.op_id WHERE e.customer_id=? ORDER BY e.id""", (customer_id,))
+        running = 0
+        for line in lines:
+            running += line["amount"]
+            line["balance"] = running
+        return {"customer": customer, "lines": lines, "balance": running}
+
+    def supplier_statement(self, actor, supplier_id):
+        if not (can(actor, "supplier_pay") or can(actor, "receive")):
+            raise Forbidden("forbidden", {"permission": "supplier_pay"})
+        supplier = self.store.one("SELECT * FROM suppliers WHERE id=?", (integer(supplier_id, 1),))
+        if not supplier:
+            raise ShopError("unknown_supplier")
+        lines = self.store.all("""SELECT e.id, e.kind, e.amount, e.at, r.supplier_invoice FROM supplier_entries e
+            LEFT JOIN receipts r ON r.op_id=e.op_id WHERE e.supplier_id=? ORDER BY e.id""", (supplier_id,))
+        running = 0
+        for line in lines:
+            running += line["amount"]
+            line["balance"] = running
+        return {"supplier": supplier, "lines": lines, "balance": running}
 
     # =============== returns ===============
     def sale_detail(self, actor, sale_id):
@@ -938,7 +1091,8 @@ class Shop:
             for l in lines:
                 l.pop("cost", None)
         sale["lines"] = lines
-        sale["payments"] = self.store.all("SELECT method, amount, state, reference FROM payments WHERE sale_id=?", (sale["id"],))
+        sale["payments"] = self.store.all("SELECT id, method, amount, eff_state state, reference FROM payment_states WHERE sale_id=?",
+                                          (sale["id"],))
         sale["cost_total"] = sum(l.get("cost", 0) for l in lines) if can(actor, "see_cost") else None
         return sale
 
@@ -948,7 +1102,7 @@ class Shop:
         require(actor, "refund")
         if not isinstance(payload, dict) or not isinstance(payload.get("lines"), list) or not payload["lines"]:
             raise ShopError("lines_required")
-        reason, method = payload.get("reason"), payload.get("method", "cash")
+        reason, method = payload.get("reason"), payload.get("method", "original")
         if reason not in ("quality", "change_of_mind", "wrong_item", "other") or method not in ("cash", "credit_note", "original"):
             raise ShopError("bad_request")
 
@@ -956,11 +1110,9 @@ class Shop:
             sale = self.store.one("SELECT * FROM sales WHERE id=?", (integer(payload.get("sale_id"), 1),))
             if not sale:
                 raise ShopError("unknown_sale")
-            shift = self._open_shift_of(actor) if method == "cash" else self._open_shift_of(actor, False)
             if method == "credit_note" and not sale["customer_id"]:
                 raise ShopError("credit_needs_customer")
-            if self.store.scalar("""SELECT 1 FROM payments WHERE sale_id=? AND state='pending'
-                    AND id NOT IN (SELECT payment_id FROM payment_confirmations WHERE outcome='confirmed')""", (sale["id"],)):
+            if self.store.scalar("SELECT 1 FROM payment_states WHERE sale_id=? AND eff_state='pending'", (sale["id"],)):
                 raise ShopError("sale_has_unconfirmed_payment")
             seen, total, rows = set(), 0, []
             for raw in payload["lines"]:
@@ -981,17 +1133,11 @@ class Shop:
                 restock = bool(raw.get("restock")) and line["pkind"] == "grocery" and reason in ("change_of_mind", "wrong_item")
                 rows.append((line, qty, amount, cost, restock))
                 total += amount
-            paid = {r["method"]: r["amount"] for r in self.store.all(
-                "SELECT method, SUM(amount) amount FROM payments WHERE sale_id=? GROUP BY method", (sale["id"],))}
-            refunded = {r["method"]: r["amount"] for r in self.store.all(
-                "SELECT method, SUM(amount) amount FROM returns WHERE sale_id=? GROUP BY method", (sale["id"],))}
-            # money goes back the way it came: drawer cash only up to cash taken,
-            # credit sales reduce the customer's account, cards/transfers 'original'
-            limit = {"cash": paid.get("cash", 0) - refunded.get("cash", 0),
-                     "credit_note": paid.get("credit", 0) - refunded.get("credit_note", 0),
-                     "original": sum(paid.get(m, 0) for m in ("card", "wallet", "transfer")) - refunded.get("original", 0)}
-            if total > limit[method]:
-                raise ShopError("refund_exceeds_paid_by_method", {"method": method, "left": max(limit[method], 0)})
+            refunds = self._refund_plan(sale, total, method)
+            cash_out = refunds.get("cash", 0)
+            shift = self._open_shift_of(actor) if cash_out else self._open_shift_of(actor, False)
+            if cash_out:
+                self._check_drawer(shift["id"], cash_out)
             approved_by = None
             if reason == "change_of_mind" and any(r[0]["pkind"] in ("raw_meat", "prepared") for r in rows):
                 approved_by = self._approved(actor, approver, "release_hold")
@@ -1000,10 +1146,13 @@ class Shop:
                 VALUES(?,?,?,?,?,?,?,?,?,?)""",
                 (op, sale["id"], shift["id"] if shift else None, reason, method, total, actor["id"], approved_by, now_iso(),
                  text(payload.get("note"), "bad_note", 300, optional=True))).lastrowid
+            blocked = self.recall_blocked()
             out = []
             for line, qty, amount, cost, restock in rows:
                 allocations = self.store.all("SELECT sa.*, l.expires FROM sale_allocations sa JOIN lots l ON l.id=sa.lot_id WHERE sale_line_id=?",
                                              (line["id"],))
+                if any(a["lot_id"] in blocked for a in allocations):
+                    restock = False   # goods from a recalled lot never go back on the shelf
                 expiries = [a["expires"] for a in allocations if a["expires"]]
                 expires = min(expiries) if expiries else None
                 allergens = ",".join(sorted({x for a in allocations for x in (self.store.scalar("SELECT allergens FROM lots WHERE id=?", (a["lot_id"],)) or "").split(",") if x}))
@@ -1019,15 +1168,129 @@ class Shop:
                     self.store.db.execute("UPDATE packs SET status='returned' WHERE id=?", (line["pack_id"],))
                 out.append({"sale_line": line["id"], "qty": qty, "amount": amount, "lot": lot_no,
                             "disposition": "restock" if restock else "quarantine"})
-            if method == "cash" and total:
+            for channel, amount in refunds.items():
+                self.store.db.execute("INSERT INTO refund_allocations VALUES(?,?,?)", (rid, channel, amount))
+            if cash_out:
                 self.store.db.execute("INSERT INTO cash_entries(shift_id,op_id,kind,amount,note,at) VALUES(?,?,?,?,?,?)",
-                                      (shift["id"], op, "refund", -total, sale["no"], now_iso()))
-            elif method == "credit_note" and total:
-                self.store.db.execute("INSERT INTO customer_entries(customer_id,op_id,kind,amount,at) VALUES(?,?,?,?,?)",
-                                      (sale["customer_id"], op, "return", -total, now_iso()))
-            return {"return": rid, "amount": total, "lines": out}
+                                      (shift["id"], op, "refund", -cash_out, sale["no"], now_iso()))
+            customer_credit = refunds.get("credit_cancel", 0) + refunds.get("store_credit", 0)
+            if customer_credit:
+                eid = self.store.db.execute("INSERT INTO customer_entries(customer_id,op_id,kind,amount,at) VALUES(?,?,?,?,?)",
+                                            (sale["customer_id"], op, "return", -customer_credit, now_iso())).lastrowid
+                if refunds.get("credit_cancel"):
+                    self.store.db.execute("INSERT INTO credit_allocations VALUES(?,?,?)", (eid, sale["id"], -refunds["credit_cancel"]))
+            return {"return": rid, "amount": total, "lines": out,
+                    "refunds": [{"method": m, "amount": a} for m, a in refunds.items()]}
         fingerprint_payload = {k: v for k, v in payload.items() if k != "approval"}
         return self.store.command("return", key, fingerprint_payload, actor, work)
+
+    def receipt_model(self, sale_id, reprint=False):
+        """One receipt shape for the first print and every reprint (R18):
+        the SAVED sale time, effective payment states, discounts, training mark."""
+        sale = self.store.one("""SELECT s.*, u.display_name cashier FROM sales s JOIN users u ON u.id=s.user_id
+            WHERE s.id=?""", (sale_id,))
+        if not sale:
+            raise ShopError("unknown_sale")
+        lines = self.store.all("""SELECT sl.qty, sl.unit_price, sl.price_basis, sl.gross, sl.line_discount + sl.invoice_discount_share
+            discount, sl.net, p.name_ar, p.name_en, p.measure, k.code pack FROM sale_lines sl JOIN products p ON p.id=sl.product_id
+            LEFT JOIN packs k ON k.id=sl.pack_id WHERE sl.sale_id=? ORDER BY sl.id""", (sale_id,))
+        payments = self.store.all("SELECT method, amount, eff_state state FROM payment_states WHERE sale_id=? ORDER BY id",
+                                  (sale_id,))
+        return {"no": sale["no"], "at": sale["at"], "cashier": sale["cashier"], "training": bool(sale["training"]),
+                "shop_name": self.settings()["shop_name"], "footer": self.settings()["receipt_footer"],
+                "lines": lines, "gross": sale["gross"], "discount": sale["line_discounts"] + sale["invoice_discount"],
+                "total": sale["total"], "payments": payments, "cash_tendered": sale["cash_tendered"],
+                "change": sale["change_given"], "reprint": reprint, "kind": "sales_receipt_not_tax_invoice"}
+
+    def reprint(self, actor, sale_id):
+        sale = self.store.one("SELECT id, user_id FROM sales WHERE id=? OR no=?", (sale_id, str(sale_id)))
+        if not sale:
+            raise ShopError("unknown_sale")
+        if sale["user_id"] != actor["id"] and not (can(actor, "refund") or can(actor, "reports")):
+            raise Forbidden("forbidden", {"permission": "reports"})
+        self.store.tx(lambda: self.store.audit(actor, "receipt.reprint", str(sale["id"])))
+        return self.receipt_model(sale["id"], reprint=True)
+
+    # =============== refund and credit bookkeeping ===============
+    CHANNELS = ("cash", "card", "wallet", "transfer")
+
+    def _sale_outstanding(self, sale_id):
+        """Customer debt still open on this sale: on-account amounts (and
+        rejected transfers of a known customer) minus collections and
+        cancellations allocated to the sale."""
+        owed = self.store.scalar("""SELECT COALESCE(SUM(amount),0) FROM payment_states WHERE sale_id=?
+            AND ((method='credit' AND eff_state='settled') OR eff_state='rejected')""", (sale_id,))
+        if not self.store.scalar("SELECT customer_id FROM sales WHERE id=?", (sale_id,)):
+            return 0
+        settled = self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM credit_allocations WHERE sale_id=?", (sale_id,))
+        return owed - settled
+
+    def _refund_caps(self, sale_id):
+        """Money that can still go back per channel for this sale."""
+        caps = {c: 0 for c in self.CHANNELS}
+        for r in self.store.all("""SELECT method, SUM(amount) a FROM payment_states WHERE sale_id=? AND eff_state='settled'
+                AND method<>'credit' GROUP BY method""", (sale_id,)):
+            caps[r["method"]] += r["a"]
+        # on-account money the customer has since paid (in cash) can come back as cash
+        caps["cash"] += self.store.scalar("""SELECT COALESCE(SUM(a.amount),0) FROM credit_allocations a
+            JOIN customer_entries e ON e.id=a.entry_id WHERE a.sale_id=? AND e.kind IN ('payment','payment_reversal')""",
+                                          (sale_id,))
+        refunded = {}
+        for r in self.store.all("""SELECT a.method, SUM(a.amount) amount FROM refund_allocations a JOIN returns r
+                ON r.id=a.return_id WHERE r.sale_id=? GROUP BY a.method""", (sale_id,)):
+            refunded[r["method"]] = r["amount"]
+        for r in self.store.all("""SELECT method, SUM(amount) amount FROM returns r WHERE sale_id=? AND NOT EXISTS
+                (SELECT 1 FROM refund_allocations a WHERE a.return_id=r.id) GROUP BY method""", (sale_id,)):
+            legacy = {"cash": "cash", "credit_note": "store_credit", "original": "card"}[r["method"]]   # before migration 2
+            refunded[legacy] = refunded.get(legacy, 0) + r["amount"]
+        for c in self.CHANNELS:
+            caps[c] -= refunded.get(c, 0)
+        left = refunded.get("store_credit", 0)        # store credit used money in this order
+        for c in self.CHANNELS:
+            used = min(left, max(caps[c], 0))
+            caps[c] -= used
+            left -= used
+        return {c: max(v, 0) for c, v in caps.items()}
+
+    def _refund_plan(self, sale, amount, method):
+        """Split a refund: first cancel what the customer still owes on this
+        sale, then give money back the way it was paid (or as store credit
+        when explicitly chosen). Never more than was really received."""
+        plan = {}
+        cancel = min(amount, max(self._sale_outstanding(sale["id"]), 0))
+        if cancel:
+            plan["credit_cancel"] = cancel
+        rest = amount - cancel
+        if not rest:
+            return plan
+        caps = self._refund_caps(sale["id"])
+        if rest > sum(caps.values()):
+            raise ShopError("refund_exceeds_paid_by_method", {"left": sum(caps.values())})
+        if method == "credit_note":
+            plan["store_credit"] = rest
+        elif method == "cash":
+            if rest > caps["cash"]:
+                raise ShopError("refund_exceeds_paid_by_method", {"method": "cash", "left": caps["cash"]})
+            plan["cash"] = rest
+        else:
+            for channel, part in zip(self.CHANNELS, allocate(rest, [caps[c] for c in self.CHANNELS])):
+                if part:
+                    plan[channel] = part
+        return plan
+
+    def _check_drawer(self, shift_id, amount):
+        """Cash leaving the drawer must be there (R06): no silent negative drawer."""
+        have = self.shift_expected(shift_id)
+        if amount > have:
+            raise ShopError("drawer_insufficient", {"drawer": have, "needed": amount})
+
+    def safe_balance(self):
+        return self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM safe_entries")
+
+    def _check_safe(self, amount):
+        have = self.safe_balance()
+        if amount > have:
+            raise ShopError("safe_insufficient", {"safe": have, "needed": amount})
 
     # =============== stock moves: transfer, waste, holds, recall ===============
     def transfer(self, actor, key, lot_id, from_location, to_location, qty):
@@ -1040,6 +1303,7 @@ class Shop:
                 raise ShopError("same_location")
             if not self.store.scalar("SELECT 1 FROM lots WHERE id=?", (lot_id,)):
                 raise ShopError("unknown_lot")
+            self._check_free(lot_id, src["id"], qty)
             cost = self._consume(op, "transfer_out", lot_id, src["id"], qty, check=False)
             self._entry(op, "transfer_in", lot_id, dst["id"], qty, cost)
             return {"lot": lot_id, "qty": qty}
@@ -1055,10 +1319,39 @@ class Shop:
 
         def work(op):
             integer(lot_id, 1)
-            cost = self._consume(op, "waste", lot_id, self._location(integer(location_id, 1))["id"], integer(qty, 1),
-                                 reason, check=False)
+            location = self._location(integer(location_id, 1))["id"]
+            self._check_free(lot_id, location, integer(qty, 1))
+            cost = self._consume(op, "waste", lot_id, location, qty, reason, check=False)
             return {"lot": lot_id, "qty": qty, "cost": cost, "reason": reason}
         return self.store.command("waste", key, [lot_id, location_id, qty, reason, note], actor, work)
+
+    def _packed(self, lot_id, location_id):
+        return self.store.scalar("""SELECT COALESCE(SUM(net_g),0) FROM packs WHERE lot_id=? AND location_id IS ?
+            AND status='available' AND removed_op IS NULL""", (lot_id, location_id))
+
+    def _check_free(self, lot_id, location_id, qty):
+        """Stock promised to labelled packs can only leave WITH its pack (R12)."""
+        free = self._balance(lot_id, location_id)[0] - self._packed(lot_id, location_id)
+        if qty > free:
+            raise ShopError("stock_reserved_by_packs", {"free": max(free, 0)})
+
+    def waste_pack(self, actor, key, code, reason, note=None):
+        """Write off one labelled pack: its stock leaves and the pack can never sell."""
+        require(actor, "waste")
+        if reason not in self.WASTE_REASONS:
+            raise ShopError("bad_reason")
+        note = text(note, "bad_note", 200, optional=True)
+
+        def work(op):
+            pack = self.store.one("SELECT * FROM packs WHERE code=?", (text(code, "bad_code", 20),))
+            if not pack:
+                raise ShopError("unknown_pack")
+            if pack["status"] != "available" or pack["removed_op"] is not None:
+                raise ShopError("pack_not_available")
+            cost = self._consume(op, "waste", pack["lot_id"], pack["location_id"], pack["net_g"], reason, check=False)
+            self.store.db.execute("UPDATE packs SET removed_op=? WHERE id=?", (op, pack["id"]))
+            return {"pack": pack["code"], "qty": pack["net_g"], "cost": cost, "reason": reason}
+        return self.store.command("waste_pack", key, [code, reason, note], actor, work)
 
     def set_lot_status(self, actor, key, lot_id, status, reason):
         """Hold / release a lot. Releasing a recalled lot needs the recall
@@ -1081,6 +1374,9 @@ class Shop:
                 require(actor, "transfer") if not can(actor, "release_hold") else None
             if lot["status"] == status:
                 raise ShopError("status_unchanged")
+            if status == "released" and lot_id in self.recall_blocked():
+                # only lifting the recall itself (separate, documented act) can end it
+                raise ShopError("lot_under_recall", {"lot": lot["lot_no"]})
             self.store.db.execute("UPDATE lots SET status=? WHERE id=?", (status, lot_id))
             self.store.db.execute("INSERT INTO lot_events(lot_id,status,reason,op_id,at) VALUES(?,?,?,?,?)",
                                   (lot_id, status, reason, op, now_iso()))
@@ -1114,6 +1410,29 @@ class Shop:
                                   (op, lot_id, reason, actor["id"], now_iso()))
             return {"lots": affected, **self._impact(affected)}
         return self.store.command("recall", key, [lot_id, reason], actor, work)
+
+    def lift_recall(self, actor, key, recall_id, reason):
+        """End an active recall with a written reason (evidence such as a
+        supplier/authority letter). Lots stay recalled/held until each one is
+        inspected and released one by one."""
+        require(actor, "recall")
+        reason = text(reason, "reason_required", 300)
+
+        def work(op):
+            recall = self.store.one("SELECT * FROM recalls WHERE id=?", (integer(recall_id, 1),))
+            if not recall:
+                raise ShopError("unknown_recall")
+            if self.store.scalar("SELECT 1 FROM recall_lifts WHERE recall_id=?", (recall_id,)):
+                raise ShopError("recall_already_lifted")
+            self.store.db.execute("INSERT INTO recall_lifts VALUES(?,?,?,?,?)", (recall_id, op, reason, actor["id"], now_iso()))
+            return {"recall": recall_id, "still_blocked": sorted(self.recall_blocked() & set(self.descendants(recall["lot_id"])))}
+        return self.store.command("recall_lift", key, [recall_id, reason], actor, work)
+
+    def recalls(self, actor):
+        require(actor, "recall") if not can(actor, "reports") else None
+        return self.store.all("""SELECT r.*, l.lot_no, p.name_ar, p.name_en, f.reason lift_reason, f.at lifted_at
+            FROM recalls r JOIN lots l ON l.id=r.lot_id JOIN products p ON p.id=l.product_id
+            LEFT JOIN recall_lifts f ON f.recall_id=r.id ORDER BY r.id DESC""")
 
     def _impact(self, lots):
         marks = ",".join("?" * len(lots))
@@ -1176,6 +1495,13 @@ class Shop:
                     raise ShopError("bad_component_role")
                 self.store.db.execute("INSERT INTO recipe_components VALUES(?,?,?,?)",
                                       (vid, comp["id"], integer(c.get("qty"), 1), role))
+                for alt_id in c.get("alternatives") or []:
+                    alt = self.store.one("SELECT * FROM products WHERE id=?", (integer(alt_id, 1),))
+                    if not alt or alt["id"] in seen or (alt["kind"] == "packaging") != (role == "packaging") \
+                            or alt["measure"] != comp["measure"]:
+                        raise ShopError("bad_alternative")
+                    seen.add(alt["id"])   # an approved substitute counts toward this component
+                    self.store.db.execute("INSERT INTO recipe_alternatives VALUES(?,?,?)", (vid, comp["id"], alt["id"]))
             self.store.audit(actor, "recipe.version", str(vid), {"product": product_id, "version": version})
             return {"recipe_version": vid, "version": version}
         return self.store.tx(work)
@@ -1188,7 +1514,37 @@ class Shop:
         for v in versions:
             v["components"] = self.store.all("""SELECT c.*, p.name_ar, p.name_en, p.measure FROM recipe_components c
                 JOIN products p ON p.id=c.product_id WHERE version_id=?""", (v["id"],))
+            for c in v["components"]:
+                c["alternatives"] = [r["product_id"] for r in self.store.all(
+                    "SELECT product_id FROM recipe_alternatives WHERE version_id=? AND component_product_id=?",
+                    (v["id"], c["product_id"]))]
         return versions
+
+    def _check_recipe_use(self, actor, approver, version, components, used, packs, units, output_g):
+        """Every component must be used, in the version's quantity per unit
+        (basis: packs made, declared units, or output / target pack weight).
+        Off by more than the tolerance -> manager approval; missing -> refused."""
+        if packs:
+            n = len(packs)
+        elif units is not None:
+            n = integer(units, 1)
+        elif version["target_pack_g"] and output_g % version["target_pack_g"] == 0:
+            n = output_g // version["target_pack_g"]
+        else:
+            raise ShopError("recipe_units_required")
+        tolerance = self.settings()["recipe_component_tolerance_permille"]
+        approved_by = None
+        for c in components:
+            expected, actual = c["qty"] * n, used.get(c["product_id"], 0)
+            if not actual:
+                raise ShopError("recipe_component_missing", {"product": c["product_id"], "expected": expected})
+            if c["role"] == "packaging":
+                off = actual != expected
+            else:
+                off = abs(actual - expected) * 1000 > expected * tolerance
+            if off:
+                approved_by = self._approved(actor, approver, "approve_variance")
+        return approved_by
 
     def produce(self, actor, key, payload, approver=None):
         """Cutting or recipe production. inputs [{lot_id, location_id, qty}];
@@ -1218,11 +1574,14 @@ class Shop:
                     WHERE v.id=?""", (integer(p.get("recipe_version_id"), 1),))
                 if not version:
                     raise ShopError("unknown_recipe_version")
-                allowed = {c["product_id"] for c in self.store.all("SELECT product_id FROM recipe_components WHERE version_id=?",
-                                                                    (version["id"],))}
+                components = self.store.all("SELECT * FROM recipe_components WHERE version_id=?", (version["id"],))
+                allowed = {c["product_id"]: c["product_id"] for c in components}
+                allowed.update({r["product_id"]: r["component_product_id"] for r in self.store.all(
+                    "SELECT * FROM recipe_alternatives WHERE version_id=?", (version["id"],))})
                 if len(outputs) != 1 or outputs[0].get("product_id") != version["product_id"]:
                     raise ShopError("recipe_single_output")
             seen, food_in, food_cost, pack_cost, expiries, parents, allergens = set(), 0, 0, 0, [], [], set()
+            used = {}   # recipe component -> quantity actually consumed
             for raw in inputs:
                 if not isinstance(raw, dict):
                     raise ShopError("bad_line")
@@ -1231,8 +1590,11 @@ class Shop:
                     raise ShopError("duplicate_input")
                 seen.add((lot_id, loc_id))
                 lot = self._usable_lot(lot_id, day)
-                if kind == "recipe" and lot["product_id"] not in allowed:
-                    raise ShopError("input_not_in_recipe", {"lot": lot["lot_no"]})
+                if kind == "recipe":
+                    if lot["product_id"] not in allowed:
+                        raise ShopError("input_not_in_recipe", {"lot": lot["lot_no"]})
+                    component = allowed[lot["product_id"]]
+                    used[component] = used.get(component, 0) + qty
                 if lot["pkind"] == "packaging":
                     pack_cost += self._consume(op, "production_in", lot_id, loc_id, qty, check=False)
                 else:
@@ -1269,6 +1631,12 @@ class Shop:
                 tolerance = self.settings()["cutting_loss_tolerance_permille"]
             if abnormal or (natural and (tolerance is None or natural * 1000 > food_in * tolerance)):
                 approved_by = self._approved(actor, approver, "approve_variance")
+            packs = p.get("packs") or []
+            meat_in = 0
+            if version:
+                approved_by = self._check_recipe_use(actor, approver, version, components, used, packs, p.get("units"),
+                                                     output_g) or approved_by
+                meat_in = sum(used.get(c["product_id"], 0) for c in components if c["role"] == "meat")
             limit = min(expiries)
             if version:
                 limit = min(limit, add_days(day, version["shelf_life_days"]))
@@ -1296,7 +1664,6 @@ class Shop:
                 out.append({"lot": lot, "lot_no": lot_no, "product": o["prod"]["id"], "name_ar": o["prod"]["name_ar"],
                             "name_en": o["prod"]["name_en"], "qty": o["qty"], "cost": cost,
                             "expires": expires, "allergens": lot_allergens})
-            packs = p.get("packs") or []
             if packs:
                 if len(out) != 1:
                     raise ShopError("packs_need_single_output")
@@ -1310,13 +1677,21 @@ class Shop:
                     meat = integer(pk["meat_g"], 1) if pk.get("meat_g") is not None else None
                     if meat is not None and meat > net:
                         raise ShopError("meat_exceeds_net")
+                    if version:
+                        # meat on the label comes from meat really used, shared by weight;
+                        # losses are assumed to fall evenly on every ingredient
+                        most = meat_in * output_g // food_in * net // output_g
+                        if meat is None:
+                            meat = most or None
+                        elif meat > most:
+                            raise ShopError("meat_claim_exceeds_input", {"max_g": most})
                     total_net += net
                     code = bc.pack_code(self.settings()["pack_prefix"], self.store.next_seq("pack"))
                     self.store.db.execute(
-                        """INSERT INTO packs(code,product_id,lot_id,net_g,tare_g,meat_g,price,price_per_kg,packed_at,expires,status)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,'available')""",
+                        """INSERT INTO packs(code,product_id,lot_id,net_g,tare_g,meat_g,price,price_per_kg,packed_at,expires,
+                        status,location_id) VALUES(?,?,?,?,?,?,?,?,?,?,'available',?)""",
                         (code, out[0]["product"], out[0]["lot"], net, tare, meat, weighed_amount(price_kg, net), price_kg,
-                         now_iso(), out[0]["expires"]))
+                         now_iso(), out[0]["expires"], clean_out[0]["loc"]))
                     made.append({"code": code, "net_g": net, "tare_g": tare, "meat_g": meat,
                                  "price": weighed_amount(price_kg, net)})
                 if total_net != out[0]["qty"]:
@@ -1399,6 +1774,10 @@ class Shop:
                 if not diff:
                     continue
                 if diff < 0:
+                    try:
+                        self._check_free(row["lot_id"], count["location_id"], -diff)
+                    except ShopError as exc:   # missing labelled packs: write off the packs themselves first
+                        raise ShopError("count_affects_packs", {"lot": row["lot_id"], **exc.detail}) from exc
                     cost = self._consume(op, "count", row["lot_id"], count["location_id"], -diff, "count_difference", check=False)
                     diffs.append({"lot": row["lot_id"], "diff": diff, "cost": -cost})
                 else:
@@ -1457,8 +1836,10 @@ class Shop:
         returns = self.store.one("""SELECT COALESCE(SUM(r.amount),0) amount,
             COALESCE((SELECT SUM(cost) FROM return_lines rl JOIN returns r2 ON r2.id=rl.return_id WHERE r2.at LIKE ?),0) cost
             FROM returns r WHERE r.at LIKE ?""", (like, like))
-        by_method = self.store.all("""SELECT p.method, p.state, COALESCE(SUM(p.amount),0) amount FROM payments p
-            JOIN sales s ON s.id=p.sale_id WHERE s.at LIKE ? GROUP BY p.method, p.state""", (like,))
+        by_method = self.store.all("""SELECT p.method, p.eff_state state, COALESCE(SUM(p.amount),0) amount FROM payment_states p
+            JOIN sales s ON s.id=p.sale_id WHERE s.at LIKE ? GROUP BY p.method, p.eff_state""", (like,))
+        refunds = self.store.all("""SELECT a.method, SUM(a.amount) amount FROM refund_allocations a JOIN returns r
+            ON r.id=a.return_id WHERE r.at LIKE ? GROUP BY a.method""", (like,))
         waste = self.store.all("""SELECT reason, COALESCE(SUM(-qty),0) qty, COALESCE(SUM(-cost),0) cost FROM stock_entries
             WHERE kind='waste' AND at LIKE ? GROUP BY reason""", (like,))
         abnormal = self.store.scalar("SELECT COALESCE(SUM(abnormal_loss_cost),0) FROM productions WHERE at LIKE ?", (like,))
@@ -1467,7 +1848,8 @@ class Shop:
                                 (like, like))
         net_sales = sales["total"] - returns["amount"]
         out = {"day": day, "sales_count": sales["n"], "sales_total": sales["total"], "discounts": sales["discounts"],
-               "returns": returns["amount"], "net_sales": net_sales, "by_method": by_method, "shifts": shifts,
+               "returns": returns["amount"], "net_sales": net_sales, "by_method": by_method, "refunds_by_method": refunds,
+               "safe": self.safe_balance() if can(actor, "safe") else None, "shifts": shifts,
                "waste": waste, "near_expiry": [r for r in self.stock_report(actor) if r["state"] in ("near_expiry", "expired")],
                "held": [r for r in self.stock_report(actor) if r["state"] in ("held", "recalled")],
                "pending_payments": self.store.scalar("""SELECT COUNT(*) FROM payments WHERE state='pending'
@@ -1490,5 +1872,15 @@ class Shop:
             ON e.lot_id=b.lot_id AND e.location_id=b.location_id WHERE e.q IS NOT b.qty OR e.c IS NOT b.cost""")
         packs = self.store.all("""SELECT p.code FROM packs p JOIN sale_lines sl ON sl.id=p.sale_line_id
             WHERE p.status='sold' AND sl.pack_id<>p.id""")
+        missing = self.store.all("""SELECT e.lot_id, e.location_id FROM stock_entries e LEFT JOIN stock_balances b
+            ON b.lot_id=e.lot_id AND b.location_id=e.location_id WHERE b.lot_id IS NULL GROUP BY e.lot_id, e.location_id""")
         pay = self.store.all("""SELECT s.id FROM sales s WHERE s.total <> (SELECT COALESCE(SUM(amount),0) FROM payments WHERE sale_id=s.id)""")
-        return {"ok": not (bad or packs or pay), "balances": bad, "packs": packs, "payments": pay}
+        # labelled packs promise stock: available packs never exceed what is physically there
+        over = self.store.all("""SELECT p.lot_id, p.location_id, SUM(p.net_g) packed,
+            COALESCE((SELECT qty FROM stock_balances b WHERE b.lot_id=p.lot_id AND b.location_id=p.location_id),0) stock
+            FROM packs p WHERE p.status='available' AND p.removed_op IS NULL GROUP BY p.lot_id, p.location_id HAVING packed > stock""")
+        unsold = self.store.all("""SELECT p.code FROM packs p WHERE p.status='sold' AND (p.sale_line_id IS NULL OR
+            NOT EXISTS(SELECT 1 FROM sale_lines sl WHERE sl.id=p.sale_line_id AND sl.pack_id=p.id))""")
+        ok = not (bad or packs or pay or missing or over or unsold)
+        return {"ok": ok, "balances": bad, "missing_balances": missing, "packs": packs + unsold,
+                "packs_over_stock": over, "payments": pay}

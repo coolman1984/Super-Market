@@ -121,49 +121,79 @@ class PosixSerial:
         os.close(self.fd)
 
 
-class WindowsSerial:  # pragma: no cover - exercised only on Windows hardware
+def win_structs():
+    """DCB and COMMTIMEOUTS with explicit 32/16-bit fields (DWORD/WORD are
+    32/16-bit on Windows on every architecture; never use C long here)."""
+    import ctypes
+    DWORD, WORD, BYTE, CHAR = ctypes.c_uint32, ctypes.c_uint16, ctypes.c_ubyte, ctypes.c_char
+
+    class DCB(ctypes.Structure):
+        _fields_ = [("DCBlength", DWORD), ("BaudRate", DWORD), ("flags", DWORD), ("wReserved", WORD),
+                    ("XonLim", WORD), ("XoffLim", WORD), ("ByteSize", BYTE), ("Parity", BYTE), ("StopBits", BYTE),
+                    ("XonChar", CHAR), ("XoffChar", CHAR), ("ErrorChar", CHAR), ("EofChar", CHAR), ("EvtChar", CHAR),
+                    ("wReserved1", WORD)]
+
+    class COMMTIMEOUTS(ctypes.Structure):
+        _fields_ = [("ReadIntervalTimeout", DWORD), ("ReadTotalTimeoutMultiplier", DWORD),
+                    ("ReadTotalTimeoutConstant", DWORD), ("WriteTotalTimeoutMultiplier", DWORD),
+                    ("WriteTotalTimeoutConstant", DWORD)]
+    return DCB, COMMTIMEOUTS
+
+
+def dcb_flags(parity):
+    """DCB bit field: fBinary (bit 0) always; fParity (bit 1) only when a
+    parity is used; fDtrControl=ENABLE (bits 4-5 = 01); no flow control."""
+    return 0x1 | (0x2 if parity != "none" else 0) | 0x10
+
+
+class WindowsSerial:  # pragma: no cover - needs a Windows COM port (structures are unit tested)
     def __init__(self, path, baud=9600, bits=8, parity="none", stop=1):
         import ctypes
         from ctypes import wintypes
-        self.ct, self.wt = ctypes, wintypes
+        if bits not in (7, 8) or parity not in PARITIES or stop not in (1, 2) or baud not in PosixSerial.BAUDS:
+            raise ValueError("bad serial settings")
+        self.ct = ctypes
         k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        HANDLE, BOOL, LPVOID = wintypes.HANDLE, wintypes.BOOL, ctypes.c_void_p
+        DCB, TIMEOUTS = win_structs()
+        k32.CreateFileW.argtypes = [wintypes.LPCWSTR, ctypes.c_uint32, ctypes.c_uint32, LPVOID, ctypes.c_uint32,
+                                    ctypes.c_uint32, HANDLE]
+        k32.CreateFileW.restype = HANDLE
+        k32.GetCommState.argtypes = [HANDLE, ctypes.POINTER(DCB)]
+        k32.SetCommState.argtypes = [HANDLE, ctypes.POINTER(DCB)]
+        k32.SetCommTimeouts.argtypes = [HANDLE, ctypes.POINTER(TIMEOUTS)]
+        k32.ReadFile.argtypes = [HANDLE, LPVOID, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), LPVOID]
+        k32.CloseHandle.argtypes = [HANDLE]
+        for fn in ("GetCommState", "SetCommState", "SetCommTimeouts", "ReadFile", "CloseHandle"):
+            getattr(k32, fn).restype = BOOL
         self.k32 = k32
         name = path if path.startswith("\\\\.\\") else "\\\\.\\" + path
-        k32.CreateFileW.restype = wintypes.HANDLE
         handle = k32.CreateFileW(name, 0xC0000000, 0, None, 3, 0, None)  # GENERIC_READ|WRITE, OPEN_EXISTING
-        if handle in (None, wintypes.HANDLE(-1).value):
+        invalid = ctypes.c_void_p(-1).value
+        if not handle or handle == invalid:
             raise OSError("cannot open %s (error %d)" % (path, ctypes.get_last_error()))
         self.handle = handle
-
-        class DCB(ctypes.Structure):
-            _fields_ = [("DCBlength", wintypes.DWORD), ("BaudRate", wintypes.DWORD), ("flags", wintypes.DWORD),
-                        ("wReserved", wintypes.WORD), ("XonLim", wintypes.WORD), ("XoffLim", wintypes.WORD),
-                        ("ByteSize", ctypes.c_ubyte), ("Parity", ctypes.c_ubyte), ("StopBits", ctypes.c_ubyte),
-                        ("XonChar", ctypes.c_char), ("XoffChar", ctypes.c_char), ("ErrorChar", ctypes.c_char),
-                        ("EofChar", ctypes.c_char), ("EvtChar", ctypes.c_char), ("wReserved1", wintypes.WORD)]
-
-        class TIMEOUTS(ctypes.Structure):
-            _fields_ = [("ReadIntervalTimeout", wintypes.DWORD), ("ReadTotalTimeoutMultiplier", wintypes.DWORD),
-                        ("ReadTotalTimeoutConstant", wintypes.DWORD), ("WriteTotalTimeoutMultiplier", wintypes.DWORD),
-                        ("WriteTotalTimeoutConstant", wintypes.DWORD)]
-        dcb = DCB()
-        dcb.DCBlength = ctypes.sizeof(DCB)
-        if not k32.GetCommState(handle, ctypes.byref(dcb)):
+        try:
+            dcb = DCB()
+            dcb.DCBlength = ctypes.sizeof(DCB)
+            if not k32.GetCommState(handle, ctypes.byref(dcb)):
+                raise OSError("GetCommState failed (error %d)" % ctypes.get_last_error())
+            dcb.BaudRate, dcb.ByteSize = baud, bits
+            dcb.Parity = {"none": 0, "odd": 1, "even": 2}[parity]
+            dcb.StopBits = 0 if stop == 1 else 2
+            dcb.flags = dcb_flags(parity)
+            if not k32.SetCommState(handle, ctypes.byref(dcb)):
+                raise OSError("SetCommState failed (error %d)" % ctypes.get_last_error())
+            # return at once with what arrived, or after 50 ms with nothing
+            if not k32.SetCommTimeouts(handle, ctypes.byref(TIMEOUTS(0xFFFFFFFF, 0xFFFFFFFF, 50, 0, 0))):
+                raise OSError("SetCommTimeouts failed (error %d)" % ctypes.get_last_error())
+        except BaseException:
             self.close()
-            raise OSError("GetCommState failed")
-        dcb.BaudRate, dcb.ByteSize = baud, bits
-        dcb.Parity = {"none": 0, "odd": 1, "even": 2}[parity]
-        dcb.StopBits = 0 if stop == 1 else 2
-        dcb.flags = 0x1 | 0x10  # fBinary, fDtrControl=ENABLE
-        if not k32.SetCommState(handle, ctypes.byref(dcb)):
-            self.close()
-            raise OSError("SetCommState failed")
-        timeouts = TIMEOUTS(0xFFFFFFFF, 0xFFFFFFFF, 50, 0, 0)  # return after 50 ms with what arrived
-        k32.SetCommTimeouts(handle, ctypes.byref(timeouts))
+            raise
 
     def read(self, timeout=0.05):
         buf = self.ct.create_string_buffer(4096)
-        n = self.wt.DWORD()
+        n = self.ct.c_uint32()
         if not self.k32.ReadFile(self.handle, buf, 4096, self.ct.byref(n), None):
             raise OSError("ReadFile failed (error %d)" % self.ct.get_last_error())
         return buf.raw[:n.value]
@@ -271,15 +301,26 @@ class Device:
 
 
 class ScannerHub:
-    """Holds configured serial/TCP devices and a bounded event queue that
-    browsers long-poll. Every frame gets its own id: two identical scans are
-    two events (two packs), a re-delivered event keeps its id."""
+    """Serial/TCP scanner events for the tills.
+
+    - Each device is bound to ONE workstation by the shop (settings); a till
+      receives only its own devices' reads (R09).
+    - Per workstation one window holds the lease; another window must claim it
+      (the previous one is told so) - a read never lands in two carts.
+    - `epoch` changes on every server start; a browser holding an old cursor
+      is reset instead of waiting forever (R13). Reads that fell out of the
+      bounded queue are COUNTED and reported, never silently lost.
+    - Every frame has its own id: two identical scans are two events."""
 
     def __init__(self, size=500):
+        import secrets
         self.events = collections.deque(maxlen=size)
         self.next_id = 1
         self.cond = threading.Condition()
         self.devices = {}
+        self.bindings = {}
+        self.leases = {}
+        self.epoch = secrets.token_hex(6)
 
     def push(self, device_id, text):
         with self.cond:
@@ -291,6 +332,7 @@ class ScannerHub:
             return event
 
     def since(self, after, wait=0.0, device=None):
+        """Diagnostics view (scanner setup screen): reads everything, consumes nothing."""
         deadline = time.monotonic() + wait
         with self.cond:
             while True:
@@ -300,18 +342,54 @@ class ScannerHub:
                     return found, self.next_id - 1
                 self.cond.wait(remaining)
 
+    def claim(self, workstation, window):
+        with self.cond:
+            self.leases[workstation] = window
+            self.cond.notify_all()
+            return window
+
+    def take(self, workstation, window, after, wait=0.0, epoch=None):
+        from .core import ShopError
+        deadline = time.monotonic() + wait
+        with self.cond:
+            info = {"epoch": self.epoch, "restarted": False, "missed": 0}
+            if epoch is not None and epoch != self.epoch:
+                after, info["restarted"] = 0, True
+            mine = {d for d, ws in self.bindings.items() if ws == workstation}
+            while True:
+                if self.leases.get(workstation) != window:
+                    raise ShopError("scanner_taken_by_other_window", status=409)
+                oldest = self.events[0]["id"] if self.events else self.next_id
+                if after + 1 < oldest:
+                    info["missed"] = sum(1 for _ in range(after + 1, oldest))   # dropped from the full queue
+                found = [e for e in self.events if e["id"] > after and e["device"] in mine]
+                remaining = deadline - time.monotonic()
+                if found or remaining <= 0:
+                    return found, self.next_id - 1, info
+                self.cond.wait(remaining)
+
     def configure(self, devices):
         for dev in self.devices.values():
             dev.stop.set()
         self.devices = {}
+        self.bindings = {}
         for cfg in devices or []:
+            if cfg.get("workstation"):
+                self.bindings[cfg["id"]] = cfg["workstation"]
             if cfg.get("enabled", True) and cfg.get("type") in ("serial", "tcp"):
                 dev = Device(cfg, self.push)
                 self.devices[cfg["id"]] = dev
                 dev.thread.start()
 
     def status(self):
-        return [d.describe() for d in self.devices.values()]
+        out = []
+        for d in self.devices.values():
+            row = d.describe()
+            row["workstation"] = self.bindings.get(row["id"])
+            if not row["workstation"]:
+                row["status"] = "needs_workstation"
+            out.append(row)
+        return out
 
     def stop(self):
         for dev in self.devices.values():

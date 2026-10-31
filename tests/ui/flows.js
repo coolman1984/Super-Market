@@ -63,6 +63,42 @@ const out = process.argv[3] || '.';
   await page.waitForSelector('.dialog .pack-label', { timeout: 8000 }).catch(() => {});
   const tag = await page.textContent('.dialog .body').catch(() => 'no dialog');
   await page.screenshot({ path: out + '/tagine-labels-ar.png' });
-  console.log(JSON.stringify({ ret, mass, cut: cut.slice(0, 200), tag: tag.slice(0, 300), errors }, null, 1));
+  await page.click('.dialog header .icon-btn').catch(() => {});
+  // ---- audit R17: a cart never passes to the next user ----
+  const login = async (user) => {
+    await page.goto(base); await page.reload();
+    if (await page.locator('.side-foot .icon-btn').count()) { await page.click('.side-foot .icon-btn'); }
+    await page.waitForSelector('input[type=password]');
+    await page.fill('input[autocomplete=username]', user); await page.fill('input[type=password]', 'training-only');
+    await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
+  };
+  await login('cashier');
+  await page.goto(base + '/#sell'); await page.waitForSelector('.scan-input');
+  await page.fill('.scan-input', '6220000000013'); await page.press('.scan-input', 'Enter'); await page.waitForTimeout(400);
+  const cashierCart = await page.textContent('.cart');
+  await page.click('.side-foot .icon-btn'); await page.waitForSelector('input[type=password]');
+  await page.fill('input[autocomplete=username]', 'manager'); await page.fill('input[type=password]', 'training-only');
+  await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
+  await page.goto(base + '/#sell'); await page.waitForSelector('.scan-input');
+  const managerCart = await page.textContent('.cart');
+  // ---- audit S03: the sale is saved but the answer is lost ----
+  const before = (await page.evaluate(() => SM.api('GET', '/api/reports/day'))).sales_count;
+  await page.fill('.scan-input', '6220000000013'); await page.press('.scan-input', 'Enter'); await page.waitForTimeout(400);
+  let cut_replies = 0;
+  await page.route('**/api/sales', async (route) => {
+    if (cut_replies < 3) { cut_replies++; await route.fetch(); await route.abort('connectionreset'); } else await route.continue();
+  });
+  await page.keyboard.press('F9'); await page.waitForSelector('.pay-total');
+  await page.click('.dialog footer .btn.primary');
+  await page.waitForSelector('.pay-panel .warn-tip', { timeout: 15000 });
+  const unknownShown = await page.textContent('.pay-panel .warn-tip');
+  await page.unroute('**/api/sales');
+  await page.click('.pay-panel .warn-tip button');
+  await page.waitForSelector('.receipt');
+  const after = (await page.evaluate(() => SM.api('GET', '/api/reports/day'))).sales_count;
+  await page.screenshot({ path: out + '/lost-reply-receipt-ar.png' });
+  console.log(JSON.stringify({ ret, mass, cut: cut.slice(0, 200), tag: tag.slice(0, 300),
+    r17_cashier_cart_had_item: /عصير/.test(cashierCart), r17_manager_cart_clean: !/عصير/.test(managerCart),
+    s03_unknown_banner: unknownShown.length > 0, s03_sales_added: after - before, errors }, null, 1));
   await browser.close();
 })().catch(e => { console.error(e); process.exit(1); });

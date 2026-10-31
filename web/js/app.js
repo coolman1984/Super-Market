@@ -6,10 +6,10 @@
   const NAV = [
     ['work', ['today', 'sell', 'returns', 'cash']],
     ['goods', ['receive', 'stock', 'prepare', 'count']],
-    ['manage', ['reports', 'catalog', 'scanner', 'settings', 'help']],
+    ['manage', ['reports', 'parties', 'catalog', 'scanner', 'settings', 'help']],
   ];
   const PERM = { sell: 'sell', returns: 'refund', cash: 'shift', receive: 'receive', prepare: ['cutting', 'produce'], count: 'count',
-    reports: 'reports', scanner: 'scanner_setup' };
+    reports: 'reports', scanner: 'scanner_setup', parties: ['receive', 'supplier_pay', 'sell'] };
   const allowed = (v) => { const p = PERM[v]; return !p || (Array.isArray(p) ? p.some(SM.can) : SM.can(p)); };
   let current = null;
 
@@ -24,12 +24,19 @@
     if (state.setup_needed) return setupScreen(state);
     if (!state.user) return loginScreen(state);
     SM.state.user = state.user;
+    SM.state.session = (SM.state.session || 0) + 1;   // late answers of a previous session are ignored
     SM.state.settings = await SM.api('GET', '/api/settings').catch(() => ({}));
     SM.scanner.installGlobalOnce();
     await SM.scanner.load();
     SM.renderShell();
   }
-  SM.onLoggedOut = () => { SM.state.user = null; SM.scanner.stop(); boot(); };
+  /* Audit R17: nothing typed or scanned by one user survives for the next. */
+  SM.onLoggedOut = () => {
+    SM.state.user = null; SM.state.session = (SM.state.session || 0) + 1;
+    SM.scanner.stop(); SM.scanner.handler = null;
+    for (const reset of SM.draftResets) { try { reset(); } catch (e) { /* ignore */ } }
+    boot();
+  };
   SM.scanner.installGlobalOnce = function () { if (!this._installed) { this._installed = true; this.installGlobal(); } };
 
   function authFrame(title, sub, form) {
@@ -80,8 +87,24 @@
       SM.state.mode === 'training' ? h('div', { class: 'train-bar' }, icon('school'), h('span', { class: 'grow', text: t('mode.training_bar') })) : null,
       top, h('div', { class: 'content', id: 'view' }));
     SM.put(document.body, h('div', { class: 'app' }, side, main));
+    pendingBanner(main);
     route();
   };
+
+  /* Audit S03: an operation whose answer was lost stays visible until resolved. */
+  function pendingBanner(main) {
+    const ops = SM.pendingOps();
+    if (!ops.length) return;
+    const bar = h('div', { class: 'tip warn-tip pending-bar', role: 'alert' }, icon('warn'),
+      h('div', { class: 'grow' }, h('b', { text: t('pending.title', { n: ops.length }) }), ' ', t('pending.help')),
+      h('button', { class: 'btn primary sm', text: t('pending.check'), onclick: async () => {
+        const results = await SM.resolvePending();
+        const done = results.filter(r => r.result).length;
+        SM.toast(t('pending.resolved', { n: done }), done === results.length ? 'ok' : 'bad');
+        if (!SM.pendingOps().length) bar.remove();
+      } }));
+    main.insertBefore(bar, main.querySelector('.topbar').nextSibling);
+  }
 
   async function route() {
     if (!SM.state.user || !document.getElementById('view')) return;
