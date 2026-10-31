@@ -26,6 +26,8 @@ DEFAULT_SETTINGS = {
     "thaw_shelf_life_days": None,
     # business day (gap row 15): before this hour a posting still belongs to the previous day; shifts follow their opening
     "day_start_hour": 4,
+    # till-fraud guard (review H1): a refund beyond these limits needs a manager's approval
+    "refund_approval_over": 20000, "refund_days_without_approval": 7,
 }
 
 
@@ -66,6 +68,7 @@ class Shop:
         "near_expiry_days": (0, 60), "cashier_discount_permille": (0, 1000), "receipt_width_mm": (58, 80),
         "cutting_loss_tolerance_permille": (0, 500), "recipe_component_tolerance_permille": (0, 500),
         "thaw_shelf_life_days": (1, 30), "day_start_hour": (0, 8),
+        "refund_approval_over": (0, 100000000), "refund_days_without_approval": (0, 365),
     }
 
     def _check_setting(self, key, value):
@@ -1824,6 +1827,12 @@ class Shop:
             approved_by = None
             if reason == "change_of_mind" and any(r[0]["pkind"] in ("raw_meat", "prepared") for r in rows):
                 approved_by = self._approved(actor, approver, "release_hold")
+            risk = self._refund_risk(actor, sale, op, total, cash_out, reason)
+            if risk:
+                # till-fraud guard (H1): a manager approves; the approver is recorded on the return and in the audit
+                by = self._approved(actor, approver, "approve_refund")
+                approved_by = approved_by or by
+                self.store.audit(actor, "return.approval", str(sale["id"]), {"why": risk, "approved_by": by, "amount": total})
             rid = self.store.db.execute(
                 """INSERT INTO returns(op_id,sale_id,shift_id,reason,method,amount,user_id,approved_by,at,note)
                 VALUES(?,?,?,?,?,?,?,?,?,?)""",
@@ -1881,6 +1890,26 @@ class Shop:
                     "refunds": [{"method": m, "amount": a} for m, a in refunds_paid.items()]}
         fingerprint_payload = {k: v for k, v in payload.items() if k != "approval"}
         return self.store.command("return", key, fingerprint_payload, actor, work)
+
+    def _refund_risk(self, actor, sale, op, total, cash_out, reason):
+        """Reasons a refund needs a manager (empty list = the cashier may do it alone):
+        over the amount limit, an old sale, another cashier's sale, or cash paid out for
+        'change of mind' / 'other'. A manager or owner acting alone is never held up."""
+        if can(actor, "approve_refund"):
+            return []
+        settings = self.settings()
+        why = []
+        if total > settings["refund_approval_over"]:
+            why.append("amount")
+        today_bd = self.store.scalar("SELECT business_day FROM ops WHERE id=?", (op,))
+        sale_bd = self.store.scalar("SELECT business_day FROM ops WHERE id=?", (sale["op_id"],))
+        if today_bd and sale_bd and (dt_date(today_bd) - dt_date(sale_bd)).days > settings["refund_days_without_approval"]:
+            why.append("old_sale")
+        if sale["user_id"] != actor["id"]:
+            why.append("other_cashier")
+        if cash_out and reason in ("other", "change_of_mind"):
+            why.append("cash_reason")
+        return why
 
     def _promo_refund(self, line, prev_qty, prev_amount, qty):
         """Refund of a buy-X-get-Y line: what was paid and not yet refunded, minus

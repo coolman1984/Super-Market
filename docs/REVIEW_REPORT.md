@@ -79,7 +79,7 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 
 ## 3. HIGH
 
-### [ ] H1 — Any cashier can refund any sale in cash without manager approval (fraud)
+### [x] H1 — Any cashier can refund any sale in cash without manager approval (fraud)
 - **Where:** `server/services.py:1710` `return_sale` (approval only for `change_of_mind` on raw meat/prepared: ~line 1752); `:1691` `sale_detail` lets anyone with `refund` read any sale; no age limit, no receipt-owner check, no threshold. Reproduced in-process: `cash1` refunded `cash2`'s sale, 4,500 piastres in cash, no approval.
 - **Impact:** classic till theft: a dishonest cashier takes cash out against old/other sales; drawer count then "balances" because a refund row exists.
 - **Fix:** add settings `refund_approval_over` (piastres, default e.g. 20000) and `refund_days_without_approval` (default 7); in `return_sale`, require `self._approved(actor, approver, "release_hold"-like perm "approve_refund")` when `total > threshold` OR sale older than N business days OR sale belongs to another cashier OR method=cash and reason in (`other`,`change_of_mind`). Log in audit with approver. Add tests (cashier alone → `approval_required`; with manager approval → ok; own recent small refund → ok). Show the rule in the Arabic UI.
