@@ -2070,6 +2070,7 @@
    ],
    "errors": [
     "err.bad_amount",
+    "err.bad_price",
     "err.bad_number",
     "err.bad_note",
     "err.bad_reason",
