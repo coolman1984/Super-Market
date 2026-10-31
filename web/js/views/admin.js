@@ -21,7 +21,8 @@
         ], rows, productDrawer) : SM.empty(t('cat.empty'), t('cat.empty_hint')));
       };
       q.addEventListener('input', () => { clearTimeout(this.timer); this.timer = setTimeout(load, 200); });
-      SM.put(root, h('div', { class: 'toolbar' }, q, SM.can('catalog') ? h('button', { class: 'btn primary', onclick: () => productDialog(load) }, icon('plus'), t('cat.add')) : null), box);
+      SM.put(root, h('div', { class: 'toolbar' }, q, SM.can('catalog') ? h('button', { class: 'btn primary', onclick: () => productDialog(load) }, icon('plus'), t('cat.add')) : null), box,
+        SM.can('prices') ? await promotionsCard() : null);
       load();
     },
   };
@@ -37,13 +38,56 @@
     } }));
     if (SM.can('catalog')) acts.push(h('button', { class: 'btn', text: t('cat.add_barcode'), onclick: () => barcodeDialog(full, () => d.close()) }));
     if (full.kind === 'prepared' && SM.can('recipes')) acts.push(h('button', { class: 'btn', text: t('cat.recipe'), onclick: () => recipeDialog(full) }));
+    if (SM.can('prices') && full.measure === 'unit' && !['ingredient', 'packaging'].includes(full.kind))
+      acts.push(h('button', { class: 'btn', text: t('promo.add'), onclick: () => promoDialog(full, () => d.close()) }));
     const d = SM.drawer({ title: SM.name(full), actions: acts, body: [
       h('dl', { class: 'kv' }, h('dt', { text: t('cat.code') }), h('dd', { class: 'ltr', text: full.code }), h('dt', { text: t('cat.kind') }), h('dd', { text: t('kind.' + full.kind) }),
         h('dt', { text: t('cat.price') }), h('dd', {}, SM.num(full.price === null ? '—' : SM.moneyText(full.price))), h('dt', { text: t('lots.allergens') }), h('dd', { text: full.allergens || t('none') }),
         h('dt', { text: t('cat.tax') }), h('dd', {}, h('span', { class: 'badge warn', text: t('cat.tax_unverified') }))),
       h('h3', { text: t('cat.barcodes') }), full.barcodes.length ? h('ul', {}, full.barcodes.map(b => h('li', { class: 'ltr', text: b.code + (b.packaging_id ? ' (' + t('cat.packaging') + ')' : '') }))) : h('p', { class: 'muted', text: t('none') }),
-      h('h3', { text: t('cat.packagings') }), full.packagings.length ? h('ul', {}, full.packagings.map(x => h('li', { text: SM.name(x) + ' = ' + x.factor_num + '/' + x.factor_den }))) : h('p', { class: 'muted', text: t('none') }),
+      h('h3', { text: t('cat.packagings') }), full.packagings.length ? h('ul', {}, full.packagings.map(x => h('li', {}, SM.name(x) + ' = ' + x.factor_num + '/' + x.factor_den,
+        x.retired_op ? h('span', { class: 'badge', text: t('cat.retired') }) :
+          SM.can('catalog') ? h('button', { class: 'btn sm', text: t('cat.carton_change'), onclick: () => cartonDialog(x, () => d.close()) }) : null))) : h('p', { class: 'muted', text: t('none') }),
       h('button', { class: 'btn ghost', text: t('cat.lots'), onclick: () => { d.close(); SM.go('stock'); } })] });
+  }
+
+  /* Row 9: a new carton size is a new packaging; the old one is retired, never edited. */
+  function cartonDialog(pk, after) {
+    const n = h('input', { class: 'input', inputmode: 'numeric' }), reason = h('input', { class: 'input', maxlength: '200' });
+    const move = h('input', { type: 'checkbox', checked: true });
+    const key = SM.newKey();
+    const d = SM.dialog({ title: t('cat.carton_change'), body: [h('p', { class: 'tip', text: t('cat.carton_change_help', { old: pk.factor_num }) }),
+      SM.field(t('cat.carton_units'), n), SM.field(t('cat.carton_reason'), reason), h('label', { class: 'row' }, move, t('cat.carton_move'))],
+      actions: [h('button', { class: 'btn primary', text: t('save'), onclick: SM.guard(async () => {
+        const v = SM.parseInt(n.value); if (!v) return SM.toast(t('err.bad_quantity'), 'bad');
+        try { await SM.command('/api/packagings/replace', key, undefined, { packaging_id: pk.id, factor_num: v, factor_den: 1, reason: reason.value, move_barcodes: move.checked });
+          d.close(); SM.toast(t('saved')); after(); } catch (e) { SM.fail(e); }
+      }) })] });
+  }
+
+  /* Row 26: buy X get Y of the same product, applied by the server on every sale. */
+  function promoDialog(product, after) {
+    const buy = h('input', { class: 'input', inputmode: 'numeric', value: '2' }), free = h('input', { class: 'input', inputmode: 'numeric', value: '1' });
+    const starts = h('input', { class: 'input', type: 'date', value: SM.today() }), ends = h('input', { class: 'input', type: 'date' });
+    const key = SM.newKey();
+    const d = SM.dialog({ title: t('promo.add'), body: [h('p', { class: 'tip', text: t('promo.help') }),
+      h('div', { class: 'grid cols-2' }, SM.field(t('promo.buy'), buy), SM.field(t('promo.free'), free), SM.field(t('promo.starts'), starts), SM.field(t('promo.ends'), ends, t('promo.ends_help')))],
+      actions: [h('button', { class: 'btn primary', text: t('save'), onclick: SM.guard(async () => {
+        try { await SM.command('/api/promotions', key, undefined, { product_id: product.id, buy_qty: SM.parseInt(buy.value), free_qty: SM.parseInt(free.value),
+          starts: starts.value, ends: ends.value || null }); d.close(); SM.toast(t('saved')); after(); } catch (e) { SM.fail(e); }
+      }) })] });
+  }
+
+  async function promotionsCard() {
+    const rows = await SM.api('GET', '/api/promotions').catch(() => []);
+    return h('div', { class: 'card' }, h('h3', { text: t('promo.list') }), h('p', { class: 'muted', text: t('promo.list_help') }),
+      rows.length ? SM.table([{ label: t('stock.product'), render: r => SM.name(r) },
+        { label: t('promo.offer'), render: r => t('promo.offer_text', { buy: r.buy_qty, free: r.free_qty }) },
+        { label: t('promo.starts'), render: r => h('span', { class: 'ltr', text: r.starts }) },
+        { label: t('promo.ends'), render: r => h('span', { class: 'ltr', text: r.ends || '—' }) },
+        { label: '', render: r => SM.can('prices') ? h('button', { class: 'btn sm danger', text: t('promo.end'), onclick: SM.guard(async () => {
+          try { await SM.command('/api/promotions/end', SM.newKey(), undefined, { promotion_id: r.id }); SM.toast(t('saved')); SM.go('catalog'); } catch (e) { SM.fail(e); }
+        }) }) : null }], rows) : h('p', { class: 'muted', text: t('none') }));
   }
 
   function barcodeDialog(product, after) {
@@ -236,18 +280,20 @@
         const near = h('input', { class: 'input', inputmode: 'numeric', value: String(s.near_expiry_days) });
         const disc = h('input', { class: 'input', inputmode: 'numeric', value: String(s.cashier_discount_permille) });
         const tol = h('input', { class: 'input', inputmode: 'numeric', value: s.cutting_loss_tolerance_permille === null ? '' : String(s.cutting_loss_tolerance_permille) });
+        const thawDays = h('input', { class: 'input', inputmode: 'numeric', value: s.thaw_shelf_life_days ? String(s.thaw_shelf_life_days) : '' });
         const below = h('input', { type: 'checkbox', checked: s.block_below_cost });
         const gtin = h('input', { type: 'checkbox', checked: s.gtin_equivalence });
         parts.push(h('div', { class: 'card' }, h('h3', { text: t('set.shop') }), h('div', { class: 'grid cols-3' },
           SM.field(t('set.shop_name'), name), SM.field(t('set.footer'), footer), SM.field(t('set.width'), width), SM.field(t('set.near'), near),
           SM.field(t('set.discount'), disc, t('set.discount_help')), SM.field(t('set.tolerance'), tol, t('set.tolerance_help')),
+          SM.field(t('set.thaw_days'), thawDays, t('set.thaw_days_help')),
           h('label', { class: 'row' }, below, t('set.below_cost')), h('label', { class: 'row' }, gtin, t('set.gtin'))),
           h('p', { class: 'tip', text: t('set.tax_note') }),
           h('button', { class: 'btn primary', text: t('save'), onclick: async () => {
             try {
               await SM.api('POST', '/api/settings', { shop_name: name.value, receipt_footer: footer.value, receipt_width_mm: parseInt(width.value, 10),
                 near_expiry_days: SM.parseInt(near.value), cashier_discount_permille: SM.parseInt(disc.value), cutting_loss_tolerance_permille: tol.value === '' ? null : SM.parseInt(tol.value),
-                block_below_cost: below.checked, gtin_equivalence: gtin.checked });
+                block_below_cost: below.checked, gtin_equivalence: gtin.checked, thaw_shelf_life_days: thawDays.value === '' ? null : SM.parseInt(thawDays.value) });
               SM.state.settings = await SM.api('GET', '/api/settings'); SM.toast(t('saved'));
             } catch (e) { SM.fail(e); }
           } })));

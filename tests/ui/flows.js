@@ -67,8 +67,10 @@ const out = process.argv[3] || '.';
   // ---- audit R17: a cart never passes to the next user ----
   const login = async (user) => {
     await page.goto(base); await page.reload();
+    await page.waitForSelector('.sidebar, input[type=password]');      // the app has rendered one or the other
     if (await page.locator('.side-foot .icon-btn').count()) { await page.click('.side-foot .icon-btn'); }
-    await page.waitForSelector('input[type=password]');
+    await page.waitForSelector('input[type=password]', { timeout: 8000 }).catch(async (e) => {
+      await page.screenshot({ path: out + '/login-stuck.png' }); console.error('stuck', await page.textContent('body').then(x => x.slice(0, 300))); throw e; });
     await page.fill('input[autocomplete=username]', user); await page.fill('input[type=password]', 'training-only');
     await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
   };

@@ -10,7 +10,7 @@ import sqlite3
 import threading
 
 from . import schema
-from .core import Conflict, ShopError, now_iso
+from .core import Conflict, ShopError, now_iso, today
 
 DB_NAME = "shop.db"
 
@@ -154,6 +154,10 @@ class Store:
                     result = json.loads(old[1])
                     result["replayed"] = True
                     return result
+                # a closed day takes no new posting (a clock set back cannot reopen it); a replay above still answers
+                closed = self.db.execute("SELECT MAX(day) FROM day_closes").fetchone()[0]
+                if closed is not None and today() <= closed:
+                    raise ShopError("day_closed", {"day": closed})
                 cur = self.db.execute(
                     "INSERT INTO ops(kind,key,fingerprint,user_id,workstation,at) VALUES(?,?,?,?,?,?)",
                     (kind, key, fingerprint, actor["id"], actor.get("workstation"), now_iso()))
