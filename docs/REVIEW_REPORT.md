@@ -133,7 +133,7 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 - **Impact:** a cashier can try ~1,440 manager passwords/day; restart resets.
 - **Fix:** persist failures in DB, 5 failures ⇒ exponential lock (15 min → 24 h) for the *requester*, audit each failure, notify owner.
 
-### [ ] M4 — No socket timeout on the HTTP server (slow-connection DoS)
+### [x] M4 — No socket timeout on the HTTP server (slow-connection DoS)
 - **Where:** `server/app.py:~587` (`ThreadingHTTPServer`, `daemon_threads=True`, no handler `timeout`; `rfile.read(length)` at `:512`).
 - **Fix:** set `Handler.timeout = 15`, read body with deadline, cap concurrent connections (e.g. 64); test with a client that sends headers and stalls.
 
@@ -159,7 +159,7 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 - **Where:** `origin/cloudflare-sync:cloud/src/worker.js` (pairing + admin throttles keyed globally).
 - **Fix:** key throttles by IP (`CF-Connecting-IP`) and by store; keep admin endpoint locked after 10 failures only for that IP; add Cloudflare WAF rate-limit rule on `/admin/*` and `/v1/pair`.
 
-### [ ] M10 — Generic `ValueError → 400` hides real bugs
+### [x] M10 — Generic `ValueError → 400` hides real bugs
 - **Where:** `server/app.py` request handler (broad `except ValueError`).
 - **Fix:** catch only `ShopError`/`json.JSONDecodeError` for 400; map unexpected exceptions to 500 + log with traceback + request id; add a test that an injected `ValueError` inside a service surfaces as 500 in logs.
 

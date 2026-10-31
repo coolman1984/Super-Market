@@ -15,6 +15,7 @@ import logging
 import mimetypes
 import pathlib
 import re
+import secrets
 import sqlite3
 import sys
 import threading
@@ -34,6 +35,9 @@ from .version import VERSION
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 MAX_BODY = 1_000_000
+SOCKET_TIMEOUT = 15          # seconds a client may stay silent (headers or body) before the connection is dropped (M4)
+BODY_DEADLINE = 15           # seconds for the whole request body, so a trickle of bytes cannot hold a thread
+MAX_CONNECTIONS = 64         # simultaneous connections; the next ones get 503 instead of an endless thread pile
 COOKIE = "sm_session"
 log = logging.getLogger("supermarket")
 
@@ -462,6 +466,20 @@ def make_handler(app, allowed_lan):
     class Handler(BaseHTTPRequestHandler):
         server_version = "SuperMarket"
         sys_version = ""
+        timeout = SOCKET_TIMEOUT
+
+        def _read_body(self, length):
+            import time
+            deadline, chunks = time.monotonic() + BODY_DEADLINE, []
+            while length > 0:
+                if time.monotonic() > deadline:
+                    raise TimeoutError("request body too slow")
+                chunk = self.rfile.read(min(length, 65536))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                length -= len(chunk)
+            return b"".join(chunks)
 
         def log_message(self, fmt, *args):  # no tokens or bodies in logs
             log.info("%s %s", self.address_string(), fmt % args)
@@ -532,7 +550,7 @@ def make_handler(app, allowed_lan):
             if length > MAX_BODY:
                 return self._send(413, {"error": "too_large"})
             try:
-                body = json.loads(self.rfile.read(length) or b"{}") if method == "POST" else {}
+                body = json.loads(self._read_body(length) or b"{}") if method == "POST" else {}
                 if not isinstance(body, dict):
                     raise ValueError
             except ValueError:
@@ -575,12 +593,15 @@ def make_handler(app, allowed_lan):
                 except ShopError as exc:
                     extra = {"Retry-After": str(exc.detail["retry_after"])} if exc.status == 429 and "retry_after" in exc.detail else None
                     return self._send(exc.status, {"error": exc.code, "detail": exc.detail}, headers=extra)
-                except (TypeError, ValueError, KeyError, AttributeError, sqlite3.InterfaceError):
+                except (TypeError, KeyError):
+                    # a missing field or a wrong JSON type in the request body is the client's mistake (400); anything
+                    # else below is a bug of ours and must be visible as a 500 with a traceback, never hidden as "bad request" (M10)
                     log.warning("bad request on %s\n%s", parts.path, traceback.format_exc())
                     return self._send(400, {"error": "bad_request"})
                 except Exception:  # never leak internals to the browser
-                    log.error("internal error on %s\n%s", parts.path, traceback.format_exc())
-                    return self._send(500, {"error": "internal_error"})
+                    request_id = secrets.token_hex(4)
+                    log.error("internal error %s on %s\n%s", request_id, parts.path, traceback.format_exc())
+                    return self._send(500, {"error": "internal_error", "detail": {"request_id": request_id}})
                 headers = {}
                 if isinstance(result, dict) and "_raw" in result:
                     return self._send(200, result["_raw"], result["_type"],
@@ -608,10 +629,40 @@ def make_handler(app, allowed_lan):
     return Handler
 
 
+class BoundedServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with a ceiling on simultaneous connections (review M4)."""
+
+    def __init__(self, *args, limit=MAX_CONNECTIONS, **kwargs):
+        self._slots = threading.BoundedSemaphore(limit)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            try:
+                request.sendall(b"HTTP/1.0 503 Service Unavailable\r\nRetry-After: 2\r\nContent-Length: 0\r\n\r\n")
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+        super().process_request(request, client_address)
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):      # a till that went away is not an error of ours
+            log.info("client %s went away", client_address[0])
+            return
+        log.error("connection error from %s\n%s", client_address[0], traceback.format_exc())
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+
 def serve(data_folder, mode="shop", host="127.0.0.1", port=8765, lan=False):
     app = App(data_folder, mode, lan=lan)
     bind = "0.0.0.0" if lan else host
-    httpd = ThreadingHTTPServer((bind, port), make_handler(app, lan))
+    httpd = BoundedServer((bind, port), make_handler(app, lan))
     httpd.daemon_threads = True
     httpd.app = app
     return httpd

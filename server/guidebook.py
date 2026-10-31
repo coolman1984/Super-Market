@@ -7,6 +7,7 @@ import pathlib
 
 from . import afguide
 from .auth import ROLES
+from .core import ShopError
 
 CATALOGUE = json.loads((pathlib.Path(__file__).resolve().parents[1] / "web" / "guide" / "catalogue.json").read_text(encoding="utf-8"))
 
@@ -52,10 +53,13 @@ def state(store, actor):
 
 def save_progress(store, actor, update):
     if not isinstance(update, dict) or any(k in update and not isinstance(update[k], str) for k in ("op", "guide", "lang")):
-        raise ValueError("bad update")
+        raise ShopError("bad_request")
 
     def work():
-        record = afguide.apply(afguide.load(store.db, actor["id"]), update, CATALOGUE)
+        try:
+            record = afguide.apply(afguide.load(store.db, actor["id"]), update, CATALOGUE)
+        except ValueError as exc:                 # the guide library rejects a bad update with ValueError: that is the caller's input
+            raise ShopError("bad_request") from exc
         afguide.save(store.db, actor["id"], record)
     store.tx(work)
     return state(store, actor)

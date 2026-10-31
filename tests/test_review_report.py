@@ -271,3 +271,85 @@ class BackupSafety(ShopFixture, unittest.TestCase):
         self.store._pre_upgrade_copy(3)
         self.store._pre_upgrade_copy(3)
         self.assertEqual(len(list((self.store.folder / "pre-upgrade").glob("schema-3-*.db"))), 2)
+
+
+class ServerErrors(ShopFixture, unittest.TestCase):
+    """M10 - a bug of ours is a 500 with a request id in the log; a bad request body stays a 400."""
+
+    def setUp(self):
+        import tempfile
+        from server.app import serve
+        import threading
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.httpd = serve(self.tmp.name, "shop", port=0)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.addCleanup(lambda: (self.httpd.shutdown(), self.httpd.server_close(), self.httpd.app.store.close()))
+        self.port = self.httpd.server_address[1]
+
+    def call(self, method, path, body=None):
+        import http.client
+        import json
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        c.request(method, path, json.dumps(body) if body is not None else None, {"X-SM": "1", "Content-Type": "application/json"})
+        r = c.getresponse()
+        out = (r.status, json.loads(r.read() or b"null"))
+        c.close()
+        return out
+
+    def test_m10_unexpected_exception_is_500_with_request_id_and_traceback_in_the_log(self):
+        def boom(actor, q, body):
+            raise ValueError("injected bug")
+        self.httpd.app.route("GET", r"/api/boom", boom, auth=False)
+        with self.assertLogs("supermarket", level="ERROR") as logs:
+            status, body = self.call("GET", "/api/boom")
+        self.assertEqual(status, 500)
+        self.assertEqual(body["error"], "internal_error")
+        self.assertRegex(body["detail"]["request_id"], r"^[0-9a-f]{8}$")
+        self.assertIn(body["detail"]["request_id"], logs.output[0])
+        self.assertIn("injected bug", logs.output[0])
+        self.assertNotIn("injected", str(body))                       # nothing internal reaches the browser
+
+    def test_m10_a_wrong_body_is_still_a_400(self):
+        self.assertEqual(self.call("POST", "/api/setup", {"username": 5})[0] in (400, 409), True)
+
+    def raw(self, data=b""):
+        import socket
+        s = socket.create_connection(("127.0.0.1", self.port), timeout=5)
+        self.addCleanup(s.close)
+        if data:
+            s.sendall(data)
+        return s
+
+    def test_m4_a_client_that_stalls_is_dropped(self):
+        import time
+        from server import app as appmod
+        from unittest import mock
+        import threading
+        from server.app import serve
+        with mock.patch.object(appmod, "SOCKET_TIMEOUT", 0.5):
+            httpd = serve(self.tmp.name + "-b", "shop", port=0)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(lambda: (httpd.shutdown(), httpd.server_close(), httpd.app.store.close()))
+        import socket
+        s = socket.create_connection(("127.0.0.1", httpd.server_address[1]), timeout=5)
+        self.addCleanup(s.close)
+        s.sendall(b"POST /api/login HTTP/1.1\r\nHost: 127.0.0.1\r\nX-SM: 1\r\nContent-Length: 50\r\n\r\n{")
+        start = time.monotonic()
+        self.assertEqual(s.recv(100), b"")                         # the server closed the stalled connection
+        self.assertLess(time.monotonic() - start, 4)
+
+    def test_m4_too_many_connections_get_503_and_a_big_body_gets_413(self):
+        import threading
+        self.httpd._slots = threading.BoundedSemaphore(2)
+        a, b = self.raw(b"GET /api/state HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Pad: "), self.raw(b"GET /api/state HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Pad: ")
+        import time
+        time.sleep(0.3)
+        self.assertIn(b"503", self.raw(b"GET /api/state HTTP/1.0\r\n\r\n").recv(200))
+        a.close(); b.close()
+        time.sleep(0.5)
+        self.assertEqual(self.call("GET", "/api/state")[0], 200)     # slots are given back
+        import http.client
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        c.putrequest("POST", "/api/login"); c.putheader("X-SM", "1"); c.putheader("Content-Length", "2000000"); c.endheaders()
+        self.assertEqual(c.getresponse().status, 413)
