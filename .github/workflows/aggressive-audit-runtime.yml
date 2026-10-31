@@ -1,0 +1,40 @@
+name: aggressive-audit-runtime
+on:
+  push:
+    branches: ['codex/aggressive-audit-20261031']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SM_CLOUD_URL: off
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prepare isolated browser tooling
+        run: |
+          npm install --no-save --package-lock=false playwright@1.62.1
+          npx playwright install --with-deps chromium --only-shell
+          tar -C "$HOME/.cache/ms-playwright" -czf /tmp/browser-runtime.tgz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audit-browser-runtime
+          path: /tmp/browser-runtime.tgz
+          compression-level: 0
+          retention-days: 1
+      - name: Existing browser journeys on frozen source
+        run: sh tests/ui/run.sh /tmp/audit-browser-evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audit-existing-browser-evidence
+          path: /tmp/audit-browser-evidence
+          retention-days: 7
