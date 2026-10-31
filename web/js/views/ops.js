@@ -23,6 +23,7 @@
       const invoices = await SM.api('GET', '/api/supplier-invoices').catch(() => []);
       const lines = [];
       const sup = select(suppliers.map(s => ({ value: s.id, label: s.name })), null, t('recv.no_supplier'));
+      sup.setAttribute('data-guide', 'recv.supplier');
       /* rows 1-2: goods against an invoice registered before they arrived; the invoice prices them */
       const preInv = select(invoices.map(i => ({ value: i.id, label: i.supplier + ' — ' + i.number + ' — ' + i.invoice_date })), null, t('recv.no_pre_invoice'));
       const invLeft = h('div');
@@ -34,7 +35,7 @@
         draw();
       };
       preInv.addEventListener('change', onInvoice);
-      const inv = h('input', { class: 'input', maxlength: '60' });
+      const inv = h('input', { class: 'input', maxlength: '60', 'data-guide': 'recv.invoice' });
       const invDate = h('input', { class: 'input', type: 'date', value: SM.today() });
       const invDisc = h('input', { class: 'input', inputmode: 'decimal', placeholder: '0' });
       const extra = h('input', { class: 'input', inputmode: 'decimal', placeholder: '0' });
@@ -49,10 +50,10 @@
         addLine(r.product, r);
       };
       function addLine(product, scan) {
-        const l = { product, qty: h('input', { class: 'input', inputmode: 'decimal' }), packs: null, packaging: scan && scan.packaging,
+        const l = { product, qty: h('input', { class: 'input', inputmode: 'decimal', 'data-guide': 'recv.qty' }), packs: null, packaging: scan && scan.packaging,
           gross: h('input', { class: 'input', inputmode: 'decimal' }), tare: h('input', { class: 'input', inputmode: 'decimal', placeholder: '0' }),
           free: h('input', { class: 'input', inputmode: 'numeric', placeholder: '0' }), rejected: h('input', { class: 'input', inputmode: 'numeric', placeholder: '0' }),
-          cost: h('input', { class: 'input', inputmode: 'decimal' }), expires: h('input', { class: 'input', type: 'date' }),
+          cost: h('input', { class: 'input', inputmode: 'decimal', 'data-guide': 'recv.cost' }), expires: h('input', { class: 'input', type: 'date', 'data-guide': 'recv.expires' }),
           lot: h('input', { class: 'input', maxlength: '60' }), hold: h('input', { type: 'checkbox' }),
           kind: select(['purchase', 'gift', 'sample'].map(k => ({ value: k, label: t('recv.kind.' + k) })), 'purchase'),
           loc: select(locs.map(x => ({ value: x.id, label: locName(x) })), (locs.find(x => x.kind === (product.measure === 'g' ? 'prep_fridge' : 'shelf')) || locs[0]).id) };
@@ -77,13 +78,14 @@
             h('label', { class: 'row' }, l.hold, t('recv.hold'))))))
           : SM.empty(t('recv.empty'), t('recv.empty_hint')));
       }
-      const pick = h('button', { class: 'btn', onclick: async () => {
+      const pick = h('button', { class: 'btn', 'data-guide': 'recv.add', onclick: async () => {
         const rows = await SM.api('GET', '/api/products?limit=200');
         const s = select(rows.map(r => ({ value: r.id, label: SM.name(r) + ' (' + r.code + ')' })), null, t('choose'));
+        s.setAttribute('data-guide', 'recv.pick');
         const d = SM.dialog({ title: t('recv.add_product'), body: [s], actions: [h('button', { class: 'btn primary', text: t('add'), onclick: () => {
           const r = rows.find(x => String(x.id) === s.value); if (r) addLine(r); d.close(); } })] });
       } }, icon('plus'), t('recv.add_product'));
-      const post = h('button', { class: 'btn primary lg', text: t('recv.post') });
+      const post = h('button', { class: 'btn primary lg', 'data-guide': 'recv.post', text: t('recv.post') });
       post.onclick = async () => {
         try {
           const money = (el) => el.value ? SM.parseMoney(el.value) : 0;
@@ -349,7 +351,7 @@
       const locs = await locations();
       let mode = SM.can('cutting') ? 'cutting' : 'recipe';
       const body = h('div');
-      const seg = h('div', { class: 'seg' }, ['cutting', 'recipe'].map(m => h('button', { 'aria-pressed': m === mode ? 'true' : 'false', text: t('prep.' + m), onclick: (e) => {
+      const seg = h('div', { class: 'seg' }, ['cutting', 'recipe'].map(m => h('button', { 'aria-pressed': m === mode ? 'true' : 'false', 'data-guide': 'prep.mode.' + m, text: t('prep.' + m), onclick: (e) => {
         mode = m; seg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', 'false')); e.target.setAttribute('aria-pressed', 'true'); draw(); } })));
       const usable = stock.filter(r => r.state === 'available' || r.state === 'near_expiry');
       const sellLoc = (locs.find(l => l.kind === 'display_fridge') || locs[0]).id;
@@ -357,23 +359,25 @@
         const key = SM.newKey();
         const inputs = [], outputs = [];
         const inBox = h('div', { class: 'stack' }), outBox = h('div', { class: 'stack' });
-        const natural = h('input', { class: 'input', inputmode: 'decimal', placeholder: '0' });
+        const natural = h('input', { class: 'input', inputmode: 'decimal', placeholder: '0', 'data-guide': 'prep.loss' });
         const abnormal = h('input', { class: 'input', inputmode: 'decimal', placeholder: '0' });
-        const balance = h('div', { class: 'mass' });
+        const balance = h('div', { class: 'mass', 'data-guide': 'prep.balance' });
         let version = null;
-        const packsN = h('input', { class: 'input', inputmode: 'numeric', placeholder: '0' });
+        const packsN = h('input', { class: 'input', inputmode: 'numeric', placeholder: '0', 'data-guide': 'prep.packs' });
         const packG = h('input', { class: 'input', inputmode: 'decimal' });
         const packTare = h('input', { class: 'input', inputmode: 'decimal', placeholder: '0' });
         const addInput = (filter) => {
           const s = select(usable.filter(filter || (() => true)).map(r => ({ value: r.lot_id + ':' + r.location_id, label: SM.name(r) + ' — ' + r.lot_no + ' — ' + (r.expires || '') + ' — ' + SM.qty(r.qty, r.measure) })), null, t('choose'));
-          const q = h('input', { class: 'input', inputmode: 'decimal' });
+          const q = h('input', { class: 'input', inputmode: 'decimal', 'data-guide': 'prep.in_qty' });
+          s.setAttribute('data-guide', 'prep.lot');
           const row = { s, q }; inputs.push(row);
           s.onchange = q.oninput = calc;
           inBox.append(h('div', { class: 'grid cols-2' }, SM.field(t('prep.input_lot'), s), SM.field(t('prep.input_qty'), q)));
         };
         const addOutput = (pid) => {
           const s = select(products.filter(p => p.measure === 'g' && ['raw_meat', 'prepared'].includes(p.kind)).map(p => ({ value: p.id, label: SM.name(p) })), pid, t('choose'));
-          const q = h('input', { class: 'input', inputmode: 'decimal' });
+          const q = h('input', { class: 'input', inputmode: 'decimal', 'data-guide': 'prep.out_qty' });
+          s.setAttribute('data-guide', 'prep.out');
           const loc = select(locs.map(l => ({ value: l.id, label: locName(l) })), sellLoc);
           const row = { s, q, loc }; outputs.push(row);
           q.oninput = calc;
@@ -395,6 +399,7 @@
         if (mode === 'recipe') {
           const prepared = products.filter(p => p.kind === 'prepared');
           const ps = select(prepared.map(p => ({ value: p.id, label: SM.name(p) })), null, t('choose'));
+          ps.setAttribute('data-guide', 'prep.recipe');
           recipeBox = h('div', { class: 'card' }, SM.field(t('prep.recipe_product'), ps), h('div', { class: 'recipe-info' }));
           ps.onchange = async () => {
             const versions = await SM.api('GET', '/api/recipes/' + ps.value).catch(() => []);
@@ -429,7 +434,7 @@
           SM.put(unpackBox, parts.length ? [h('h4', { text: t('prep.unpack') }), h('p', { class: 'muted', text: t('prep.unpack_help') }), ...parts] : null);
         };
         inBox.addEventListener('change', refreshUnpack);
-        const post = h('button', { class: 'btn primary lg', text: t('prep.post') });
+        const post = h('button', { class: 'btn primary lg', 'data-guide': 'prep.post', text: t('prep.post') });
         post.onclick = async () => {
           const payload = { kind: mode, recipe_version_id: version ? version.id : undefined,
             inputs: inputs.filter(i => i.s.value).map(i => { const [lot, loc] = i.s.value.split(':').map(Number); const r = measureOf(i);
@@ -455,7 +460,7 @@
         };
         SM.put(body, recipeBox || h('p', { class: 'tip', text: t('prep.cutting_tip') }),
           h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('prep.inputs') }), h('button', { class: 'btn sm', onclick: () => { addInput(); } }, icon('plus', 'sm'), t('add'))), inBox, unpackBox),
-          h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('prep.outputs') }), mode === 'cutting' ? h('button', { class: 'btn sm', onclick: () => addOutput() }, icon('plus', 'sm'), t('add')) : null), outBox,
+          h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('prep.outputs') }), mode === 'cutting' ? h('button', { class: 'btn sm', 'data-guide': 'prep.add_output', onclick: () => addOutput() }, icon('plus', 'sm'), t('add')) : null), outBox,
             mode === 'recipe' ? h('div', { class: 'grid cols-3' }, SM.field(t('prep.packs_n'), packsN), SM.field(t('prep.pack_kg'), packG, t('prep.pack_help')), SM.field(t('prep.tare_kg'), packTare)) : null),
           h('div', { class: 'card' }, h('div', { class: 'grid cols-2' }, SM.field(t('prep.natural'), natural, t('prep.natural_help')), SM.field(t('prep.abnormal'), abnormal, t('prep.abnormal_help'))), balance,
             h('div', { class: 'form-actions' }, post)));
@@ -502,7 +507,8 @@
       const locs = await locations();
       const list = await SM.api('GET', '/api/counts').catch(() => []);
       const loc = select(locs.map(l => ({ value: l.id, label: locName(l) })));
-      const open = h('button', { class: 'btn primary', text: t('count.open'), onclick: async () => {
+      loc.setAttribute('data-guide', 'count.location');
+      const open = h('button', { class: 'btn primary', 'data-guide': 'count.open', text: t('count.open'), onclick: async () => {
         try { const r = await SM.api('POST', '/api/counts', { location_id: parseInt(loc.value, 10) }); sheet(r.count); } catch (e) { SM.fail(e); }
       } });
       SM.put(root, h('div', { class: 'card' }, h('p', { class: 'tip', text: t('count.blind_tip') }), h('div', { class: 'row wrap' }, SM.field(t('count.location'), loc), open)),
@@ -517,7 +523,7 @@
           const first = rows.find(x => !x.el.hidden); if (first) first.input.focus();
         } });
         const rows = s.lots.map(l => {
-          const input = h('input', { class: 'input', inputmode: 'decimal', value: l.counted === null ? '' : (l.measure === 'g' ? SM.qty(l.counted, 'g').split(' ')[0] : String(l.counted)) });
+          const input = h('input', { class: 'input', inputmode: 'decimal', 'data-guide': 'count.qty', value: l.counted === null ? '' : (l.measure === 'g' ? SM.qty(l.counted, 'g').split(' ')[0] : String(l.counted)) });
           const saved = h('span', {});
           input.addEventListener('change', async () => {
             const v = l.measure === 'g' ? SM.parseKg(input.value) : SM.parseInt(input.value);
@@ -533,7 +539,7 @@
           const reason = prompt(t('count.cancel_q')); if (!reason) return;
           try { await SM.api('POST', '/api/counts/' + id + '/cancel', { reason }); SM.toast(t('count.cancelled')); SM.go('count'); } catch (e) { SM.fail(e); }
         }) });
-        const approve = SM.can('count_approve') ? h('button', { class: 'btn primary', text: t('count.approve'), onclick: async () => {
+        const approve = SM.can('count_approve') ? h('button', { class: 'btn primary', 'data-guide': 'count.approve', text: t('count.approve'), onclick: async () => {
           if (!(await SM.confirm(t('count.approve'), t('count.approve_q')))) return;
           try {
             let extra;

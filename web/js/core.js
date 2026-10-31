@@ -149,6 +149,7 @@ SM.command = async function (path, key, payload, extra, tries = 3) {
     try {
       const r = await SM.api('POST', path, body);
       savePending(SM.pendingOps().filter(p => p.key !== key));
+      if (SM.guide) SM.guide.signal(path);   // the guide's coach moves on only after the server confirmed
       return r;
     } catch (e) {
       if (e.code === 'network' && i < tries - 1) { await new Promise(r => setTimeout(r, 600 * (i + 1))); continue; }
@@ -199,14 +200,15 @@ SM.errorCode = (e) => (e && e.code) || 'internal_error';
 SM.fill = (text) => String(text).replace(/\{b:([a-z_0-9.]+)\}/g, (m, key) => t(key));
 
 /* ---------- toasts, dialogs, drawers ---------- */
-SM.toast = function (text, kind = 'ok') {
+SM.toast = function (text, kind = 'ok', extra) {
   let box = document.getElementById('toasts');
   if (!box) { box = h('div', { id: 'toasts', role: 'status', 'aria-live': 'polite' }); document.body.append(box); }
-  const el = h('div', { class: 'toast ' + kind }, icon(kind === 'bad' ? 'warn' : 'check'), h('span', { text }));
+  const el = h('div', { class: 'toast ' + kind }, icon(kind === 'bad' ? 'warn' : 'check'), h('span', { text }), extra || null);
   box.append(el);
   setTimeout(() => el.remove(), kind === 'bad' ? 7000 : 3500);
 };
-SM.fail = (e) => SM.toast(SM.errorText(e), 'bad');
+// an error with an explanation in the guide gets «ماذا أفعل؟» (same as the Yousef app)
+SM.fail = (e) => SM.toast(SM.errorText(e), 'bad', SM.guide && SM.guide.errorButton(SM.errorCode ? SM.errorCode(e) : e && e.code));
 
 SM.dialog = function ({ title, body, actions, wide, onClose }) {
   let overlay = document.getElementById('overlay');

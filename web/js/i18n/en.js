@@ -1143,5 +1143,8 @@ Object.assign(SM.i18n.en, {
   "err.must_change_password": "Change your password first. Nothing was saved.",
   "sell.draft_offline": "The saved cart cannot be read back now because the connection is down. It is still saved.",
   "sell.draft_retry": "Try again",
-  "sell.draft_line_gone": "A product of the saved cart is no longer available and was left out."
+  "sell.draft_line_gone": "A product of the saved cart is no longer available and was left out.",
+  "help.guide_title": "Step-by-step lessons",
+  "help.guide_sub": "A short lesson for each job of your role. The guide outlines the real button on the screen and moves on by itself after each step. In training, try the examples as written.",
+  "help.guide_open": "Open the guide"
 });

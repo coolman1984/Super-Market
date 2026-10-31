@@ -574,3 +574,14 @@ def m005(conn):
 
 MIGRATIONS.append((5, "accounts: forced password change, server-side screen lock", m005))
 SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+# ---------------------------------------------------------------- migration 6
+# The in-app guide (af-guide, same engine as the Yousef app): each person's lesson progress.
+def m006(conn):
+    from . import afguide
+    conn.execute(afguide.SQL)
+
+
+MIGRATIONS.append((6, "in-app guide progress per person", m006))
+SCHEMA_VERSION = MIGRATIONS[-1][0]

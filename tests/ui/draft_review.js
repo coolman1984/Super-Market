@@ -45,9 +45,15 @@ const base = process.argv[2] || 'http://127.0.0.1:8799';
   res.b_banner = await page.locator('.pay-panel .warn-tip').count() === 1;
   res.b_draft_kept = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('sm.draft.')).map(k => JSON.parse(localStorage.getItem(k))).some(d => d && d.lines && d.lines.length));
   await page.unroute('**/api/products/*');
-  if (res.b_banner) { await page.click('.pay-panel .warn-tip button'); await page.waitForTimeout(1200); }
+  const draftLines = await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('sm.draft.')).map(k => JSON.parse(localStorage.getItem(k))).find(d => d && d.lines).lines.length);
+  if (res.b_banner) {   // review on PR #11: two quick clicks on retry must not add the lines twice
+    await page.route('**/api/products/*', async route => { await new Promise(r => setTimeout(r, 600)); await route.continue(); });
+    await page.locator('.pay-panel .warn-tip button').click(); await page.locator('.pay-panel .warn-tip button').click({ force: true, timeout: 1000 }).catch(() => {});
+    await page.waitForTimeout(2500); await page.unroute('**/api/products/*');
+  }
+  res.b_no_double = await page.locator('.cart tbody tr').count() === draftLines;
   res.b_restored = await page.locator('.cart tbody tr').count() >= 1;
-  res.b_ok = res.b_banner && res.b_draft_kept && res.b_restored;
+  res.b_ok = res.b_banner && res.b_draft_kept && res.b_restored && res.b_no_double;
   // (c) a held sale saved under the old key (before the shop identity) is still there
   await page.evaluate(() => {
     const old = 'held.' + [SM.state.user.id, SM.workstation(), SM.state.mode].join('|');
@@ -57,6 +63,18 @@ const base = process.argv[2] || 'http://127.0.0.1:8799';
   res.c_resume_btn = await page.locator('.pay-panel button', { hasText: '(' }).count() >= 1;
   res.c_old_key_gone = await page.evaluate(() => !Object.keys(localStorage).some(k => /^sm\.held\.\d+\|/.test(k)));
   res.c_ok = res.c_resume_btn && res.c_old_key_gone;
+  // (d) review on PR #11: after a voluntary password change, scanning works without a reload
+  await page.click('.side-foot [aria-label="' + await page.evaluate(() => SM.t('account.change')) + '"]');
+  const pw = page.locator('.dialog input[type=password]');
+  await pw.nth(0).fill('training-only'); await pw.nth(1).fill('training-new-1'); await pw.nth(2).fill('training-new-1');
+  await page.click('.dialog button[type=submit]'); await page.waitForTimeout(1200);
+  await page.goto(base + '/#sell'); await page.waitForSelector('.scan-input');
+  const rows = await page.locator('.cart tbody tr').count();
+  await scan('6220000000020');
+  res.d_scan_after_password = (await page.locator('.cart tbody tr').count()) > rows || (await page.textContent('.scan-status')).length > 0;
+  res.d_dialog_flag = await page.evaluate(() => SM.state.dialogOpen === false);
+  res.d_ok = res.d_scan_after_password && res.d_dialog_flag;
+  await page.evaluate(() => SM.api('POST', '/api/account/password', { old: 'training-new-1', new: 'training-only' }).catch(() => null));
   console.log(JSON.stringify(Object.assign(res, { errors }), null, 1));
   await browser.close();
 })().catch(e => { console.error(e); process.exit(1); });

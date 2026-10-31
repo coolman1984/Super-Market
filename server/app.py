@@ -22,7 +22,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-from . import backup, training
+from . import guidebook, backup, training
 from .auth import Auth, can, require
 from .core import ShopError, integer, text
 from .db import Store
@@ -57,6 +57,8 @@ class App:
         r("POST", r"/api/setup", self.setup, auth=False)
         r("POST", r"/api/login", self.login, auth=False)
         r("POST", r"/api/logout", self.logout)
+        r("GET", r"/api/guide/state", lambda a, q, b: guidebook.state(self.store, a))
+        r("POST", r"/api/guide/progress", lambda a, q, b: guidebook.save_progress(self.store, a, b.get("update")))
         r("POST", r"/api/account/password", self.change_password)
         r("POST", r"/api/account/lock", self.lock)
         r("POST", r"/api/account/unlock", self.unlock)

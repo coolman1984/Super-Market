@@ -21,7 +21,7 @@
         ], rows, productDrawer) : SM.empty(t('cat.empty'), t('cat.empty_hint')));
       };
       q.addEventListener('input', () => { clearTimeout(this.timer); this.timer = setTimeout(load, 200); });
-      SM.put(root, h('div', { class: 'toolbar' }, q, SM.can('catalog') ? h('button', { class: 'btn primary', onclick: () => productDialog(load) }, icon('plus'), t('cat.add')) : null), box,
+      SM.put(root, h('div', { class: 'toolbar' }, q, SM.can('catalog') ? h('button', { class: 'btn primary', 'data-guide': 'cat.add', onclick: () => productDialog(load) }, icon('plus'), t('cat.add')) : null), box,
         SM.can('prices') ? await promotionsCard() : null);
       load();
     },
@@ -100,9 +100,9 @@
   }
 
   function productDialog(after) {
-    const f = { code: h('input', { class: 'input' }), name_ar: h('input', { class: 'input' }), name_en: h('input', { class: 'input', dir: 'ltr' }),
+    const f = { code: h('input', { class: 'input', 'data-guide': 'cat.code' }), name_ar: h('input', { class: 'input', 'data-guide': 'cat.name_ar' }), name_en: h('input', { class: 'input', dir: 'ltr' }),
       kind: SM.select(['grocery', 'raw_meat', 'prepared', 'ingredient', 'packaging'].map(k => ({ value: k, label: t('kind.' + k) }))),
-      price: h('input', { class: 'input', inputmode: 'decimal' }), barcode: h('input', { class: 'input', dir: 'ltr' }),
+      price: h('input', { class: 'input', inputmode: 'decimal', 'data-guide': 'cat.price' }), barcode: h('input', { class: 'input', dir: 'ltr', 'data-guide': 'cat.barcode' }),
       needs_expiry: h('input', { type: 'checkbox', checked: true }), allergens: h('input', { class: 'input' }),
       meat_share: h('input', { class: 'input', inputmode: 'numeric', placeholder: '700' }),
       carton: h('input', { class: 'input', inputmode: 'numeric', placeholder: '12' }), carton_barcode: h('input', { class: 'input', dir: 'ltr' }) };
@@ -323,8 +323,9 @@
 
   async function usersCard() {
     const users = await SM.api('GET', '/api/users').catch(() => []);
-    const f = { username: h('input', { class: 'input', autocomplete: 'off' }), name: h('input', { class: 'input' }), password: h('input', { class: 'input', type: 'password', autocomplete: 'new-password' }),
+    const f = { username: h('input', { class: 'input', autocomplete: 'off', 'data-guide': 'set.username' }), name: h('input', { class: 'input' }), password: h('input', { class: 'input', type: 'password', autocomplete: 'new-password', 'data-guide': 'set.password' }),
       role: SM.select(['manager', 'cashier', 'receiver', 'butcher', 'counter', 'accountant', 'viewer', 'owner'].map(r => ({ value: r, label: t('role.' + r) }))) };
+    f.role.setAttribute('data-guide', 'set.role');
     return h('div', { class: 'card' }, h('h3', { text: t('set.users') }),
       SM.table([{ label: t('username'), render: u => h('span', { class: 'ltr', text: u.username }) }, { label: t('set.display'), key: 'display_name' }, { label: t('set.role'), render: u => t('role.' + u.role) },
         { label: t('set.state'), render: u => h('span', { class: 'badge ' + (u.active ? (u.must_change ? 'warn' : 'ok') : 'bad'),
@@ -339,7 +340,7 @@
             try { await SM.api('POST', '/api/users/' + u.id + '/active', { active: !u.active, reason }); SM.toast(t('saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
           }) })) }], users),
       h('div', { class: 'grid cols-4' }, SM.field(t('username'), f.username), SM.field(t('set.display'), f.name), SM.field(t('password'), f.password, t('set.pw_help')), SM.field(t('set.role'), f.role)),
-      h('button', { class: 'btn', text: t('set.add_user'), onclick: async () => {
+      h('button', { class: 'btn', 'data-guide': 'set.add_user', text: t('set.add_user'), onclick: async () => {
         try { await SM.api('POST', '/api/users', { username: f.username.value, name: f.name.value, password: f.password.value, role: f.role.value }); SM.toast(t('saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
       } }));
   }
@@ -347,7 +348,7 @@
   async function backupCard() {
     const list = await SM.api('GET', '/api/backups').catch(() => []);
     return h('div', { class: 'card' }, h('h3', { text: t('set.backup') }), h('p', { class: 'muted', text: t('set.backup_help') }),
-      h('button', { class: 'btn primary', text: t('set.backup_now'), onclick: async () => {
+      h('button', { class: 'btn primary', 'data-guide': 'set.backup_now', text: t('set.backup_now'), onclick: async () => {
         try { const r = await SM.api('POST', '/api/backup', {}); SM.toast(t('set.backup_done')); SM.dialog({ title: t('set.backup_done'), body: h('code', { class: 'ltr', text: r.folder + '\nSHA-256 ' + r.sha256 }) }); } catch (e) { SM.fail(e); }
       } }),
       list.length ? h('ul', {}, list.slice(0, 10).map(b => h('li', { class: 'ltr', text: b.created_at + ' — schema ' + b.schema + ' — ' + b.integrity }))) : null);
