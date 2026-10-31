@@ -33,6 +33,17 @@ class InstalledProgram(unittest.TestCase):
             self.assertEqual(window.open_ui("http://127.0.0.1:8765/"), "edge-app")
             self.assertIn("--app=http://127.0.0.1:8765/", popen.call_args[0][0])
 
+    def test_window_has_its_own_profile_and_shares_nothing_with_the_persons_browser(self):
+        """Review L12 (owner order 31 Oct 2026): a real program window, not the person's browser profile."""
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": r"C:\Users\Shop\AppData\Local"}):
+            cmd = window.app_command(r"C:\Edge\msedge.exe", "http://127.0.0.1:8765/")
+        profile = [c for c in cmd if c.startswith("--user-data-dir=")]
+        self.assertEqual(len(profile), 1)
+        self.assertIn("SuperMarket", profile[0])
+        self.assertIn("window-profile", profile[0])
+        self.assertNotIn("Microsoft", profile[0])               # never Edge's default "User Data"
+        self.assertIn("--no-first-run", cmd)
+
     def test_stop_needs_the_key_from_the_data_folder(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)

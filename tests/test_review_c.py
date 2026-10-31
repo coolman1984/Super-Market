@@ -280,12 +280,12 @@ class ReviewC(ShopFixture, unittest.TestCase):
             conn.close()
             st = Store(path.parent)
             try:
-                self.assertEqual(st.schema_version(), 8)
+                self.assertEqual(st.schema_version(), schema.SCHEMA_VERSION)
                 self.assertTrue(list((path.parent/'pre-upgrade').glob('*.db')))
                 made = backup.create_backup(st, pathlib.Path(tmp)/'backups')
                 backup.restore_backup(made['folder'], pathlib.Path(tmp)/'restored')
                 restored = Store(pathlib.Path(tmp)/'restored')
-                self.assertEqual(restored.schema_version(), 8)
+                self.assertEqual(restored.schema_version(), schema.SCHEMA_VERSION)
                 restored.close()
             finally:
                 st.close()

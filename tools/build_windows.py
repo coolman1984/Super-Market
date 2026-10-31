@@ -42,8 +42,26 @@ def version4():
     return ".".join(str(n) for n in (nums + [0, 0, 0, 0])[:4])
 
 
+ENROLL_FILE = ROOT / "server" / "_enroll.py"
+
+
+def bake_enroll_token(channel):
+    """The installed program makes its own cloud store on its first run with a build token that only the service can sign.
+    A customer (commercial) build must carry it, or the owner would have to connect it by hand: the build stops instead.
+    The token comes from the encrypted secret SM_ENROLL_TOKEN, is written to the git-ignored server/_enroll.py and is never
+    printed. Test builds (ci-test) carry none: they never connect (SM_CLOUD_URL=off)."""
+    token = os.environ.get("SM_ENROLL_TOKEN", "").strip()
+    if channel == "ci-test":
+        ENROLL_FILE.unlink(missing_ok=True)
+        return
+    if not token:
+        raise SystemExit("SM_ENROLL_TOKEN is not set: a customer build must carry the cloud build token (docs/RELEASE.md).")
+    ENROLL_FILE.write_text('TOKEN = %r\n' % token, encoding="utf-8")
+
+
 def main():
     BUILD.mkdir(exist_ok=True)
+    bake_enroll_token(os.environ.get("TO_BUILD_CHANNEL", "commercial"))
     icon = BUILD / "supermarket.ico"
     run([sys.executable, "tools/make_icon.py", icon])
     v4 = version4()
@@ -69,6 +87,7 @@ def main():
     channel = os.environ.get("TO_BUILD_CHANNEL", "commercial")
     run([iscc(), f"/DAppChannel={channel}", f"/DAppVersion={VERSION}", f"/DAppVersion4={v4}", f"/DAppPublisher={DEVELOPER}",
          f"/DAppCopyright={COPYRIGHT}", ROOT / "installer" / "super-market.iss"])
+    ENROLL_FILE.unlink(missing_ok=True)       # never leave the token in the work tree
     if channel == "ci-test":
         (ROOT / "dist").mkdir(exist_ok=True)
         (ROOT / "dist" / "CI-TEST-BUILD-NOT-FOR-CUSTOMERS.txt").write_text("TEST ONLY. Built by CI. Never sell this installer.\n", encoding="utf-8")

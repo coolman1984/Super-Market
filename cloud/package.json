@@ -1,6 +1,6 @@
 {
-  "name": "super-market-cloud",
+  "name": "super-market-sync",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test --no-warnings test/cloud.test.js", "dev": "node --no-warnings dev/server.js" }
+  "scripts": { "test": "node --test --no-warnings test/sync.test.js test/enroll.test.js", "dev": "node --no-warnings dev/server.js" }
 }

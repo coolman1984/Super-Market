@@ -24,9 +24,9 @@ jobs:
           node-version: "22"
       - name: Unit and integration tests on Windows
         run: python tools/ci_tests.py
-      - name: Cloud backup Worker (real worker code, D1 and R2 stand-ins)
+      - name: Cloud sync Worker (real worker code, local D1 stand-in)
         working-directory: cloud
-        run: node --test --no-warnings test/cloud.test.js
+        run: npm test
       - name: PowerShell tools - parse, read-only inventory, Excel tool without Office
         shell: powershell
         run: |

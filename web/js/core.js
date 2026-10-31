@@ -251,6 +251,13 @@ SM.confirm = (title, text) => new Promise((resolve) => {
       h('button', { class: 'btn primary', text: t('confirm'), onclick: () => { done = true; d.close(); resolve(true); } })] });
 });
 
+/* A simple random temporary password (no look-alike letters), shown to the owner so he can read it out: one click, no thinking. */
+SM.tempPassword = () => {
+  const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789', bytes = new Uint8Array(10);
+  (window.crypto || window.msCrypto).getRandomValues(bytes);
+  return Array.from(bytes, b => alphabet[b % alphabet.length]).join('');
+};
+
 /* Manager approval typed by a person: username + password. A scan can never fill it. */
 SM.askApproval = (reason) => new Promise((resolve) => {
   const user = h('input', { class: 'input', autocomplete: 'off', 'aria-label': t('username') });
@@ -260,7 +267,7 @@ SM.askApproval = (reason) => new Promise((resolve) => {
   pass.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); } });
   const d = SM.dialog({ title: t('approval.title'), onClose: () => { if (!done) resolve(null); },
     body: [h('p', { class: 'tip', text: t('approval.why', { reason }) }),
-      field(t('username'), user), field(t('password'), pass)],
+      field(t('username'), user), field(t('password'), pass), h('p', { class: 'muted', text: t('approval.hint') })],
     actions: [h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => d.close() }),
       h('button', { class: 'btn primary', text: t('approval.ok'), onclick: ok })] });
 });

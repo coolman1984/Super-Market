@@ -42,7 +42,7 @@ from server.app import serve  # noqa: E402
 from server.core import ShopError  # noqa: E402
 from server.version import PRODUCT_ID, VERSION  # noqa: E402
 from server import window  # noqa: E402
-from server import cloud  # noqa: E402
+from server import cloudsync  # noqa: E402
 
 KEEP_DAILY = 30
 KEEP_BEFORE = 5
@@ -172,13 +172,15 @@ def owner_recovery(data):
     from server.db import Store
     from server.services import Shop
     print("استعادة دخول صاحب المحل — تعمل على جهاز المحل فقط ولا تحذف أي بيانات.")
-    username = input("اسم دخول صاحب المحل: ").strip()
-    first = getpass.getpass("كلمة المرور الجديدة (8 أحرف على الأقل): ")
-    if first != getpass.getpass("اكتبها مرة ثانية: "):
-        print("الكلمتان غير متطابقتين. لم يتغير شيء.")
-        return 1
     store = Store(data, "shop")
     try:
+        owners = [r["username"] for r in store.all("SELECT username FROM users WHERE role='owner' ORDER BY id")]
+        # one owner (the usual shop): nothing to type but the new password
+        username = owners[0] if len(owners) == 1 else input("اسم دخول صاحب المحل: ").strip()
+        first = getpass.getpass("كلمة المرور الجديدة (8 أحرف على الأقل): ")
+        if first != getpass.getpass("اكتبها مرة ثانية: "):
+            print("الكلمتان غير متطابقتين. لم يتغير شيء.")
+            return 1
         Shop(store).auth.recover_owner(username, first)
     except ShopError as exc:
         print("لم يتغير شيء:", exc.code)
@@ -244,27 +246,70 @@ def console_utf8():
             pass
 
 
-def cloud_code(data):
-    """Start menu «كود استعادة السحابة»: shown only on this PC, for the owner to keep on paper."""
-    from server.db import Store
-    store = Store(data, "shop")
-    try:
-        c = cloud.Cloud(HOME, store, cloud.cloud_url(COMPILED))
-        code = c.recovery_code()
-    finally:
-        store.close()
-    if not code:
-        print("هذا الجهاز لم يتصل بالسحابة بعد. شغّل البرنامج وهو متصل بالإنترنت ثم أعد المحاولة.")
+def cloud_join(data):
+    """Start menu «ربط بالسحابة»: ONE connection code from whoever sold/installed the program
+    (valid 15 minutes, works once) connects this shop PC to the cloud copy. The address is built in."""
+    url = cloudsync.cloud_url(COMPILED)
+    if not url:
+        print("النسخ على السحابة غير متاح في هذا التشغيل (التشغيل من الكود أو SM_CLOUD_URL=off).")
         return 1
-    print("رمز استعادة نسخ هذا الجهاز من السحابة. اكتبه على ورقة واحفظه مع صاحب المحل فقط:")
-    print("يستطيع أي شخص يمتلك هذا الرمز قراءة نسخ المحل.\n")
-    print(code + "\n")
+    if cloudsync.load_config(data):
+        print("هذا الجهاز مربوط بالسحابة بالفعل. لإعادة الربط اختر «فصل عن السحابة» أولًا.")
+        return 1
+    if not (data / "shop.db").exists():
+        print("افتح البرنامج مرة واحدة وأنشئ حساب صاحب المحل، ثم أعد المحاولة.")
+        return 1
+    try:
+        store_id, code = cloudsync.parse_connect_code(input("الصق كود الربط (يبدأ بـ SMC2-): "))
+        cloudsync.join(data, url, store_id, code)
+    except (cloudsync.CloudError, ShopError) as exc:
+        print("لم يتم الربط ولم يتغير شيء:", getattr(exc, "code", None) or exc)
+        return 1
+    print("تم الربط. أغلق البرنامج من «إيقاف السوبر ماركت» ثم افتحه من جديد؛ سيرفع نسخة المحل وحده، ولا يتوقف البيع إن انقطع الإنترنت.")
+    return 0
+
+
+def cloud_status(data):
+    """Start menu «حالة السحابة»: counts only, no secret."""
+    try:
+        sync = cloudsync.CloudSync(data)
+    except ShopError:
+        print("هذا الجهاز لم يُربط بالسحابة بعد.")
+        return 1
+    try:
+        st = sync.status()
+    except cloudsync.CloudError as exc:
+        print("تعذر الوصول للسحابة الآن:", exc)
+        return 1
+    finally:
+        sync.close()
+    print("ينتظر الرفع على هذا الجهاز:", st["pending_here"])
+    print("النسخة السحابية مطابقة لهذا الجهاز:", "نعم" if st["complete"] else "ليس بعد")
+    return 0
+
+
+def cloud_leave(data):
+    """Start menu «فصل عن السحابة»: stops copying; the cloud keeps what it already holds."""
+    if running_here(8765, "shop", data) is not None:
+        print("أغلق البرنامج أولًا من «إيقاف السوبر ماركت»، ثم أعد المحاولة.")
+        return 1
+    if not cloudsync.load_config(data):
+        print("هذا الجهاز غير مربوط بالسحابة.")
+        return 0
+    cloudsync.leave(data)
+    print("تم الفصل. تبقى النسخة التي على السحابة كما هي.")
     return 0
 
 
 def cloud_restore(data):
-    """Start menu «استعادة من السحابة» on a NEW PC: the newest copy of the old PC becomes this
-    PC's data. Refused if this PC already has shop data (nothing is ever overwritten)."""
+    """Start menu «استعادة المحل من السحابة» on a NEW PC: the cloud copy of the old shop fills this PC.
+    The owner types his RECOVERY CODE (shown in the settings screen of the old PC). Support can also read it out, or
+    give an `SMC2-` pairing code (admin fallback). Refused if this PC already has shop data (nothing is ever
+    overwritten). Passwords are not in the cloud: the owner types a new one."""
+    url = cloudsync.cloud_url(COMPILED)
+    if not url:
+        print("النسخ على السحابة غير متاح في هذا التشغيل.")
+        return 1
     if running_here(8765, "shop", data) is not None:
         print("أغلق البرنامج أولًا من «إيقاف السوبر ماركت» في قائمة ابدأ، ثم أعد المحاولة.")
         return 1
@@ -280,38 +325,87 @@ def cloud_restore(data):
         if used:
             print("يوجد على هذا الجهاز بيانات محل بالفعل. الاستعادة تكون على جهاز جديد فقط؛ لم يتغير شيء.")
             return 1
-        import datetime   # a new PC opened the program once after Setup: that empty folder is kept aside, never deleted
-        data.rename(data.with_name("shop-data-empty-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")))
-    code = input("أدخل رمز استعادة الجهاز القديم: ").strip()
+    typed = input("اكتب كود الاستعادة (٢٠ حرفًا، مثل XXXXX-XXXXX-XXXXX-XXXXX): ").strip()
+    fallback = typed.upper().startswith(cloudsync.CONNECT_PREFIX)
     try:
-        pick = cloud.restore(code, data, HOME / "restore-work")
-    except (cloud.CloudError, ShopError) as exc:
-        print("لم تتم الاستعادة ولم يتغير شيء:", getattr(exc, "reason", None) or getattr(exc, "code", exc))
+        if fallback:
+            store_id, code = cloudsync.parse_connect_code(typed)
+        else:
+            code = cloudsync.normalize_recovery_code(typed)
+    except ShopError:
+        print("الكود غير مكتوب كما ينبغي. اكتب الأحرف والأرقام العشرين كما هي (الشرطات اختيارية). لم يتغير شيء.")
         return 1
-    print("تمت الاستعادة من نسخة", pick["name"], "— شغّل البرنامج الآن. هذا الجهاز سيأخذ مساحة جديدة خاصة به على السحابة.")
-    return 0
+    aside = None
+    try:
+        # a new random id for this PC: the empty folder this PC may have enrolled by itself must not tie it to that empty store
+        fresh_install = secrets.token_hex(16)
+        if fallback:
+            config = cloudsync.pair(url, store_id, code, cloudsync.device_name())
+        else:
+            config = cloudsync.recover(url, cloudsync.enroll_token(), fresh_install, code, cloudsync.device_name())
+        if (data / "shop.db").exists() or data.exists():
+            import datetime   # a new PC opened the program once after Setup: that empty folder is kept aside, never deleted
+            aside = data.with_name("shop-data-empty-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+            data.rename(aside)
+        report = cloudsync.restore_from_cloud(cloudsync.Cloud(config), data)
+        cloudsync.save_config(data, config)
+        (data / cloudsync.INSTALL_NAME).write_text(json.dumps({"install_id": fresh_install}), encoding="utf-8")
+    except (cloudsync.CloudError, ShopError, OSError) as exc:
+        if aside is not None:          # nothing half-restored is left behind; the empty folder goes back
+            import shutil
+            shutil.rmtree(data, ignore_errors=True)
+            aside.rename(data)
+        if isinstance(exc, cloudsync.CloudError) and exc.status in (401, 403, 404):
+            print("لم تتم الاستعادة ولم يتغير شيء. الكود غير صحيح أو لم يعد صالحًا. راجع الكود في شاشة الإعدادات على الجهاز القديم أو اتصل بالدعم.")
+        elif isinstance(exc, cloudsync.CloudError) and exc.status in (0, 429, 502, 503, 504):
+            print("لم تتم الاستعادة ولم يتغير شيء. تأكد من الإنترنت وأعد المحاولة بعد قليل.")
+        else:
+            print("لم تتم الاستعادة ولم يتغير شيء:", getattr(exc, "code", None) or exc)
+        return 1
+    print("تمت الاستعادة (%d صفًا). مطابقة الأرصدة والحسابات: %s" % (report.get("rows", 0), "سليمة" if report.get("ok") else "راجع الدعم قبل البيع"))
+    print("كلمات المرور لا تُحفظ على السحابة. اكتب الآن كلمة مرور جديدة لصاحب المحل:\n")
+    return owner_recovery(data)
 
 
-def start_cloud(app, mode, stop_event):
-    """Hourly and nightly copies to the owner's cloud: the real shop only, never training."""
-    url = cloud.cloud_url(COMPILED)
-    if mode != "shop" or not url:
+def start_cloud(app, mode, stop_event, data):
+    """The shop copies itself to the cloud with no step from the owner: on the first run the program makes its own
+    cloud store (CloudAuto), then copies every few seconds, retrying with growing waits when the internet is down.
+    Only the real shop; training never; source runs and CI never (SM_CLOUD_URL=off or no address). A failure here
+    never reaches the till: selling never waits for the network."""
+    if mode != "shop":
         return None
-    app.cloud = cloud.Cloud(HOME, app.store, url, label=str(app.shop.settings().get("shop_name") or ""))
-    threading.Thread(target=app.cloud.loop, args=(stop_event,), daemon=True, name="cloud").start()
-    return app.cloud
+    url = cloudsync.cloud_url(COMPILED)
+    app.cloud_available = bool(url)
+    if not url:
+        return None                       # SM_CLOUD_URL=off (CI, test machines) and plain source runs never connect
+    import logging
+    try:
+        token = cloudsync.enroll_token()
+        if not cloudsync.load_config(data) and not token:
+            return None                   # no way to connect: a build without a token (a developer's copy)
+        sync = cloudsync.CloudAuto(data, url, token)
+    except Exception:
+        logging.getLogger("supermarket").exception("cloud sync not started")
+        return None
+    app.cloud = sync
+    threading.Thread(target=sync.run_forever, args=(stop_event,), daemon=True, name="cloud").start()
+    return sync
 
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    if argv[:1] in (["owner-recovery"], ["cloud-code"], ["cloud-restore"], ["usb-backup"]):
+    if argv[:1] in (["owner-recovery"], ["usb-backup"], ["cloud-join"], ["cloud-status"], ["cloud-leave"], ["cloud-restore"]):
         console_utf8()
     if argv[:1] == ["owner-recovery"]:              # Start menu: «استعادة دخول المالك» (opens in a console window)
         return owner_recovery(HOME / "shop-data")
     if argv[:1] == ["usb-backup"]:                   # Start menu: «نسخة على فلاشة»
         return usb_backup(HOME / "shop-data")
-    if argv[:1] == ["cloud-code"]:
-        return cloud_code(HOME / "shop-data")
+    if argv[:1] == ["cloud-join"]:                   # support only (admin fallback with a pairing code); not in the Start menu
+        return cloud_join(HOME / "shop-data")
+    if argv[:1] == ["cloud-status"]:                 # support only
+        return cloud_status(HOME / "shop-data")
+    if argv[:1] == ["cloud-leave"]:                  # support only
+        return cloud_leave(HOME / "shop-data")
     if argv[:1] == ["cloud-restore"]:
         return cloud_restore(HOME / "shop-data")
     training = "training" in argv
@@ -385,7 +479,7 @@ def main(argv=None):
         threading.Timer(0.8, window.open_ui, (url, logging.getLogger("supermarket").info)).start()
     stop_backups = threading.Event()
     threading.Thread(target=backup_loop, args=(httpd.app.store, HOME / ("backups-" + mode), stop_backups), daemon=True).start()
-    start_cloud(httpd.app, mode, stop_backups)
+    start_cloud(httpd.app, mode, stop_backups, data)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

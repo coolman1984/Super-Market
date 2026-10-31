@@ -11,8 +11,15 @@ dist/
 ENVIRONMENT_REPORT.local.json
 *.log
 pre-upgrade/
+
+# Cloud copy: this PC's device secret and the admin key never go in the repo
+sync.json
+cloud/.admin-key
 build/
 cloud/node_modules/
 cloud/.wrangler/
 cloud.json
 cloud-queue/
+
+# the cloud build token baked in by tools/build_windows.py (never committed)
+server/_enroll.py

@@ -1,4 +1,4 @@
-// A small stand-in for Cloudflare D1 (copied from the Yousef gateway) on top of node:sqlite, for local runs and tests only (same calls: prepare/bind/run/first/all/batch).
+// A small stand-in for Cloudflare D1 on top of node:sqlite, for local runs and tests only (same calls: prepare/bind/run/first/all/batch).
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

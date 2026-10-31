@@ -85,7 +85,7 @@ class Language(unittest.TestCase):
     def test_guide_and_current_user_docs_use_formal_arabic(self):
         guide = json.loads((ROOT / 'web/guide/ar.json').read_text(encoding='utf-8'))
         texts = list(guide.values()) + [(ROOT / 'docs' / p).read_text(encoding='utf-8') for p in
-            ('USER_GUIDE.md', 'CLOUD_BACKUP.md', 'SUPPORT_GUIDE.md', 'WINDOWS.md')]
+            ('USER_GUIDE.md', 'CLOUD_SYNC.md', 'SUPPORT_GUIDE.md', 'WINDOWS.md')]
         banned = ('اللي', 'دلوقتي', 'مفيش', 'مينفعش', 'بتاعتك', 'عشان', 'تاني', 'بكام', 'تلاقي', 'ماتحفظش')
         for text in texts:
             for word in banned:

@@ -362,14 +362,19 @@
     const f = { username: h('input', { class: 'input', autocomplete: 'off', 'data-guide': 'set.username' }), name: h('input', { class: 'input' }), password: h('input', { class: 'input', type: 'password', autocomplete: 'new-password', 'data-guide': 'set.password' }),
       role: SM.select(['manager', 'cashier', 'receiver', 'butcher', 'counter', 'accountant', 'viewer', 'owner'].map(r => ({ value: r, label: t('role.' + r) }))) };
     f.role.setAttribute('data-guide', 'set.role');
-    return h('div', { class: 'card' }, h('h3', { text: t('set.users') }),
+    f.password.type = 'text'; f.password.classList.add('ltr'); f.password.value = SM.tempPassword();     // one less thing to think of: a ready temporary password, shown so it can be read out
+    return h('div', { class: 'card', 'data-guide': 'set.users' }, h('h3', { text: t('set.users') }), h('p', { class: 'muted', 'data-guide': 'set.roles_help', text: t('set.roles_help') }),
       SM.table([{ label: t('username'), render: u => h('span', { class: 'ltr', text: u.username }) }, { label: t('set.display'), key: 'display_name' }, { label: t('set.role'), render: u => t('role.' + u.role) },
         { label: t('set.state'), render: u => h('span', { class: 'badge ' + (u.active ? (u.must_change ? 'warn' : 'ok') : 'bad'),
           text: u.active ? (u.must_change ? t('set.user_must_change') : t('set.user_active')) : t('set.user_stopped') }) },
         { label: '', render: u => SM.state.user && u.id === SM.state.user.id ? null : h('div', { class: 'row' },
-          h('button', { class: 'btn sm', text: t('set.reset_password'), onclick: SM.guard(async () => {
-            const pw = prompt(t('set.reset_password_q', { name: u.display_name })); if (!pw) return;
-            try { await SM.api('POST', '/api/users/' + u.id + '/password', { password: pw }); SM.toast(t('set.reset_done')); SM.go('settings'); } catch (e) { SM.fail(e); }
+          h('button', { class: 'btn sm', 'data-guide': 'set.reset_password', text: t('set.reset_password'), onclick: SM.guard(async () => {
+            const temp = h('input', { class: 'input ltr', value: SM.tempPassword(), 'data-guide': 'set.temp_pw', autocomplete: 'off' });
+            const d = SM.dialog({ title: t('set.reset_title', { name: u.display_name }), body: [h('p', { class: 'tip', text: t('set.reset_password_q', { name: u.display_name }) }), SM.field(t('set.temp_pw'), temp, t('set.temp_pw_help'))],
+              actions: [h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => d.close() }),
+                h('button', { class: 'btn primary', id: 'reset-save', text: t('set.reset_save'), onclick: async () => {
+                  try { await SM.api('POST', '/api/users/' + u.id + '/password', { password: temp.value }); d.close(); SM.toast(t('set.reset_done')); SM.go('settings'); } catch (e) { SM.fail(e); }
+                } })] });
           }) }),
           h('button', { class: 'btn sm ' + (u.active ? 'danger' : ''), text: u.active ? t('set.stop_user') : t('set.start_user'), onclick: SM.guard(async () => {
             const reason = prompt(u.active ? t('set.stop_user_q', { name: u.display_name }) : t('set.start_user_q')); if (!reason) return;
@@ -377,7 +382,7 @@
           }) })) }], users),
       h('div', { class: 'grid cols-4' }, SM.field(t('username'), f.username), SM.field(t('set.display'), f.name), SM.field(t('password'), f.password, t('set.pw_help')), SM.field(t('set.role'), f.role)),
       h('button', { class: 'btn', 'data-guide': 'set.add_user', text: t('set.add_user'), onclick: async () => {
-        try { await SM.api('POST', '/api/users', { username: f.username.value, name: f.name.value, password: f.password.value, role: f.role.value }); SM.toast(t('saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
+        try { await SM.api('POST', '/api/users', { username: f.username.value, name: f.name.value || f.username.value, password: f.password.value, role: f.role.value }); SM.toast(t('saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
       } }));
   }
 
@@ -397,20 +402,27 @@
       } })));
   }
 
-  // Hourly and nightly copies to the owner's cloud (server/cloud.py). Never shows the secret or the address.
+  // Live copy of the shop in the cloud (server/cloudsync.py). The program connects itself; the owner only sees the state
+  // and, if he wants, his recovery code for a replacement PC. Never shows the secret or the address.
   async function cloudCard() {
     const st = await SM.api('GET', '/api/cloud').catch(() => ({ unknown: true }));
-    const known = ['offline', 'certificate', 'clock', 'busy', 'not_ready', 'pc_full', 'copy_failed'];
-    const lines = st.unknown ? [t('set.cloud_unknown')] : !st.enabled ? [t('set.cloud_off')] : [
+    const known = ['offline', 'certificate', 'clock', 'busy', 'not_ready', 'pc_full', 'copy_failed', 'rejected_device'];
+    const problem = st.error ? t('set.cloud_problem', { why: t('cloud.' + (known.includes(st.error) ? st.error : 'other')) }) : null;
+    const lines = st.unknown ? [t('set.cloud_unknown')] : !st.enabled ? (st.enrolling ? [t('set.cloud_enrolling'), problem] : [t('set.cloud_off')]) : [
       st.last_ok_at ? t('set.cloud_ok', { at: '\u2066' + st.last_ok_at.replace('T', ' ').slice(0, 16) + '\u2069' }) : t('set.cloud_never'),
       st.last_copy ? t('set.cloud_copy', { name: '\u2066' + st.last_copy + '\u2069' }) : null,
       st.queued ? t('set.cloud_wait', { n: st.queued }) : null,
-      st.error ? t('set.cloud_problem', { why: t('cloud.' + (known.includes(st.error) ? st.error : 'other')) }) : null].filter(Boolean);
+      problem].filter(Boolean);
+    const shown = h('p', { class: 'recovery-code', id: 'cloud-recovery-code', dir: 'ltr' });
     return h('div', { class: 'card', id: 'cloud-card' }, h('h3', { text: t('set.cloud') }), h('p', { class: 'muted', text: t('set.cloud_help') }),
-      lines.map(x => h('p', { class: st.error ? 'warn' : '', text: x })),
+      lines.filter(Boolean).map(x => h('p', { class: st.error ? 'warn' : '', text: x })),
       st.enabled ? h('button', { class: 'btn', id: 'cloud-now', text: t('set.cloud_now'), onclick: async () => {
         try { await SM.api('POST', '/api/cloud/now', {}); SM.toast(t('set.cloud_started')); setTimeout(() => SM.go('settings'), 4000); } catch (e) { SM.fail(e); }
-      } }) : null);
+      } }) : null,
+      st.recovery_available && SM.can('settings') ? [h('p', { class: 'muted', text: t('set.cloud_recovery_help') }),
+        h('button', { class: 'btn', id: 'cloud-recovery', text: t('set.cloud_recovery_show'), onclick: async () => {
+          try { const r = await SM.api('GET', '/api/cloud/recovery'); shown.textContent = '\u2066' + r.code + '\u2069'; } catch (e) { SM.fail(e); }
+        } }), shown] : null);
   }
 
 })();

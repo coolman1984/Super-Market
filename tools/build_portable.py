@@ -10,7 +10,7 @@ NuGet catalog before use. The result is one folder + zip:
 
   SuperMarket-<version>-win64/
     python/            trimmed CPython 3.13 runtime (+ python313._pth)
-    server/ web/ tools/ docs/ launcher.py start*.bat LICENSES/ README-WINDOWS.txt
+    server/ web/ tools/ docs/ launcher.py start*.bat cloud-join.bat LICENSES/ README-WINDOWS.txt
   SuperMarket-<version>-win64.zip, .sha256, build-manifest.json
 
 No customer data, databases, tests or git metadata are included.
@@ -41,9 +41,9 @@ NUPKG_SHA512_B64 = "DmZ5KLtPGVc8bNiPZRM7LgeyQ6XHFvM1tWqma7nsb4IyglbSLDop4joCdqxc
 DROP_PREFIXES = ("tools/include/", "tools/libs/", "tools/Lib/test/", "tools/Lib/idlelib/", "tools/Lib/tkinter/",
                  "tools/Lib/turtledemo/", "tools/Lib/ensurepip/", "tools/Lib/site-packages/", "tools/Lib/lib2to3/",
                  "tools/DLLs/_tkinter", "tools/DLLs/tcl", "tools/DLLs/tk", "tools/tcl/", "tools/Lib/pydoc_data/")
-APP_FILES = ["launcher.py", "start.bat", "start-training.bat", "start-training-reset.bat", "start-lan.bat", "owner-recovery.bat"]
+APP_FILES = ["launcher.py", "start.bat", "start-training.bat", "start-training-reset.bat", "start-lan.bat", "owner-recovery.bat", "cloud-join.bat"]
 APP_DIRS = ["server", "web"]
-TOOLS = ["shopctl.py", "Discover-Environment.ps1", "Read-ExcelViaCom.ps1"]
+TOOLS = ["shopctl.py", "syncctl.py", "Discover-Environment.ps1", "Read-ExcelViaCom.ps1"]
 DOCS = ["USER_GUIDE.md", "SUPPORT_GUIDE.md", "SCANNER_COMPATIBILITY.md", "WINDOWS.md"]
 
 

@@ -1,19 +1,15 @@
-name = "super-market-backup"
+name = "super-market-sync"
 main = "src/worker.js"
 compatibility_date = "2025-01-01"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "super-market-backup"
+database_name = "super-market-sync"
 database_id = "REPLACE-WITH-THE-ID-FROM-wrangler-d1-create"
 
-[[r2_buckets]]
-binding = "BUCKET"
-bucket_name = "super-market-backups"
-
 [triggers]
-crons = ["23 2 * * *"]
+crons = ["23 3 * * *"]
 
-# Secret (never written in this file):
-#   npx wrangler secret put MASTER_KEY   # ONCE, a long random value. It derives every PC's secret.
-#                                        # Never print it, never change it: every connected PC would be locked out.
+# Secrets (never written in this file; deploy.mjs creates them once and never prints them):
+#   MASTER_KEY   derives every device's signing secret. Never rotate it casually: every paired device would be locked out.
+#   ADMIN_KEY    lets the owner create stores and one-time pairing codes (tools/syncctl.py).

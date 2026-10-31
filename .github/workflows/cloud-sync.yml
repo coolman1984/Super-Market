@@ -1,0 +1,58 @@
+# Tests the cloud copy (Worker + D1 stand-in) on every change under cloud/ or the client files.
+# The deploy job is manual only (Actions -> Cloud copy -> Run workflow, tick "deploy") and needs two repository secrets:
+#   SM_ADMIN_KEY (first deploy only: a long random value YOU keep; a key made on a runner would be lost)
+#   CLOUDFLARE_API_TOKEN (template "Edit Cloudflare Workers" + permission D1: Edit) and CLOUDFLARE_ACCOUNT_ID.
+# MASTER_KEY and ADMIN_KEY are created once at Cloudflare by cloud/deploy.mjs and never pass through this repository.
+name: Cloud copy
+on:
+  push:
+    paths: ["cloud/**", "server/cloudsync.py", "launcher.py", "tests/test_cloudsync.py", "tests/test_cloud_wiring.py", ".github/workflows/cloud-sync.yml"]
+  pull_request:
+    paths: ["cloud/**", "server/cloudsync.py", "launcher.py", "tests/test_cloudsync.py", "tests/test_cloud_wiring.py", ".github/workflows/cloud-sync.yml"]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Also deploy to Cloudflare (needs the two secrets)"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: cloud-copy-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Cloud service tests
+        working-directory: cloud
+        run: npm test
+      - name: Client tests against the real cloud code
+        run: cd tests && python -m unittest test_cloudsync test_cloud_wiring -v
+  deploy:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Deploy (database, tables, worker, keys on first run)
+        working-directory: cloud
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_KEY: ${{ secrets.SM_ADMIN_KEY }}      # only used on the very first deploy; empty afterwards is fine
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" -a -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Add the two Cloudflare secrets first (docs/CLOUD_SYNC.md)"; exit 1; }
+          node deploy.mjs

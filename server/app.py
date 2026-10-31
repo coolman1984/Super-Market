@@ -162,6 +162,7 @@ class App:
         r("GET", r"/api/backup/status", self.backup_status)
         r("GET", r"/api/cloud", self.cloud_status, lock=False)
         r("POST", r"/api/cloud/now", self.cloud_now, lock=False)
+        r("GET", r"/api/cloud/recovery", self.cloud_recovery, lock=False)
         r("GET", r"/api/reconcile", lambda a, q, b: require(a, "reports") and self.shop.reconcile())
 
     def route(self, method, pattern, fn, auth=True, lock=True):
@@ -191,15 +192,25 @@ class App:
         return self._lan_cache
 
     stop_key = None
-    cloud = None      # server.cloud.Cloud, set by the launcher of the real shop
+    cloud = None      # server.cloudsync.CloudAuto, set by the launcher of the real shop (it connects itself)
+    cloud_available = False   # the installed program knows the cloud's address
 
     def cloud_status(self, actor, q, body):
         require(actor, "backup")
-        return self.cloud.status() if self.cloud else {"enabled": False}
+        return self.cloud.status_light() if self.cloud else {"enabled": False, "available": bool(self.cloud_available)}
+
+    def cloud_recovery(self, actor, q, body):
+        """The owner's recovery code for a replacement PC (settings screen). Owner only, and every look is audited."""
+        require(actor, "settings")
+        code = self.cloud.recovery_code() if self.cloud and hasattr(self.cloud, "recovery_code") else None
+        if not code:
+            raise ShopError("cloud_not_ready", status=409)
+        self.store.tx(lambda: self.store.audit(actor, "cloud_recovery_code_shown"))
+        return {"code": code}
 
     def cloud_now(self, actor, q, body):
         require(actor, "backup")
-        if not self.cloud or not self.cloud.enabled:
+        if not self.cloud:
             raise ShopError("cloud_off", status=409)
         self.store.tx(lambda: self.store.audit(actor, "cloud_backup_now"))
         return self.cloud.now_please()
@@ -444,7 +455,7 @@ class App:
         require(actor, "settings")
         cloud_ok = None
         try:
-            cloud_ok = (self.cloud.status() or {}).get("last_ok_at") if self.cloud else None
+            cloud_ok = (self.cloud.status_light() or {}).get("last_ok_at") if self.cloud else None
         except Exception:
             cloud_ok = None
         return backup.status(self.store, self.backup_folder, cloud_ok)

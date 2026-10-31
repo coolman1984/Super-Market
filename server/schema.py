@@ -649,4 +649,21 @@ CREATE TABLE supplier_return_closes(
 
 
 MIGRATIONS.append((8, "review C: cost exposure, supplier settlements and fixed training seed", m008))
+
+
+# ---------------------------------------------------------------- migration 9
+# Cloud copy (docs/CLOUD_SYNC.md); numbered 9 because main's migration 8 (review C cost tables) came first. Adds only two small tables and changes nothing that exists.
+# sync_changes stays EMPTY until the owner connects the shop to the cloud (server/cloudsync.py then adds
+# row-change triggers); a shop that never connects pays nothing. sync_meta keeps the local sync state.
+M009 = r"""
+CREATE TABLE sync_changes(seq INTEGER PRIMARY KEY AUTOINCREMENT, t TEXT NOT NULL, r INTEGER NOT NULL);
+CREATE TABLE sync_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+"""
+
+
+def m009(conn):
+    run_script(conn, M009)
+
+
+MIGRATIONS.append((9, "cloud copy: change log for the optional Cloudflare sync", m009))
 SCHEMA_VERSION = MIGRATIONS[-1][0]
