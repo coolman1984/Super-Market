@@ -2753,18 +2753,38 @@ class Shop:
         return self.store.command("production", key, fingerprint_payload, actor, work)
 
     # =============== counting ===============
+    @staticmethod
+    def count_is_far(expected, counted):
+        """A typed extra zero and the like: 10× either way, or 10+ beside a zero."""
+        hi = expected if expected > counted else counted
+        lo = counted if expected > counted else expected
+        if hi == 0:
+            return False
+        if lo == 0:
+            return hi >= 10
+        return hi >= lo * 10
+
+    @staticmethod
+    def count_is_wide(expected, counted):
+        """More than half the recorded balance, so the approval list can mark it."""
+        if expected <= 0:
+            return counted > 0
+        return abs(counted - expected) * 2 > expected
+
     def open_count(self, actor, location_id):
         require(actor, "count")
 
         def work():
-            self._location(integer(location_id, 1))
-            if self.store.scalar("SELECT 1 FROM counts WHERE location_id=? AND status='open'", (location_id,)):
-                raise ShopError("count_already_open")
+            loc = integer(location_id, 1)
+            self._location(loc)
+            existing = self.store.scalar("SELECT id FROM counts WHERE location_id=? AND status='open'", (loc,))
+            if existing:
+                return {"count": existing, "resumed": True}
             cutoff = self.store.scalar("SELECT COALESCE(MAX(id),0) FROM stock_entries")
             cid = self.store.db.execute("INSERT INTO counts(location_id,cutoff_entry,opened_by,opened_at,status) VALUES(?,?,?,?,'open')",
-                                        (location_id, cutoff, actor["id"], now_iso())).lastrowid
+                                        (loc, cutoff, actor["id"], now_iso())).lastrowid
             self.store.audit(actor, "count.open", str(cid))
-            return {"count": cid}
+            return {"count": cid, "resumed": False}
         return self.store.tx(work)
 
     def cancel_count(self, actor, count_id, reason):
@@ -2798,25 +2818,61 @@ class Shop:
             l["counted"] = counted.get(l["lot_id"])
         return {"count": count, "lots": lots}
 
-    def record_count(self, actor, count_id, lot_id, counted):
+    def _count_variances(self, count):
+        """Latest counted line per lot against the ledger at the moment it was counted."""
+        latest = self.store.all("""SELECT cl.lot_id, cl.counted, cl.seen_entry, p.name_ar, p.name_en, p.measure, l.lot_no
+            FROM count_lines cl JOIN lots l ON l.id=cl.lot_id JOIN products p ON p.id=l.product_id
+            WHERE cl.id IN (SELECT MAX(id) FROM count_lines WHERE count_id=? GROUP BY lot_id)""", (count["id"],))
+        rows = []
+        for row in latest:
+            expected = self.store.scalar("""SELECT COALESCE(SUM(qty),0) FROM stock_entries
+                WHERE lot_id=? AND location_id=? AND id<=?""", (row["lot_id"], count["location_id"], row["seen_entry"]))
+            diff = row["counted"] - expected
+            if not diff:
+                continue
+            rows.append({"lot_id": row["lot_id"], "lot_no": row["lot_no"], "name_ar": row["name_ar"], "name_en": row["name_en"],
+                         "measure": row["measure"], "system": expected, "counted": row["counted"], "diff": diff,
+                         "big": self.count_is_far(expected, row["counted"]), "wide": self.count_is_wide(expected, row["counted"])})
+        rows.sort(key=lambda r: (-abs(r["diff"]), r["name_ar"]))
+        return rows
+
+    def count_review(self, actor, count_id):
+        """Differences for the approver, before anything is posted. A counter stays blind."""
+        require(actor, "count_approve")
+        count = self.store.one("SELECT * FROM counts WHERE id=?", (integer(count_id, 1),))
+        if not count or count["status"] != "open":
+            raise ShopError("count_not_open")
+        lines = self._count_variances(count)
+        return {"lines": lines, "big": any(r["big"] for r in lines)}
+
+    def record_count(self, actor, count_id, lot_id, counted, confirm_far=False):
         require(actor, "count")
 
         def work():
             count = self.store.one("SELECT * FROM counts WHERE id=?", (integer(count_id, 1),))
             if not count or count["status"] != "open":
                 raise ShopError("count_not_open")
-            if not self.store.scalar("SELECT 1 FROM lots WHERE id=?", (integer(lot_id, 1),)):
+            lot = integer(lot_id, 1)
+            if not self.store.scalar("SELECT 1 FROM lots WHERE id=?", (lot,)):
                 raise ShopError("unknown_lot")
+            qty = integer(counted)
             # the shelf was counted NOW: later approval compares with the ledger at
             # this position, so sales between opening and counting are not lost twice
             seen = self.store.scalar("SELECT COALESCE(MAX(id),0) FROM stock_entries")
+            expected = self.store.scalar("""SELECT COALESCE(SUM(qty),0) FROM stock_entries
+                WHERE lot_id=? AND location_id=? AND id<=?""", (lot, count["location_id"], seen))
+            far = self.count_is_far(expected, qty)
+            # no balance in the answer: the counter must not learn the recorded quantity
+            if far and not confirm_far:
+                return {"ok": False, "saved": False, "far": True}
             self.store.db.execute("INSERT INTO count_lines(count_id,lot_id,counted,seen_entry,user_id,at) VALUES(?,?,?,?,?,?)",
-                                  (count_id, lot_id, integer(counted), seen, actor["id"], now_iso()))
-            return {"ok": True}
+                                  (count_id, lot, qty, seen, actor["id"], now_iso()))
+            return {"ok": True, "saved": True, "far": far}
         return self.store.tx(work)
 
-    def approve_count(self, actor, key, count_id, owner_reason=None):
+    def approve_count(self, actor, key, count_id, owner_reason=None, confirm_jump=False):
         require(actor, "count_approve")
+        confirm_jump = confirm_jump is True
 
         def work(op):
             count = self.store.one("SELECT * FROM counts WHERE id=?", (integer(count_id, 1),))
@@ -2825,15 +2881,12 @@ class Shop:
             counters = {r["user_id"] for r in self.store.all("SELECT DISTINCT user_id FROM count_lines WHERE count_id=?", (count_id,))}
             if actor["id"] in counters and not (actor["role"] == "owner" and owner_reason):
                 raise Forbidden("approver_counted")  # owner exception only with a written reason
-            latest = self.store.all("""SELECT lot_id, counted, seen_entry FROM count_lines WHERE id IN
-                (SELECT MAX(id) FROM count_lines WHERE count_id=? GROUP BY lot_id)""", (count_id,))
+            variances = self._count_variances(count)
+            if any(r["big"] for r in variances) and not confirm_jump:
+                raise ShopError("count_jump_unconfirmed")
             diffs = []
-            for row in latest:
-                expected = self.store.scalar("""SELECT COALESCE(SUM(qty),0) FROM stock_entries
-                    WHERE lot_id=? AND location_id=? AND id<=?""", (row["lot_id"], count["location_id"], row["seen_entry"]))
-                diff = row["counted"] - expected
-                if not diff:
-                    continue
+            for row in variances:
+                diff = row["diff"]
                 if diff < 0:
                     try:
                         self._check_free(row["lot_id"], count["location_id"], -diff)
@@ -2856,7 +2909,7 @@ class Shop:
             if actor["id"] in counters:
                 self.store.audit(actor, "count.owner_self_approval", str(count_id), {"reason": text(owner_reason, "reason_required", 200)})
             return {"count": count_id, "differences": diffs, "self_approved_owner": actor["id"] in counters}
-        return self.store.command("count_approve", key, [count_id, owner_reason], actor, work)
+        return self.store.command("count_approve", key, [count_id, owner_reason, confirm_jump], actor, work)
 
     # =============== reports ===============
     @staticmethod
