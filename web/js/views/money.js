@@ -185,6 +185,9 @@
   SM.views.reports = {
     icon: 'chart', perm: 'reports',
     async mount(root) {
+      // the business day moves while the program stays open (day-start hour, a day close): ask the server each time
+      const st = await SM.api('GET', '/api/state').catch(() => null);
+      if (st && st.business_day) SM.state.businessDay = st.business_day;
       const day = h('input', { class: 'input', type: 'date', value: SM.state.businessDay || SM.today(), 'data-guide': 'rep.day' });
       const box = h('div');
       const load = async () => {
