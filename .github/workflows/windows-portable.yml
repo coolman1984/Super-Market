@@ -34,9 +34,11 @@ jobs:
           $r = Get-Content ENVIRONMENT_REPORT.local.json -Raw | ConvertFrom-Json
           "os=$($r.os) ps=$($r.powershell) writable=$($r.program_folder_writable) excel=$($r.office_com_registered.'Excel.Application') printers=$(@($r.printers).Count) serial=$(@($r.serial_ports).Count)"
           if (-not $r.office_com_registered.'Excel.Application') {
-            powershell -NoProfile -ExecutionPolicy Bypass -File tools\Read-ExcelViaCom.ps1 -Path README.md -Out x.csv
-            if ($LASTEXITCODE -ne 3) { throw "expected a clear 'Excel missing' exit 3, got $LASTEXITCODE" }
+            $p = Start-Process -FilePath powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','tools\Read-ExcelViaCom.ps1','-Path','README.md','-Out','x.csv' -Wait -PassThru -NoNewWindow
+            "excel tool exit code: $($p.ExitCode)"
+            if ($p.ExitCode -ne 3) { throw "expected a clear 'Excel missing' exit 3, got $($p.ExitCode)" }
           }
+          $global:LASTEXITCODE = 0
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
