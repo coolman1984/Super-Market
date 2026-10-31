@@ -84,12 +84,22 @@ class Language(unittest.TestCase):
 
     def test_guide_and_current_user_docs_use_formal_arabic(self):
         guide = json.loads((ROOT / 'web/guide/ar.json').read_text(encoding='utf-8'))
-        texts = list(guide.values()) + [(ROOT / 'docs' / p).read_text(encoding='utf-8') for p in
-            ('USER_GUIDE.md', 'CLOUD_SYNC.md', 'SUPPORT_GUIDE.md', 'WINDOWS.md')]
         banned = ('اللي', 'دلوقتي', 'مفيش', 'مينفعش', 'بتاعتك', 'عشان', 'تاني', 'بكام', 'تلاقي', 'ماتحفظش')
-        for text in texts:
+        # QA gate 2: the cashier limit lines are shop Arabic on purpose («عشان»، «تاني»).
+        shop_words = {'عشان', 'تاني'}
+
+        def hits(text, allowed=()):
             for word in banned:
+                if word in allowed:
+                    continue
                 self.assertIsNone(re.search(r'(?<![\u0621-\u064A])' + word + r'(?![\u0621-\u064A])', text), word)
+
+        for value in guide.values():
+            hits(value)
+        for name in ('CLOUD_SYNC.md', 'SUPPORT_GUIDE.md', 'WINDOWS.md'):
+            hits((ROOT / 'docs' / name).read_text(encoding='utf-8'))
+        for line in (ROOT / 'docs' / 'USER_GUIDE.md').read_text(encoding='utf-8').splitlines():
+            hits(line, shop_words if 'غيّر رأيه' in line else ())
 
     def test_no_text_tells_the_user_to_invent_a_loss(self):
         phrases_ar = ["حتى يتوازن", "حتى تتوازن", "ليتوازن الوزن", "اكتب الفاقد حتى", "سجّل فاقدًا ليتوازن", "اخترع"]
