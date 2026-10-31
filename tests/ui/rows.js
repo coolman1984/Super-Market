@@ -16,6 +16,9 @@ const out = process.argv[3] || '.';
   await page.waitForSelector('input[type=password]');
   await page.fill('input[autocomplete=username]', 'owner'); await page.fill('input[type=password]', 'training-only');
   await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
+  // a saved dialog closes; if it stays open the save failed and the toast says why
+  const closed = () => page.waitForSelector('#overlay.on', { state: 'detached', timeout: 8000 }).catch(async () => {
+    throw new Error('dialog still open: ' + (await page.locator('.toast').allTextContents()).join(' | ')); });
   const api = (m, p, b) => page.evaluate(([m, p, b]) => SM.api(m, p, b), [m, p, b]);
   const sup = (await api('GET', '/api/parties?kind=supplier'))[0] || { id: (await api('POST', '/api/parties', { kind: 'supplier', name: 'مورد التدريب' })).id };
   const juice = (await api('GET', '/api/products?q=1001'))[0];
@@ -30,7 +33,7 @@ const out = process.argv[3] || '.';
   const qtyIn = dlg.locator('.grid.cols-4 input');
   await qtyIn.nth(0).fill('10'); await qtyIn.nth(2).fill('100');
   await page.screenshot({ path: out + '/invoice-before-goods-ar.png' });
-  await dlg.locator('footer .btn.primary').click(); await page.waitForTimeout(800);
+  await dlg.locator('footer .btn.primary').click(); await closed();
   const invs = await api('GET', '/api/supplier-invoices');
   res.row02_invoice_registered = invs.some(i => i.number === 'UI-INV-1');
   await page.waitForSelector('#view select');
@@ -67,7 +70,7 @@ const out = process.argv[3] || '.';
   await ad.locator('select').nth(0).selectOption({ index: 1 });
   await ad.locator('input').nth(0).fill('6'); await ad.locator('input').nth(1).fill('UI-FINAL-1');
   await page.screenshot({ path: out + '/cost-correction-ar.png' });
-  await ad.locator('footer .btn.primary').click(); await page.waitForTimeout(800);
+  await ad.locator('footer .btn.primary').click(); await closed();
   res.row03_toast = await page.locator('.toast').last().textContent().catch(() => '');
   // ---- row 9: carton change from the product drawer (product with a carton in the seed, if any)
   const cartonId = (await api('POST', '/api/products', { code: 'CT1', name_ar: 'مياه معدنية', name_en: 'Water', kind: 'grocery', measure: 'unit',
@@ -79,7 +82,7 @@ const out = process.argv[3] || '.';
   await page.waitForSelector('.dialog');
   await page.locator('.dialog input').nth(0).fill('10'); await page.locator('.dialog input').nth(1).fill('المورد غيّر التعبئة');
   await page.screenshot({ path: out + '/carton-change-ar.png' });
-  await page.locator('.dialog footer .btn.primary').click(); await page.waitForTimeout(800);
+  await page.locator('.dialog footer .btn.primary').click(); await closed();
   const after9 = await api('GET', '/api/products/' + cartonId);
   res.row09_old_retired_new_10 = after9.packagings.length === 2 && !!after9.packagings[0].retired_op && after9.packagings[1].factor_num === 10;
   res.row09_scan_now_10 = (await api('POST', '/api/scan', { raw: '6229990000010' })).qty === 10;
@@ -89,7 +92,7 @@ const out = process.argv[3] || '.';
   await page.waitForSelector('.drawer');
   await page.click('.drawer >> text=' + await page.evaluate(() => SM.t('promo.add')));
   await page.waitForSelector('.dialog');
-  await page.locator('.dialog footer .btn.primary').click(); await page.waitForTimeout(800);
+  await page.locator('.dialog footer .btn.primary').click(); await closed();
   const q = await api('POST', '/api/quote', { payload: { lines: [{ product_id: juice.id, qty: 3 }] } });
   res.row26_promo_on_quote = q.promo === juice.price;
   await page.goto(base + '/#catalog'); await page.waitForSelector('#view .tbl');
@@ -106,7 +109,7 @@ const out = process.argv[3] || '.';
   await page.locator('.dialog select').nth(0).selectOption({ index: 1 });
   await page.locator('.dialog input').first().fill('1');
   await page.screenshot({ path: out + '/thaw-ar.png' });
-  await page.locator('.dialog footer .btn.primary').click(); await page.waitForTimeout(800);
+  await page.locator('.dialog footer .btn.primary').click(); await closed();
   res.row14_toast = await page.locator('.toast').last().textContent().catch(() => '');
   // ---- row 38: the reports screen offers the day close with its explanation
   await page.goto(base + '/#reports'); await page.waitForSelector('#view .card');
