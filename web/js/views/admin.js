@@ -326,7 +326,18 @@
     const f = { username: h('input', { class: 'input', autocomplete: 'off' }), name: h('input', { class: 'input' }), password: h('input', { class: 'input', type: 'password', autocomplete: 'new-password' }),
       role: SM.select(['manager', 'cashier', 'receiver', 'butcher', 'counter', 'accountant', 'viewer', 'owner'].map(r => ({ value: r, label: t('role.' + r) }))) };
     return h('div', { class: 'card' }, h('h3', { text: t('set.users') }),
-      SM.table([{ label: t('username'), render: u => h('span', { class: 'ltr', text: u.username }) }, { label: t('set.display'), key: 'display_name' }, { label: t('set.role'), render: u => t('role.' + u.role) }], users),
+      SM.table([{ label: t('username'), render: u => h('span', { class: 'ltr', text: u.username }) }, { label: t('set.display'), key: 'display_name' }, { label: t('set.role'), render: u => t('role.' + u.role) },
+        { label: t('set.state'), render: u => h('span', { class: 'badge ' + (u.active ? (u.must_change ? 'warn' : 'ok') : 'bad'),
+          text: u.active ? (u.must_change ? t('set.user_must_change') : t('set.user_active')) : t('set.user_stopped') }) },
+        { label: '', render: u => SM.state.user && u.id === SM.state.user.id ? null : h('div', { class: 'row' },
+          h('button', { class: 'btn sm', text: t('set.reset_password'), onclick: SM.guard(async () => {
+            const pw = prompt(t('set.reset_password_q', { name: u.display_name })); if (!pw) return;
+            try { await SM.api('POST', '/api/users/' + u.id + '/password', { password: pw }); SM.toast(t('set.reset_done')); SM.go('settings'); } catch (e) { SM.fail(e); }
+          }) }),
+          h('button', { class: 'btn sm ' + (u.active ? 'danger' : ''), text: u.active ? t('set.stop_user') : t('set.start_user'), onclick: SM.guard(async () => {
+            const reason = prompt(u.active ? t('set.stop_user_q', { name: u.display_name }) : t('set.start_user_q')); if (!reason) return;
+            try { await SM.api('POST', '/api/users/' + u.id + '/active', { active: !u.active, reason }); SM.toast(t('saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
+          }) })) }], users),
       h('div', { class: 'grid cols-4' }, SM.field(t('username'), f.username), SM.field(t('set.display'), f.name), SM.field(t('password'), f.password, t('set.pw_help')), SM.field(t('set.role'), f.role)),
       h('button', { class: 'btn', text: t('set.add_user'), onclick: async () => {
         try { await SM.api('POST', '/api/users', { username: f.username.value, name: f.name.value, password: f.password.value, role: f.role.value }); SM.toast(t('saved')); SM.go('settings'); } catch (e) { SM.fail(e); }

@@ -27,6 +27,8 @@ SM.h = h;
 
 const ICONS = {
   home: 'M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
+  lock: 'M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3',
+  key: 'M14 10a4 4 0 1 0-1.2 2.8L20 20M17 17l2-2M15 15l1.5-1.5',
   cart: 'M3 4h2l2.4 11h11l2-8H6.3M9 20h.01M18 20h.01',
   truck: 'M3 6h11v10H3zM14 10h4l3 3v3h-7M7 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM17 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
   box: 'M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8',
@@ -125,6 +127,8 @@ SM.api = async function (method, path, body) {
   const data = await resp.json().catch(() => ({ error: 'bad_reply' }));
   if (!resp.ok) {
     if (resp.status === 401 && data.error === 'login_required' && SM.onLoggedOut) SM.onLoggedOut();
+    // the server refuses everything on a locked till or before a forced password change: show that screen
+    if ((data.error === 'screen_locked' || data.error === 'must_change_password') && SM.onAccountGate) SM.onAccountGate(data.error);
     throw new ApiError(resp.status, data);
   }
   return data;

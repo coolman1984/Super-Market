@@ -68,7 +68,7 @@ const out = process.argv[3] || '.';
   const login = async (user) => {
     await page.goto(base); await page.reload();
     await page.waitForSelector('.sidebar, input[type=password]');      // the app has rendered one or the other
-    if (await page.locator('.side-foot .icon-btn').count()) { await page.click('.side-foot .icon-btn'); }
+    if (await page.locator('.side-foot .logout-btn').count()) { await page.click('.side-foot .logout-btn'); }
     await page.waitForSelector('input[type=password]', { timeout: 8000 }).catch(async (e) => {
       await page.screenshot({ path: out + '/login-stuck.png' }); console.error('stuck', await page.textContent('body').then(x => x.slice(0, 300))); throw e; });
     await page.fill('input[autocomplete=username]', user); await page.fill('input[type=password]', 'training-only');
@@ -78,7 +78,7 @@ const out = process.argv[3] || '.';
   await page.goto(base + '/#sell'); await page.waitForSelector('.scan-input');
   await page.fill('.scan-input', '6220000000013'); await page.press('.scan-input', 'Enter'); await page.waitForTimeout(400);
   const cashierCart = await page.textContent('.cart');
-  await page.click('.side-foot .icon-btn'); await page.waitForSelector('input[type=password]');
+  await page.click('.side-foot .logout-btn'); await page.waitForSelector('input[type=password]');
   await page.fill('input[autocomplete=username]', 'manager'); await page.fill('input[type=password]', 'training-only');
   await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
   await page.goto(base + '/#sell'); await page.waitForSelector('.scan-input');

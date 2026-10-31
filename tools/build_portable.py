@@ -41,7 +41,7 @@ NUPKG_SHA512_B64 = "DmZ5KLtPGVc8bNiPZRM7LgeyQ6XHFvM1tWqma7nsb4IyglbSLDop4joCdqxc
 DROP_PREFIXES = ("tools/include/", "tools/libs/", "tools/Lib/test/", "tools/Lib/idlelib/", "tools/Lib/tkinter/",
                  "tools/Lib/turtledemo/", "tools/Lib/ensurepip/", "tools/Lib/site-packages/", "tools/Lib/lib2to3/",
                  "tools/DLLs/_tkinter", "tools/DLLs/tcl", "tools/DLLs/tk", "tools/tcl/", "tools/Lib/pydoc_data/")
-APP_FILES = ["launcher.py", "start.bat", "start-training.bat", "start-training-reset.bat", "start-lan.bat"]
+APP_FILES = ["launcher.py", "start.bat", "start-training.bat", "start-training-reset.bat", "start-lan.bat", "owner-recovery.bat"]
 APP_DIRS = ["server", "web"]
 TOOLS = ["shopctl.py", "Discover-Environment.ps1", "Read-ExcelViaCom.ps1"]
 DOCS = ["USER_GUIDE.md", "SUPPORT_GUIDE.md", "SCANNER_COMPATIBILITY.md", "WINDOWS.md"]
