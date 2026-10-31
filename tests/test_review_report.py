@@ -543,3 +543,22 @@ class PartyEntry(ShopFixture, unittest.TestCase):
         again = self.shop.add_party(self.owner, "customer", "أحمد علي", "01001234567", allow_duplicate=True)
         self.assertNotEqual(first, again)
         self.assertEqual(self.store.scalar("SELECT phone FROM customers WHERE id=?", (first,)), "01001234567")
+
+
+class TaxStatement(unittest.TestCase):
+    """H4 - until an accountant confirms the e-receipt duties, the receipt and reports must keep saying it is not a tax invoice."""
+
+    ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+    def test_receipt_and_reports_say_it_is_not_a_tax_invoice(self):
+        ar = (self.ROOT / "web/js/i18n/ar.js").read_text(encoding="utf-8")
+        en = (self.ROOT / "web/js/i18n/en.js").read_text(encoding="utf-8")
+        self.assertIn("ليس فاتورة ضريبية", ar)
+        self.assertIn("not an electronic tax receipt", en)
+        self.assertIn("t('receipt.not_tax')", (self.ROOT / "web/js/views/sell.js").read_text(encoding="utf-8"))
+        self.assertIn("rep.tax_unverified", (self.ROOT / "web/js/views/money.js").read_text(encoding="utf-8"))
+
+    def test_tax_mode_cannot_be_switched_to_a_guess(self):
+        from server.services import DEFAULT_SETTINGS
+        self.assertEqual(DEFAULT_SETTINGS["tax_mode"], "unverified")
+        self.assertTrue((self.ROOT / "docs/ETA_QUESTIONS.md").exists())
