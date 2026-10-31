@@ -42,6 +42,7 @@ from server.app import serve  # noqa: E402
 from server.core import ShopError  # noqa: E402
 from server.version import PRODUCT_ID, VERSION  # noqa: E402
 from server import window  # noqa: E402
+from server import cloud  # noqa: E402
 
 KEEP_DAILY = 30
 MESSAGES = {
@@ -197,10 +198,72 @@ def stop(port, data):
         return False
 
 
+def cloud_code(data):
+    """Start menu «كود استعادة السحابة»: shown only on this PC, for the owner to keep on paper."""
+    from server.db import Store
+    store = Store(data, "shop")
+    try:
+        c = cloud.Cloud(HOME, store, cloud.cloud_url(COMPILED))
+        code = c.recovery_code()
+    finally:
+        store.close()
+    if not code:
+        print("هذا الجهاز لم يتصل بالسحابة بعد. شغّل البرنامج وهو متصل بالإنترنت ثم أعد المحاولة.")
+        return 1
+    print("كود استعادة نسخ هذا الجهاز من السحابة. اكتبه على ورقة واحفظه مع صاحب المحل فقط:")
+    print("أي شخص معه هذا الكود يقدر يقرأ نسخ هذا المحل.\n")
+    print(code + "\n")
+    return 0
+
+
+def cloud_restore(data):
+    """Start menu «استعادة من السحابة» on a NEW PC: the newest copy of the old PC becomes this
+    PC's data. Refused if this PC already has shop data (nothing is ever overwritten)."""
+    if running_here(8765, "shop", data) is not None:
+        print("أغلق البرنامج أولًا من «إيقاف السوبر ماركت» في قائمة ابدأ، ثم أعد المحاولة.")
+        return 1
+    if (data / "shop.db").exists():
+        import sqlite3
+        conn = sqlite3.connect((data / "shop.db").resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            used = conn.execute("SELECT (SELECT COUNT(*) FROM users) + (SELECT COUNT(*) FROM ops)").fetchone()[0]
+        except sqlite3.Error:
+            used = 1
+        finally:
+            conn.close()
+        if used:
+            print("يوجد على هذا الجهاز بيانات محل بالفعل. الاستعادة تكون على جهاز جديد فقط؛ لم يتغير شيء.")
+            return 1
+        import datetime   # a new PC opened the program once after Setup: that empty folder is kept aside, never deleted
+        data.rename(data.with_name("shop-data-empty-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")))
+    code = input("الصق كود استعادة الجهاز القديم: ").strip()
+    try:
+        pick = cloud.restore(code, data, HOME / "restore-work")
+    except (cloud.CloudError, ShopError) as exc:
+        print("لم تتم الاستعادة ولم يتغير شيء:", getattr(exc, "reason", None) or getattr(exc, "code", exc))
+        return 1
+    print("تمت الاستعادة من نسخة", pick["name"], "— شغّل البرنامج الآن. هذا الجهاز سيأخذ مساحة جديدة خاصة به على السحابة.")
+    return 0
+
+
+def start_cloud(app, mode, stop_event):
+    """Hourly and nightly copies to the owner's cloud: the real shop only, never training."""
+    url = cloud.cloud_url(COMPILED)
+    if mode != "shop" or not url:
+        return None
+    app.cloud = cloud.Cloud(HOME, app.store, url, label=str(app.shop.settings().get("shop_name") or ""))
+    threading.Thread(target=app.cloud.loop, args=(stop_event,), daemon=True, name="cloud").start()
+    return app.cloud
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["owner-recovery"]:              # Start menu: «استعادة دخول المالك» (opens in a console window)
         return owner_recovery(HOME / "shop-data")
+    if argv[:1] == ["cloud-code"]:
+        return cloud_code(HOME / "shop-data")
+    if argv[:1] == ["cloud-restore"]:
+        return cloud_restore(HOME / "shop-data")
     training = "training" in argv
     lan = "lan" in argv
     mode = "training" if training else "shop"
@@ -260,12 +323,15 @@ def main(argv=None):
         threading.Timer(0.8, window.open_ui, (url, logging.getLogger("supermarket").info)).start()
     stop_backups = threading.Event()
     threading.Thread(target=backup_loop, args=(httpd.app.store, HOME / ("backups-" + mode), stop_backups), daemon=True).start()
+    start_cloud(httpd.app, mode, stop_backups)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         stop_backups.set()
+        if httpd.app.cloud:
+            httpd.app.cloud.wake.set()
         httpd.app.hub.stop()
         httpd.server_close()
         httpd.app.store.close()

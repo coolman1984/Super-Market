@@ -12,3 +12,7 @@ ENVIRONMENT_REPORT.local.json
 *.log
 pre-upgrade/
 build/
+cloud/node_modules/
+cloud/.wrangler/
+cloud.json
+cloud-queue/

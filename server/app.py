@@ -150,6 +150,8 @@ class App:
         r("POST", r"/api/users", self.add_user)
         r("POST", r"/api/backup", self.make_backup)
         r("GET", r"/api/backups", lambda a, q, b: require(a, "backup") and backup.list_backups(self.backup_folder))
+        r("GET", r"/api/cloud", self.cloud_status, lock=False)
+        r("POST", r"/api/cloud/now", self.cloud_now, lock=False)
         r("GET", r"/api/reconcile", lambda a, q, b: require(a, "reports") and self.shop.reconcile())
 
     def route(self, method, pattern, fn, auth=True, lock=True):
@@ -164,6 +166,18 @@ class App:
                 if self.store.mode == "training" else None}
 
     stop_key = None
+    cloud = None      # server.cloud.Cloud, set by the launcher of the real shop
+
+    def cloud_status(self, actor, q, body):
+        require(actor, "backup")
+        return self.cloud.status() if self.cloud else {"enabled": False}
+
+    def cloud_now(self, actor, q, body):
+        require(actor, "backup")
+        if not self.cloud or not self.cloud.enabled:
+            raise ShopError("cloud_off", status=409)
+        self.store.tx(lambda: self.store.audit(actor, "cloud_backup_now"))
+        return self.cloud.now_please()
 
     def local_stop(self, actor, q, body, client=None, key=None, server=None):
         """Stop the program from this PC only, with the key the launcher wrote into the data

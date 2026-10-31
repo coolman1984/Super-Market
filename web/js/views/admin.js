@@ -301,7 +301,7 @@
         parts.push(await labelCard());
       }
       if (SM.can('users')) parts.push(await usersCard());
-      if (SM.can('backup')) parts.push(await backupCard());
+      if (SM.can('backup')) parts.push(await backupCard(), await cloudCard());
       SM.put(root, ...parts);
     },
   };
@@ -353,6 +353,21 @@
         try { const r = await SM.api('POST', '/api/backup', {}); SM.toast(t('set.backup_done')); SM.dialog({ title: t('set.backup_done'), body: h('code', { class: 'ltr', text: r.folder + '\nSHA-256 ' + r.sha256 }) }); } catch (e) { SM.fail(e); }
       } }),
       list.length ? h('ul', {}, list.slice(0, 10).map(b => h('li', { class: 'ltr', text: b.created_at + ' — schema ' + b.schema + ' — ' + b.integrity }))) : null);
+  }
+
+  // Hourly and nightly copies to the owner's cloud (server/cloud.py). Never shows the secret or the address.
+  async function cloudCard() {
+    const st = await SM.api('GET', '/api/cloud').catch(() => ({ enabled: false }));
+    const known = ['offline', 'certificate', 'clock', 'busy', 'not_ready', 'pc_full', 'copy_failed'];
+    const lines = !st.enabled ? [t('set.cloud_off')] : [
+      st.last_ok_at ? t('set.cloud_ok', { at: '\u2066' + st.last_ok_at.replace('T', ' ').slice(0, 16) + '\u2069' }) : t('set.cloud_never'),
+      st.queued ? t('set.cloud_wait', { n: st.queued }) : null,
+      st.error ? t('set.cloud_problem', { why: t('cloud.' + (known.includes(st.error) ? st.error : 'other')) }) : null].filter(Boolean);
+    return h('div', { class: 'card', id: 'cloud-card' }, h('h3', { text: t('set.cloud') }), h('p', { class: 'muted', text: t('set.cloud_help') }),
+      lines.map(x => h('p', { class: st.error ? 'warn' : '', text: x })),
+      st.enabled ? h('button', { class: 'btn', id: 'cloud-now', text: t('set.cloud_now'), onclick: async () => {
+        try { await SM.api('POST', '/api/cloud/now', {}); SM.toast(t('set.cloud_started')); setTimeout(() => SM.go('settings'), 4000); } catch (e) { SM.fail(e); }
+      } }) : null);
   }
 
 })();
