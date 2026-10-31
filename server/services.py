@@ -7,8 +7,6 @@ import hashlib
 import json
 import pathlib
 import re
-import threading
-import time
 
 from . import backup
 from . import barcode as bc
@@ -60,16 +58,9 @@ def normalize_phone(value):
 
 
 class Shop:
-    # A blind counter may learn "far" only a few times per line. More answers
-    # let them binary-search the balance (19 probes used to recover it exactly).
-    COUNT_RECHECK_MAX = 3
-    COUNT_RECHECK_WINDOW = 600
-
     def __init__(self, store):
         self.store = store
         self.auth = Auth(store)
-        self._count_checks = {}
-        self._count_check_lock = threading.Lock()
 
     # =============== settings & master data ===============
     def settings(self):
@@ -2798,6 +2789,8 @@ class Shop:
 
     def cancel_count(self, actor, count_id, reason):
         """Close an open count without any adjustment (counted lines stay as evidence)."""
+        if actor.get("role") not in ("owner", "manager"):
+            raise Forbidden("count_cancel_manager")
         require(actor, "count")
         reason = text(reason, "reason_required", 200)
 
@@ -2864,21 +2857,6 @@ class Shop:
             return 0, diff * 1000 // expected
         return 0, 1000 if counted else 0
 
-    def _count_far_budget(self, user_id, count_id, lot_id):
-        """False once this person has already been told far/near enough times on this line."""
-        now_t = time.monotonic()
-        key = (user_id, count_id, lot_id)
-        with self._count_check_lock:
-            stamps = [t for t in self._count_checks.get(key, []) if now_t - t < self.COUNT_RECHECK_WINDOW]
-            if len(stamps) >= self.COUNT_RECHECK_MAX:
-                self._count_checks[key] = stamps
-                return False
-            stamps.append(now_t)
-            self._count_checks[key] = stamps
-            if len(self._count_checks) > 4000:
-                self._count_checks = {k: v for k, v in self._count_checks.items() if v and now_t - v[-1] < self.COUNT_RECHECK_WINDOW}
-            return True
-
     def count_review(self, actor, count_id):
         """Differences for the approver, before anything is posted. A counter stays blind."""
         require(actor, "count_approve")
@@ -2888,7 +2866,8 @@ class Shop:
         lines = self._count_variances(count)
         return {"lines": lines, "big": any(r["big"] for r in lines)}
 
-    def record_count(self, actor, count_id, lot_id, counted, confirm_far=False):
+    def record_count(self, actor, count_id, lot_id, counted):
+        """Save the figure the counter typed. The answer never says far, near, or any balance."""
         require(actor, "count")
 
         def work():
@@ -2902,19 +2881,6 @@ class Shop:
             # the shelf was counted NOW: later approval compares with the ledger at
             # this position, so sales between opening and counting are not lost twice
             seen = self.store.scalar("SELECT COALESCE(MAX(id),0) FROM stock_entries")
-            expected = self.store.scalar("""SELECT COALESCE(SUM(qty),0) FROM stock_entries
-                WHERE lot_id=? AND location_id=? AND id<=?""", (lot, count["location_id"], seen))
-            far = self.count_is_far(expected, qty)
-            # Confirming a number already warned about saves it and says nothing new.
-            # A blind counter is told "far" only a few times per line, and never "near":
-            # the saved/far bit is enough to binary-search the balance if it is unlimited.
-            if not confirm_far and far:
-                if not self.can_see_qty(actor) and not self._count_far_budget(actor["id"], count["id"], lot):
-                    raise ShopError("count_recheck", status=429)
-                return {"ok": False, "saved": False, "far": True}
-            if not confirm_far and not self.can_see_qty(actor):
-                if not self._count_far_budget(actor["id"], count["id"], lot):
-                    raise ShopError("count_recheck", status=429)
             self.store.db.execute("INSERT INTO count_lines(count_id,lot_id,counted,seen_entry,user_id,at) VALUES(?,?,?,?,?,?)",
                                   (count_id, lot, qty, seen, actor["id"], now_iso()))
             return {"ok": True, "saved": True}

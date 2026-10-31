@@ -139,7 +139,7 @@ class App:
         r("POST", r"/api/counts", lambda a, q, b: self.shop.open_count(a, b.get("location_id")))
         r("GET", r"/api/counts/(\d+)", lambda a, q, b, cid: self.shop.count_sheet(a, int(cid)))
         r("GET", r"/api/counts/(\d+)/review", lambda a, q, b, cid: self.shop.count_review(a, int(cid)))
-        r("POST", r"/api/counts/(\d+)/line", lambda a, q, b, cid: self.shop.record_count(a, int(cid), b.get("lot_id"), b.get("counted"), b.get("confirm_far") is True))
+        r("POST", r"/api/counts/(\d+)/line", lambda a, q, b, cid: self.shop.record_count(a, int(cid), b.get("lot_id"), b.get("counted")))
         r("POST", r"/api/counts/(\d+)/cancel", lambda a, q, b, cid: self.shop.cancel_count(a, int(cid), b.get("reason")))
         r("POST", r"/api/counts/(\d+)/approve", lambda a, q, b, cid: self.shop.approve_count(a, b.get("key"), int(cid), b.get("owner_reason"), b.get("confirm_jump") is True))
         r("GET", r"/api/stock", lambda a, q, b: self.shop.stock_report(a, _int(q.get("product"), None)))

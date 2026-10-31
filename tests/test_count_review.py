@@ -46,14 +46,9 @@ class CountReview(ShopFixture, unittest.TestCase):
         self.receive(pid, 20, 1000, expires=None)
         lot = self.store.scalar("SELECT id FROM lots")
         count = self.shop.open_count(self.counter, self.shelf)["count"]
-        held = self.shop.record_count(self.counter, count, lot, 200)
-        self.assertEqual(held, {"ok": False, "saved": False, "far": True})
-        self.assertEqual(set(held), {"ok", "saved", "far"})
-        self.assertEqual(self.store.scalar("SELECT COUNT(*) FROM count_lines"), 0)
-        self.assertEqual(self.shop.available(pid), 20)
-        saved = self.shop.record_count(self.counter, count, lot, 200, confirm_far=True)
+        saved = self.shop.record_count(self.counter, count, lot, 200)
         self.assertEqual(saved, {"ok": True, "saved": True})
-        self.assertNotIn("far", saved)
+        self.assertEqual(self.shop.available(pid), 20)
         with self.assertRaises(Forbidden):
             self.shop.count_review(self.counter, count)
         review = self.shop.count_review(self.manager, count)
@@ -81,7 +76,7 @@ class CountReview(ShopFixture, unittest.TestCase):
             "SELECT p.code, l.id FROM lots l JOIN products p ON p.id=l.product_id")}
         count = self.shop.open_count(self.counter, self.shelf)["count"]
         self.shop.record_count(self.counter, count, lots["SML"], 22)          # +2, not wide
-        self.shop.record_count(self.counter, count, lots["BIG"], 50, confirm_far=True)  # 10×
+        self.shop.record_count(self.counter, count, lots["BIG"], 50)  # 10×
         lines = self.shop.count_review(self.manager, count)["lines"]
         self.assertEqual([r["name_en"] for r in lines], ["Juice", "Juice"])
         self.assertEqual([r["diff"] for r in lines], [45, 2])
@@ -100,9 +95,8 @@ class CountReview(ShopFixture, unittest.TestCase):
         self.receive(pid, 20, 1000, expires=None)
         lot = self.store.scalar("SELECT id FROM lots")
         count = self.shop.open_count(self.counter, self.shelf)["count"]
-        held = self.shop.record_count(self.counter, count, lot, 0)
-        self.assertTrue(held["far"] and not held["saved"])
-        self.shop.record_count(self.counter, count, lot, 0, confirm_far=True)
+        saved = self.shop.record_count(self.counter, count, lot, 0)
+        self.assertEqual(saved, {"ok": True, "saved": True})
         line = self.shop.count_review(self.manager, count)["lines"][0]
         self.assertEqual((line["system"], line["counted"], line["big"]), (20, 0, True))
         self.assertEqual(self.shop.available(pid), 20)
@@ -122,58 +116,41 @@ class CountReview(ShopFixture, unittest.TestCase):
         lots = {r["code"]: r["id"] for r in self.store.all(
             "SELECT p.code, l.id FROM lots l JOIN products p ON p.id=l.product_id")}
         count = self.shop.open_count(self.counter, self.shelf)["count"]
-        self.shop.record_count(self.counter, count, lots["PC"], 200, confirm_far=True)   # +180, value 18000
+        self.shop.record_count(self.counter, count, lots["PC"], 200)   # +180, value 18000
         self.shop.record_count(self.counter, count, lots["KG"], 1250)                    # +250 g = 0.25 kg, value 100
         self.shop.record_count(self.counter, count, lots["LO"], 110)                     # +10, 10%
         self.shop.record_count(self.counter, count, lots["HI"], 7)                       # +3, 75%
         diffs = [r["diff"] for r in self.shop.count_review(self.manager, count)["lines"]]
         self.assertEqual(diffs, [180, 250, 3, 10])
 
-    def test_counter_cannot_binary_search_the_stock(self):
-        """The old far/near bit recovered the exact balance in about 19 probes. It must not."""
+    def test_counter_learns_nothing_about_stock_and_cannot_cancel(self):
+        """Any typed figure saves the same way. Repeats never 429. Only the approver sees a far line."""
         stock = 137
         pid = self.grocery(code="HID", barcodes=[])
         self.receive(pid, stock, 1000, expires=None)
         lot = self.store.scalar("SELECT id FROM lots")
         count = self.shop.open_count(self.counter, self.shelf)["count"]
-        inside = []
-        far_answers = 0
-        limited = 0
-        lo, hi = 1, 200000
-        for _ in range(40):
-            if lo >= hi:
-                break
-            mid = (lo + hi) // 2
-            try:
-                answer = self.shop.record_count(self.counter, count, lot, mid)
-            except ShopError as exc:
-                self.assertEqual(exc.code, "count_recheck")
-                self.assertEqual(exc.detail, {})
-                limited += 1
-                break
+        hidden = ("far", "near", "system", "expected", "diff", "wide", "big", "qty", "cost", "balance")
+        for guess in (0, 1, 9, 10, 13, 14, 100, stock, stock * 10, stock * 10 + 1, 5000, 20, 200, 8, 21, 55):
+            answer = self.shop.record_count(self.counter, count, lot, guess)
+            self.assertEqual(answer, {"ok": True, "saved": True})
             blob = json.dumps(answer)
-            self.assertNotIn("near", answer)
-            self.assertNotIn("system", answer)
-            self.assertNotIn("expected", answer)
+            for word in hidden:
+                self.assertNotIn(word, blob)
             self.assertNotIn(str(stock), blob)
-            if answer.get("far") is True:
-                far_answers += 1
-                hi = mid
-            else:
-                self.assertNotIn("far", answer)
-                inside.append(mid)
-                lo = mid + 1
-        self.assertLessEqual(far_answers + len(inside), Shop.COUNT_RECHECK_MAX)
-        self.assertGreaterEqual(limited, 1)
-        self.assertNotIn(stock, inside)
-        leaked = 0
-        for guess in (stock, stock * 10, max(stock // 10, 1), 2, 8, 21, 55, 144, 377, 987, 1597, 4096):
-            try:
-                answer = self.shop.record_count(self.counter, count, lot, guess)
-            except ShopError as exc:
-                self.assertEqual(exc.detail, {})
-                self.assertNotIn(str(stock), json.dumps(exc.detail))
-                continue
-            if "far" in answer or "near" in answer or "system" in answer or str(stock) in json.dumps(answer):
-                leaked += 1
-        self.assertEqual(leaked, 0)
+        sheet = self.shop.count_sheet(self.counter, count)
+        allowed = {"lot_id", "lot_no", "expires", "name_ar", "name_en", "measure", "code", "counted"}
+        self.assertTrue(set(sheet["lots"][0]) <= allowed)
+        self.assertEqual(sheet["lots"][0]["counted"], 55)
+        with self.assertRaises(Forbidden) as err:
+            self.shop.count_review(self.counter, count)
+        self.assertEqual(err.exception.status, 403)
+        with self.assertRaises(Forbidden) as err:
+            self.shop.cancel_count(self.counter, count, "the counter must not close it")
+        self.assertEqual(err.exception.status, 403)
+        self.assertEqual(self.store.scalar("SELECT status FROM counts WHERE id=?", (count,)), "open")
+        self.shop.record_count(self.counter, count, lot, stock * 10)
+        review = self.shop.count_review(self.manager, count)
+        self.assertTrue(review["big"])
+        self.assertTrue(review["lines"][0]["big"])
+        self.assertEqual((review["lines"][0]["system"], review["lines"][0]["counted"]), (stock, stock * 10))

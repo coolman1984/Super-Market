@@ -520,10 +520,12 @@
     const big = lines.some(l => l.big);
     return new Promise((resolve) => {
       let done = false;
-      const finish = (v) => { if (done) return; done = true; dlg.close(); resolve(v); };
-      const no = h('button', { class: 'btn ghost', id: 'count-approve-no', text: t('cancel'), onclick: () => finish(false) });
+      const finish = (v) => { if (done) return; done = true; window.removeEventListener('keydown', onKey, true); dlg.close(); resolve(v); };
+      const no = h('button', { class: 'btn ghost', id: 'count-approve-no', text: big ? t('count.far_recount') : t('cancel'), onclick: () => finish(false) });
       const yes = h('button', { class: 'btn primary', id: 'count-approve-yes', text: big ? t('count.jump_yes') : t('count.approve'), onclick: () => finish(true) });
       if (big) no.setAttribute('autofocus', 'true');
+      const onKey = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopImmediatePropagation(); finish(false); } };
+      window.addEventListener('keydown', onKey, true);
       const dlg = SM.dialog({ title: t('count.approve'), wide: true, onClose: () => finish(false),
         body: [h('p', { text: lines.length ? t('count.approve_list') : t('count.approve_none') }),
           big ? h('p', { class: 'tip warn-tip', text: t('count.jump_note') }) : null,
@@ -586,30 +588,20 @@
           const input = h('input', { class: 'input', inputmode: 'decimal', 'data-guide': 'count.qty', value: draftText != null && draftText !== savedText ? draftText : savedText });
           const saved = h('span', {});
           const row = { lot: l, input, saved, el: null };
-          input.addEventListener('input', () => { draft[String(l.lot_id)] = input.value; saveDraft(); });   // typing stays here; the server is asked only when the field is left
-          input.addEventListener('change', () => { commit(row, true).catch(e => SM.fail(e)); });
+          input.addEventListener('input', () => { draft[String(l.lot_id)] = input.value; saveDraft(); });
+          input.addEventListener('change', () => { commit(row).catch(e => SM.fail(e)); });
           row.el = h('div', { class: 'count-row' }, h('div', {}, h('b', { text: SM.name(l) }), h('div', { class: 'muted' }, l.expires ? t('count.expires', { date: l.expires }) : null, h('small', { class: 'muted ltr lot-no', text: ' ' + l.lot_no }))),   // report L9: what the counter reads first is the date, not the batch number
             h('div', { class: 'row' }, input, h('span', { class: 'muted', text: l.measure === 'g' ? t('unit.kg') : t('unit.pc') }), saved));
           return row;
         });
-        function commit(row, ask) {
+        function commit(row) {
           const run = async () => {
             const text = row.input.value.trim();
             if (!text) return;
             const v = parseCount(row.lot, row.input.value);
             if (v === null) { SM.put(row.saved, h('span', { class: 'badge bad', text: t('err.bad_number') })); return; }
             if (v === row.lot.counted) { delete draft[String(row.lot.lot_id)]; saveDraft(); return; }
-            const body = { lot_id: row.lot.lot_id, counted: v };
-            let r = await SM.api('POST', '/api/counts/' + id + '/line', body);
-            if (r.far && !r.saved) {
-              if (!ask) return;
-              const recount = await SM.confirm(t('count.far_title'), t('count.far_q', { name: SM.name(row.lot) }), { yes: t('count.far_recount'), no: t('count.far_keep'), large: true });
-              if (recount) {
-                row.input.value = row.lot.counted === null ? '' : formatCount(row.lot, row.lot.counted);
-                delete draft[String(row.lot.lot_id)]; saveDraft(); SM.put(row.saved); return;
-              }
-              r = await SM.api('POST', '/api/counts/' + id + '/line', Object.assign({ confirm_far: true }, body));
-            }
+            await SM.api('POST', '/api/counts/' + id + '/line', { lot_id: row.lot.lot_id, counted: v });
             row.lot.counted = v;
             delete draft[String(row.lot.lot_id)]; saveDraft();
             SM.put(row.saved, h('span', { class: 'badge ok', text: t('saved') }));
@@ -617,16 +609,17 @@
           chain = chain.then(run, run);
           return chain;
         }
-        leaveSheet = async () => { for (const row of rows) await commit(row, false); };
+        leaveSheet = async () => { for (const row of rows) await commit(row); };
         const dropSheet = () => { countStore(COUNT_SHEET, null); countStore(countDraftKey(id), null); leaveSheet = async () => {}; };
         const back = h('button', { class: 'btn ghost', text: t('count.back'), onclick: async () => {
           await leaveSheet(); countStore(COUNT_SHEET, null); leaveSheet = async () => {}; SM.go('count');
         } });
         const key = SM.newKey();
-        const cancel = h('button', { class: 'btn ghost', text: t('count.cancel'), onclick: SM.guard(async () => {
+        const canCancel = SM.state.user && (SM.state.user.role === 'owner' || SM.state.user.role === 'manager');
+        const cancel = canCancel ? h('button', { class: 'btn ghost', text: t('count.cancel'), onclick: SM.guard(async () => {
           const reason = await SM.ask(t('count.cancel_q')); if (!reason) return;
           try { await SM.api('POST', '/api/counts/' + id + '/cancel', { reason }); dropSheet(); SM.toast(t('count.cancelled')); SM.go('count'); } catch (e) { SM.fail(e); }
-        }) });
+        }) }) : null;
         const approve = SM.can('count_approve') ? h('button', { class: 'btn primary', 'data-guide': 'count.approve', text: t('count.approve'), onclick: async () => {
           try {
             await leaveSheet();
