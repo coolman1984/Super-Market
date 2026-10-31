@@ -125,6 +125,12 @@ def today():
     return now().date().isoformat()
 
 
+def business_day_at(moment, start_hour):
+    """The business day a moment belongs to: before the shop's day-start hour it is
+    still the previous day (a sale at 01:30 with a 4 a.m. start is yesterday's)."""
+    return (moment - dt.timedelta(hours=start_hour)).date().isoformat()
+
+
 def iso_date(value, code="bad_date", optional=False):
     if value in (None, "") and optional:
         return None

@@ -1146,5 +1146,8 @@ Object.assign(SM.i18n.en, {
   "sell.draft_line_gone": "A product of the saved cart is no longer available and was left out.",
   "help.guide_title": "Step-by-step lessons",
   "help.guide_sub": "A short lesson for each job of your role. The guide outlines the real button on the screen and moves on by itself after each step. In training, try the examples as written.",
-  "help.guide_open": "Open the guide"
+  "help.guide_open": "Open the guide",
+  "set.day_start": "Business day starts at (hour)",
+  "set.day_start_help": "0 to 8. Example: 4 means a sale until 3:59 a.m. counts for the previous day. A shift counts entirely for the day it was opened.",
+  "rep.business_day_note": "Figures follow the business day: a shift counts for the day it was opened; anything else starts the day at hour {hour}."
 });

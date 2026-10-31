@@ -585,3 +585,27 @@ def m006(conn):
 
 MIGRATIONS.append((6, "in-app guide progress per person", m006))
 SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+# ---------------------------------------------------------------- migration 7
+# Business day (gap table row 15): a shift belongs to the business day it was
+# opened on; any other posting to the day of (time minus the shop's day-start
+# hour, default 4 a.m. like common POS systems). Old rows keep their calendar
+# date (COALESCE in every report). The day-close guard now reads business days.
+M007 = r"""
+ALTER TABLE ops ADD COLUMN business_day TEXT;
+ALTER TABLE shifts ADD COLUMN business_day TEXT;
+CREATE INDEX ops_business_day ON ops(business_day);
+DROP TRIGGER ops_after_day_close;
+CREATE TRIGGER ops_after_day_close BEFORE INSERT ON ops
+WHEN COALESCE(NEW.business_day, substr(NEW.at,1,10)) <= (SELECT MAX(day) FROM day_closes)
+BEGIN SELECT RAISE(ABORT,'day_closed'); END;
+"""
+
+
+def m007(conn):
+    run_script(conn, M007)
+
+
+MIGRATIONS.append((7, "business day for shifts past midnight", m007))
+SCHEMA_VERSION = MIGRATIONS[-1][0]

@@ -280,20 +280,21 @@
         const near = h('input', { class: 'input', inputmode: 'numeric', value: String(s.near_expiry_days) });
         const disc = h('input', { class: 'input', inputmode: 'numeric', value: String(s.cashier_discount_permille) });
         const tol = h('input', { class: 'input', inputmode: 'numeric', value: s.cutting_loss_tolerance_permille === null ? '' : String(s.cutting_loss_tolerance_permille) });
+        const dayStart = h('input', { class: 'input', inputmode: 'numeric', value: String(s.day_start_hour === undefined ? 4 : s.day_start_hour) });
         const thawDays = h('input', { class: 'input', inputmode: 'numeric', value: s.thaw_shelf_life_days ? String(s.thaw_shelf_life_days) : '' });
         const below = h('input', { type: 'checkbox', checked: s.block_below_cost });
         const gtin = h('input', { type: 'checkbox', checked: s.gtin_equivalence });
         parts.push(h('div', { class: 'card' }, h('h3', { text: t('set.shop') }), h('div', { class: 'grid cols-3' },
           SM.field(t('set.shop_name'), name), SM.field(t('set.footer'), footer), SM.field(t('set.width'), width), SM.field(t('set.near'), near),
           SM.field(t('set.discount'), disc, t('set.discount_help')), SM.field(t('set.tolerance'), tol, t('set.tolerance_help')),
-          SM.field(t('set.thaw_days'), thawDays, t('set.thaw_days_help')),
+          SM.field(t('set.thaw_days'), thawDays, t('set.thaw_days_help')), SM.field(t('set.day_start'), dayStart, t('set.day_start_help')),
           h('label', { class: 'row' }, below, t('set.below_cost')), h('label', { class: 'row' }, gtin, t('set.gtin'))),
           h('p', { class: 'tip', text: t('set.tax_note') }),
           h('button', { class: 'btn primary', text: t('save'), onclick: async () => {
             try {
               await SM.api('POST', '/api/settings', { shop_name: name.value, receipt_footer: footer.value, receipt_width_mm: parseInt(width.value, 10),
                 near_expiry_days: SM.parseInt(near.value), cashier_discount_permille: SM.parseInt(disc.value), cutting_loss_tolerance_permille: tol.value === '' ? null : SM.parseInt(tol.value),
-                block_below_cost: below.checked, gtin_equivalence: gtin.checked, thaw_shelf_life_days: thawDays.value === '' ? null : SM.parseInt(thawDays.value) });
+                block_below_cost: below.checked, gtin_equivalence: gtin.checked, thaw_shelf_life_days: thawDays.value === '' ? null : SM.parseInt(thawDays.value), day_start_hour: SM.parseInt(dayStart.value || '0') });
               SM.state.settings = await SM.api('GET', '/api/settings'); SM.toast(t('saved'));
             } catch (e) { SM.fail(e); }
           } })));
