@@ -75,7 +75,7 @@ class Api(unittest.TestCase):
         status, err = self.call("POST", "/api/sales", {"key": k, "payload": dict(cart, cash_tendered=5000)})
         self.assertEqual((status, err["error"]), (400, "quote_required"))       # R14: no silent pricing
         quote = self.call("POST", "/api/quote", {"payload": cart})[1]
-        sale = {"key": k, "payload": dict(cart, cash_tendered=5000, expected_total=quote["total"])}
+        sale = {"key": k, "payload": dict(cart, cash_tendered=5000, expected_total=quote["total"], quote_hash=quote["quote_hash"])}
         status, first = self.call("POST", "/api/sales", sale)
         self.assertEqual((status, first["change"]), (200, 3000))
         self.assertNotIn("cost", first)
@@ -86,7 +86,7 @@ class Api(unittest.TestCase):
             self.assertEqual(self.call("GET", path)[0], 403, path)
         stock = self.call("GET", "/api/stock")[1]
         self.assertNotIn("cost", stock[0])
-        status, err = self.call("POST", "/api/sales", {"key": key(), "payload": {"lines": [{"product_id": 999, "qty": 1}], "expected_total": 0}})
+        status, err = self.call("POST", "/api/sales", {"key": key(), "payload": {"lines": [{"product_id": 999, "qty": 1}], "quote_hash": "x"}})
         self.assertEqual((status, err["error"]), (400, "unknown_product"))
         status, err = self.call("POST", "/api/sales", {"key": key(), "payload": "junk"})
         self.assertEqual(status, 400)

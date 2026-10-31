@@ -272,7 +272,7 @@ class App:
         """The till must send back the server-quoted total it showed (R14):
         a price change after scanning is reported, never charged silently."""
         payload = body.get("payload")
-        if isinstance(payload, dict) and payload.get("expected_total") is None:
+        if isinstance(payload, dict) and payload.get("quote_hash") is None:
             raise ShopError("quote_required")
         return self.shop.sell(actor, body.get("key"), payload, self.shop.verify_approval(body.get("approval"), actor))
 

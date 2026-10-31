@@ -102,7 +102,7 @@
     let quote;
     try { quote = await SM.api('POST', '/api/quote', { payload: cartPayload() }); } catch (e) { SM.fail(e); return; }
     const estimate = totals();
-    const tot = { total: quote.total };
+    const tot = { total: quote.total, hash: quote.quote_hash };
     // the key belongs to this cart until its answer is known (audit S03)
     cart.key = cart.key || SM.newKey();
     const key = cart.key;
@@ -168,7 +168,7 @@
       busy = true; payBtn.disabled = true; payBtn.textContent = t('pay.saving');
       const payload = Object.assign(cartPayload(), {
         payments: others.map(o => ({ method: o.method, amount: SM.parseMoney(o.amount.value || '0'), reference: o.ref.value || undefined })).filter(p => p.amount > 0),
-        cash_tendered: v.due > 0 ? v.got : 0, expected_total: tot.total,
+        cash_tendered: v.due > 0 ? v.got : 0, expected_total: tot.total, quote_hash: tot.hash,
       });
       try {
         const sale = await SM.commandWithApproval('/api/sales', key, payload);
@@ -181,7 +181,7 @@
         if (e.code === 'price_changed') {
           // nothing was saved; show the new total and let the cashier redo the cash
           const old = tot.total;
-          tot.total = e.detail.total;
+          tot.total = e.detail.total; tot.hash = e.detail.quote_hash;
           showTotal(t('pay.price_changed', { old: SM.money(old), now: SM.money(tot.total) }));
           cash.value = ''; update();
           return;

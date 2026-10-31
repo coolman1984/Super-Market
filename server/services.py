@@ -3,6 +3,7 @@ Store.command (one transaction, idempotency key bound to the request
 fingerprint, audit). Permissions are checked here, never only in the UI.
 """
 
+import hashlib
 import json
 import re
 
@@ -114,16 +115,21 @@ class Shop:
         if kind in ("raw_meat", "prepared") and measure != "g":
             raise ShopError("meat_is_weighed")
         needs_expiry = 1 if kind in ("raw_meat", "prepared", "ingredient") else int(bool(p.get("needs_expiry")))
+        meat_share = p.get("meat_permille")
+        if meat_share is not None:
+            integer(meat_share, 0, "bad_meat_share", 1000)
+            if kind not in ("prepared", "ingredient"):
+                raise ShopError("bad_meat_share")   # raw meat is meat; groceries carry no meat claim
 
         def work():
             code = text(p.get("code"), "bad_code", 30)
             if self.store.scalar("SELECT 1 FROM products WHERE code=?", (code,)):
                 raise ShopError("code_taken")
             cur = self.store.db.execute(
-                """INSERT INTO products(code,name_ar,name_en,kind,measure,needs_expiry,reorder_level,allergens,created_at)
-                VALUES(?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO products(code,name_ar,name_en,kind,measure,needs_expiry,reorder_level,allergens,meat_permille,created_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?)""",
                 (code, text(p.get("name_ar"), "bad_name", 120), text(p.get("name_en"), "bad_name", 120), kind, measure,
-                 needs_expiry, integer(p.get("reorder_level", 0)), str(p.get("allergens", ""))[:200], now_iso()))
+                 needs_expiry, integer(p.get("reorder_level", 0)), str(p.get("allergens", ""))[:200], meat_share, now_iso()))
             pid = cur.lastrowid
             for pk in p.get("packagings", []):
                 self._add_packaging(pid, pk)
@@ -762,6 +768,15 @@ class Shop:
         return dict(lines=lines, gross_total=gross_total, line_disc=line_disc, inv_disc=inv_disc, discount=discount,
                     shares=shares, total=total, approved_by=approved_by)
 
+    @staticmethod
+    def _quote_hash(priced):
+        """Fingerprint of everything the cashier saw: every line (product,
+        quantity, price, basis, discount, pack) and the invoice discount/total."""
+        rows = [[l["prod"]["id"], l["qty"], l["unit_price"], l["basis"], l["gross"], l["line_discount"],
+                 l["pack"]["code"] if l["pack"] else None] for l in priced["lines"]]
+        blob = json.dumps([rows, priced["inv_disc"], priced["total"]], separators=(",", ":"))
+        return hashlib.sha256(blob.encode()).hexdigest()[:32]
+
     def quote(self, actor, payload):
         """Price the cart now, from the server, without posting anything (R14).
         The till shows this total and sends it back as expected_total."""
@@ -770,6 +785,7 @@ class Shop:
             raise ShopError("lines_required")
         priced = self._price(actor, payload, self.settings(), check=False)
         return {"total": priced["total"], "gross": priced["gross_total"], "discount": priced["discount"],
+                "quote_hash": self._quote_hash(priced),
                 "lines": [{"product": l["prod"]["id"], "qty": l["qty"], "unit_price": l["unit_price"], "gross": l["gross"],
                            "basis": l["basis"], "pack": l["pack"]["code"] if l["pack"] else None} for l in priced["lines"]]}
 
@@ -796,9 +812,11 @@ class Shop:
             lines, gross_total, line_disc, inv_disc = priced["lines"], priced["gross_total"], priced["line_disc"], priced["inv_disc"]
             discount, shares, total, approved_by = priced["discount"], priced["shares"], priced["total"], priced["approved_by"]
             expected = payload.get("expected_total")
-            if expected is not None and integer(expected) != total:
+            shown_hash = payload.get("quote_hash")
+            if (expected is not None and integer(expected) != total) or \
+                    (shown_hash is not None and shown_hash != self._quote_hash(priced)):
                 # the till showed another total: tell the cashier, change nothing
-                raise Conflict("price_changed", {"total": total, "shown": expected,
+                raise Conflict("price_changed", {"total": total, "shown": expected, "quote_hash": self._quote_hash(priced),
                                                  "lines": [{"product": l["prod"]["id"], "unit_price": l["unit_price"],
                                                             "gross": l["gross"]} for l in lines]})
             # ---- payments ----
@@ -1036,6 +1054,11 @@ class Shop:
                 raise ShopError("not_a_payment")
             if self.store.scalar("SELECT 1 FROM customer_entries WHERE reverses=?", (entry_id,)):
                 raise ShopError("already_reversed")
+            self._require_account_clear(entry["customer_id"])
+            for a in self.store.all("SELECT sale_id, amount FROM credit_allocations WHERE entry_id=?", (entry_id,)):
+                if a["amount"] > self._collected_free(a["sale_id"]):
+                    # a refund already paid this money back: reversing now would pay it twice
+                    raise ShopError("collection_already_refunded", {"sale": a["sale_id"]})
             shift = self._open_shift_of(actor)
             self._check_drawer(shift["id"], -entry["amount"])
             rev = self.store.db.execute("INSERT INTO customer_entries(customer_id,op_id,kind,amount,at,reverses) VALUES(?,?,?,?,?,?)",
@@ -1135,6 +1158,8 @@ class Shop:
                 total += amount
             refunds = self._refund_plan(sale, total, method)
             cash_out = refunds.get("cash", 0)
+            if sale["customer_id"]:
+                self._require_account_clear(sale["customer_id"])
             shift = self._open_shift_of(actor) if cash_out else self._open_shift_of(actor, False)
             if cash_out:
                 self._check_drawer(shift["id"], cash_out)
@@ -1169,7 +1194,11 @@ class Shop:
                 out.append({"sale_line": line["id"], "qty": qty, "amount": amount, "lot": lot_no,
                             "disposition": "restock" if restock else "quarantine"})
             for channel, amount in refunds.items():
-                self.store.db.execute("INSERT INTO refund_allocations VALUES(?,?,?)", (rid, channel, amount))
+                if channel == "uncollected_cancel":
+                    self.store.db.execute("INSERT INTO refund_cancellations VALUES(?,?,?)", (rid, "uncollected", amount))
+                else:
+                    self.store.db.execute("INSERT INTO refund_allocations VALUES(?,?,?)", (rid, channel, amount))
+            refunds_paid = {k: v for k, v in refunds.items() if k != "uncollected_cancel"}
             if cash_out:
                 self.store.db.execute("INSERT INTO cash_entries(shift_id,op_id,kind,amount,note,at) VALUES(?,?,?,?,?,?)",
                                       (shift["id"], op, "refund", -cash_out, sale["no"], now_iso()))
@@ -1177,10 +1206,11 @@ class Shop:
             if customer_credit:
                 eid = self.store.db.execute("INSERT INTO customer_entries(customer_id,op_id,kind,amount,at) VALUES(?,?,?,?,?)",
                                             (sale["customer_id"], op, "return", -customer_credit, now_iso())).lastrowid
-                if refunds.get("credit_cancel"):
-                    self.store.db.execute("INSERT INTO credit_allocations VALUES(?,?,?)", (eid, sale["id"], -refunds["credit_cancel"]))
-            return {"return": rid, "amount": total, "lines": out,
-                    "refunds": [{"method": m, "amount": a} for m, a in refunds.items()]}
+                if refunds.get("credit_cancel"):   # a cancelled debt SETTLES the sale: positive, like a collection
+                    self.store.db.execute("INSERT INTO credit_allocations VALUES(?,?,?)", (eid, sale["id"], refunds["credit_cancel"]))
+            return {"return": rid, "amount": total, "lines": out, "reference_receipt": sale["no"],
+                    "cancelled_uncollected": refunds.get("uncollected_cancel", 0),
+                    "refunds": [{"method": m, "amount": a} for m, a in refunds_paid.items()]}
         fingerprint_payload = {k: v for k, v in payload.items() if k != "approval"}
         return self.store.command("return", key, fingerprint_payload, actor, work)
 
@@ -1214,16 +1244,126 @@ class Shop:
     # =============== refund and credit bookkeeping ===============
     CHANNELS = ("cash", "card", "wallet", "transfer")
 
+    def _settled_on_sale(self, sale_id):
+        """Debt settled on a sale: collections add, reversals subtract, and a
+        return that cancelled debt adds (rows written by the first version of
+        the return code carry a negative sign for it, so kind 'return' is
+        read by absolute value)."""
+        return self.store.scalar("""SELECT COALESCE(SUM(CASE e.kind WHEN 'return' THEN ABS(a.amount) ELSE a.amount END),0)
+            FROM credit_allocations a JOIN customer_entries e ON e.id=a.entry_id WHERE a.sale_id=?""", (sale_id,))
+
+    def _owed_on_sale(self, sale_id):
+        return self.store.scalar("""SELECT COALESCE(SUM(amount),0) FROM payment_states WHERE sale_id=?
+            AND ((method='credit' AND eff_state='settled') OR eff_state='rejected')""", (sale_id,))
+
     def _sale_outstanding(self, sale_id):
         """Customer debt still open on this sale: on-account amounts (and
         rejected transfers of a known customer) minus collections and
         cancellations allocated to the sale."""
-        owed = self.store.scalar("""SELECT COALESCE(SUM(amount),0) FROM payment_states WHERE sale_id=?
-            AND ((method='credit' AND eff_state='settled') OR eff_state='rejected')""", (sale_id,))
         if not self.store.scalar("SELECT customer_id FROM sales WHERE id=?", (sale_id,)):
             return 0
-        settled = self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM credit_allocations WHERE sale_id=?", (sale_id,))
-        return owed - settled
+        return self._owed_on_sale(sale_id) - self._settled_on_sale(sale_id)
+
+    def _sale_uncollected(self, sale_id):
+        """A rejected transfer/wallet payment of an UNREGISTERED customer: money
+        that never arrived. Returned goods cancel this claim instead of paying."""
+        if self.store.scalar("SELECT customer_id FROM sales WHERE id=?", (sale_id,)):
+            return 0
+        rejected = self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM payment_states WHERE sale_id=? AND eff_state='rejected'", (sale_id,))
+        done = self.store.scalar("""SELECT COALESCE(SUM(c.amount),0) FROM refund_cancellations c JOIN returns r ON r.id=c.return_id
+            WHERE r.sale_id=? AND c.kind='uncollected'""", (sale_id,))
+        return rejected - done
+
+    def _cash_refunded(self, sale_id):
+        new = self.store.scalar("""SELECT COALESCE(SUM(a.amount),0) FROM refund_allocations a JOIN returns r ON r.id=a.return_id
+            WHERE r.sale_id=? AND a.method='cash'""", (sale_id,))
+        legacy = self.store.scalar("""SELECT COALESCE(SUM(amount),0) FROM returns r WHERE sale_id=? AND method='cash'
+            AND NOT EXISTS(SELECT 1 FROM refund_allocations a WHERE a.return_id=r.id)""", (sale_id,))
+        return new + legacy
+
+    def _collected_free(self, sale_id):
+        """Collected on-account money of this sale that no refund has used yet.
+        Refunds pay direct cash first; only the rest came out of collections."""
+        collected = self.store.scalar("""SELECT COALESCE(SUM(a.amount),0) FROM credit_allocations a
+            JOIN customer_entries e ON e.id=a.entry_id WHERE a.sale_id=? AND e.kind IN ('payment','payment_reversal')""", (sale_id,))
+        direct = self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM payment_states WHERE sale_id=? AND method='cash' AND eff_state='settled'",
+                                   (sale_id,))
+        consumed = max(0, self._cash_refunded(sale_id) - direct)
+        return max(0, collected - consumed)
+
+    # ---- customer account integrity (migration reviews and ambiguous collections)
+    def _unallocated_collections(self, customer_id):
+        """Collection money (not reversed) that is not tied to any invoice."""
+        total = 0
+        for e in self.store.all("""SELECT e.id, e.amount FROM customer_entries e WHERE e.customer_id=? AND e.kind='payment'
+                AND NOT EXISTS(SELECT 1 FROM customer_entries r WHERE r.reverses=e.id)""", (customer_id,)):
+            allocated = self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM credit_allocations WHERE entry_id=?", (e["id"],))
+            total += max(0, -e["amount"] - allocated)
+        return total
+
+    def account_check(self, customer_id):
+        problems = []
+        if self.store.scalar("SELECT 1 FROM migration_reviews WHERE kind='customer_allocation' AND ref=? AND resolved_at IS NULL",
+                             (str(customer_id),)):
+            problems.append("account_needs_review")
+        open_total = 0
+        for s in self.store.all("SELECT id FROM sales WHERE customer_id=?", (customer_id,)):
+            left = self._owed_on_sale(s["id"]) - self._settled_on_sale(s["id"])
+            if left < 0:
+                problems.append("sale_over_collected:%d" % s["id"])
+            open_total += max(left, 0)
+        if open_total > 0 and self._unallocated_collections(customer_id) > 0:
+            problems.append("collections_unallocated")
+        return {"ok": not problems, "problems": problems, "open_on_sales": open_total}
+
+    def _require_account_clear(self, customer_id):
+        check = self.account_check(customer_id)
+        if "account_needs_review" in check["problems"]:
+            raise ShopError("account_needs_review", {"customer": customer_id})
+        if "collections_unallocated" in check["problems"]:
+            raise ShopError("collections_unallocated", {"customer": customer_id})
+
+    def review_items(self, actor):
+        require(actor, "users")
+        return self.store.all("SELECT * FROM migration_reviews ORDER BY resolved_at IS NOT NULL, id")
+
+    def allocate_collection(self, actor, key, entry_id, sale_id, amount, note):
+        """Owner action for a review item: tie unallocated collection money to
+        one invoice. Adds a row; nothing posted is changed."""
+        require(actor, "users")
+        integer(entry_id, 1), integer(sale_id, 1), integer(amount, 1)
+        note = text(note, "reason_required", 300)
+
+        def work(op):
+            e = self.store.one("SELECT * FROM customer_entries WHERE id=? AND kind='payment'", (entry_id,))
+            s = self.store.one("SELECT * FROM sales WHERE id=?", (sale_id,))
+            if not e or not s or s["customer_id"] != e["customer_id"]:
+                raise ShopError("bad_request")
+            free = -e["amount"] - self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM credit_allocations WHERE entry_id=?", (entry_id,))
+            if amount > free or amount > self._sale_outstanding(sale_id):
+                raise ShopError("allocation_too_large", {"free": free, "open": self._sale_outstanding(sale_id)})
+            self.store.db.execute("INSERT INTO credit_allocations VALUES(?,?,?)", (entry_id, sale_id, amount))
+            self.store.audit(actor, "customer.allocation", str(entry_id), {"sale": sale_id, "amount": amount, "note": note})
+            return {"free_left": free - amount}
+        return self.store.command("allocate_collection", key, [entry_id, sale_id, amount, note], actor, work)
+
+    def resolve_review(self, actor, key, review_id, resolution):
+        require(actor, "users")
+        resolution = text(resolution, "reason_required", 300)
+
+        def work(op):
+            r = self.store.one("SELECT * FROM migration_reviews WHERE id=?", (integer(review_id, 1),))
+            if not r:
+                raise ShopError("bad_request")
+            if r["resolved_at"]:
+                raise ShopError("review_already_resolved")
+            if r["kind"] == "customer_allocation" and self._unallocated_collections(int(r["ref"])) > 0 \
+                    and self.account_check(int(r["ref"]))["open_on_sales"] > 0:
+                raise ShopError("collections_unallocated", {"customer": int(r["ref"])})
+            self.store.db.execute("UPDATE migration_reviews SET resolved_at=?, resolved_by=?, resolution=? WHERE id=?",
+                                  (now_iso(), actor["id"], resolution, review_id))
+            return {"resolved": review_id}
+        return self.store.command("resolve_review", key, [review_id, resolution], actor, work)
 
     def _refund_caps(self, sale_id):
         """Money that can still go back per channel for this sale."""
@@ -1261,6 +1401,12 @@ class Shop:
         if cancel:
             plan["credit_cancel"] = cancel
         rest = amount - cancel
+        # money that never arrived (rejected transfer, unregistered customer): the goods may come
+        # back, the claim is cancelled, nothing is paid out for it (audit E05)
+        lost = min(rest, max(self._sale_uncollected(sale["id"]), 0))
+        if lost:
+            plan["uncollected_cancel"] = lost
+            rest -= lost
         if not rest:
             return plan
         caps = self._refund_caps(sale["id"])
@@ -1493,6 +1639,10 @@ class Shop:
                 role = c.get("role")
                 if role not in ("meat", "food", "packaging") or (role == "packaging") != (comp["kind"] == "packaging"):
                     raise ShopError("bad_component_role")
+                if role == "meat" and comp["kind"] != "raw_meat":
+                    # the role a user types never makes a product meat: the approved
+                    # classification does (audit E03). Composites declare a documented share instead.
+                    raise ShopError("meat_role_needs_meat_product", {"product": comp["code"]})
                 self.store.db.execute("INSERT INTO recipe_components VALUES(?,?,?,?)",
                                       (vid, comp["id"], integer(c.get("qty"), 1), role))
                 for alt_id in c.get("alternatives") or []:
@@ -1500,6 +1650,8 @@ class Shop:
                     if not alt or alt["id"] in seen or (alt["kind"] == "packaging") != (role == "packaging") \
                             or alt["measure"] != comp["measure"]:
                         raise ShopError("bad_alternative")
+                    if role == "meat" and alt["kind"] != "raw_meat":
+                        raise ShopError("meat_role_needs_meat_product", {"product": alt["code"]})
                     seen.add(alt["id"])   # an approved substitute counts toward this component
                     self.store.db.execute("INSERT INTO recipe_alternatives VALUES(?,?,?)", (vid, comp["id"], alt["id"]))
             self.store.audit(actor, "recipe.version", str(vid), {"product": product_id, "version": version})
@@ -1519,6 +1671,41 @@ class Shop:
                     "SELECT product_id FROM recipe_alternatives WHERE version_id=? AND component_product_id=?",
                     (v["id"], c["product_id"]))]
         return versions
+
+    @staticmethod
+    def _meat_grams(product_kind, meat_permille, qty):
+        """Meat inside `qty` grams of a product, from its approved classification
+        only: raw meat is meat, a composite counts its documented share, anything
+        else counts nothing."""
+        if product_kind == "raw_meat":
+            return qty
+        if meat_permille is not None:
+            return qty * meat_permille // 1000
+        return 0
+
+    def _unpack(self, op, codes, inputs):
+        """Explicit un-packing: the listed labelled packs stop existing and their
+        net weight becomes loose raw stock of the same lot and place, consumed by
+        this very production. Each pack, quantity and lot is recorded."""
+        if not codes:
+            return []
+        if not isinstance(codes, list) or len(codes) > 200:
+            raise ShopError("bad_request")
+        wanted = {(i.get("lot_id"), i.get("location_id")) for i in inputs if isinstance(i, dict)}
+        out = []
+        for code in codes:
+            pack = self.store.one("SELECT * FROM packs WHERE code=?", (str(code),))
+            if not pack:
+                raise ShopError("unknown_pack")
+            if pack["status"] != "available" or pack["removed_op"] is not None:
+                raise ShopError("pack_not_available")
+            if (pack["lot_id"], pack["location_id"]) not in wanted:
+                raise ShopError("unpack_pack_not_in_inputs", {"pack": pack["code"]})
+            self.store.db.execute("UPDATE packs SET removed_op=? WHERE id=?", (op, pack["id"]))
+            self.store.db.execute("INSERT INTO pack_events(pack_id,op_id,kind,qty,lot_id,at) VALUES(?,?,'unpack',?,?,?)",
+                                  (pack["id"], op, pack["net_g"], pack["lot_id"], now_iso()))
+            out.append(pack["code"])
+        return out
 
     def _check_recipe_use(self, actor, approver, version, components, used, packs, units, output_g):
         """Every component must be used, in the version's quantity per unit
@@ -1582,6 +1769,8 @@ class Shop:
                     raise ShopError("recipe_single_output")
             seen, food_in, food_cost, pack_cost, expiries, parents, allergens = set(), 0, 0, 0, [], [], set()
             used = {}   # recipe component -> quantity actually consumed
+            meat_in = 0  # grams of meat in the inputs, from approved classification only
+            unpacked = self._unpack(op, p.get("unpack"), inputs)
             for raw in inputs:
                 if not isinstance(raw, dict):
                     raise ShopError("bad_line")
@@ -1590,6 +1779,7 @@ class Shop:
                     raise ShopError("duplicate_input")
                 seen.add((lot_id, loc_id))
                 lot = self._usable_lot(lot_id, day)
+                self._check_free(lot_id, loc_id, qty)   # stock promised to labelled packs stays (audit E02)
                 if kind == "recipe":
                     if lot["product_id"] not in allowed:
                         raise ShopError("input_not_in_recipe", {"lot": lot["lot_no"]})
@@ -1603,6 +1793,8 @@ class Shop:
                     if not lot["expires"]:
                         raise ShopError("input_expiry_missing", {"lot": lot["lot_no"]})
                     expiries.append(lot["expires"])
+                    meat_in += self._meat_grams(lot["pkind"], self.store.scalar(
+                        "SELECT meat_permille FROM products WHERE id=?", (lot["product_id"],)), qty)
                     food_in += qty
                     food_cost += self._consume(op, "production_in", lot_id, loc_id, qty, check=False)
                 parents.append(lot_id)
@@ -1632,11 +1824,9 @@ class Shop:
             if abnormal or (natural and (tolerance is None or natural * 1000 > food_in * tolerance)):
                 approved_by = self._approved(actor, approver, "approve_variance")
             packs = p.get("packs") or []
-            meat_in = 0
             if version:
                 approved_by = self._check_recipe_use(actor, approver, version, components, used, packs, p.get("units"),
                                                      output_g) or approved_by
-                meat_in = sum(used.get(c["product_id"], 0) for c in components if c["role"] == "meat")
             limit = min(expiries)
             if version:
                 limit = min(limit, add_days(day, version["shelf_life_days"]))
@@ -1674,6 +1864,7 @@ class Shop:
                 made = []
                 for pk in packs:
                     net, tare = integer(pk.get("net_g"), 1), integer(pk.get("tare_g", 0))
+                    basis = None
                     meat = integer(pk["meat_g"], 1) if pk.get("meat_g") is not None else None
                     if meat is not None and meat > net:
                         raise ShopError("meat_exceeds_net")
@@ -1683,16 +1874,19 @@ class Shop:
                         most = meat_in * output_g // food_in * net // output_g
                         if meat is None:
                             meat = most or None
+                            basis = "estimated" if meat else None   # pro-rata share of the MEASURED meat; losses assumed even
                         elif meat > most:
                             raise ShopError("meat_claim_exceeds_input", {"max_g": most})
+                        else:
+                            basis = "declared"
                     total_net += net
                     code = bc.pack_code(self.settings()["pack_prefix"], self.store.next_seq("pack"))
                     self.store.db.execute(
                         """INSERT INTO packs(code,product_id,lot_id,net_g,tare_g,meat_g,price,price_per_kg,packed_at,expires,
-                        status,location_id) VALUES(?,?,?,?,?,?,?,?,?,?,'available',?)""",
+                        status,location_id,meat_basis) VALUES(?,?,?,?,?,?,?,?,?,?,'available',?,?)""",
                         (code, out[0]["product"], out[0]["lot"], net, tare, meat, weighed_amount(price_kg, net), price_kg,
-                         now_iso(), out[0]["expires"], clean_out[0]["loc"]))
-                    made.append({"code": code, "net_g": net, "tare_g": tare, "meat_g": meat,
+                         now_iso(), out[0]["expires"], clean_out[0]["loc"], basis))
+                    made.append({"code": code, "net_g": net, "tare_g": tare, "meat_g": meat, "meat_basis": basis,
                                  "price": weighed_amount(price_kg, net)})
                 if total_net != out[0]["qty"]:
                     raise ShopError("packs_do_not_match_output", {"packs": total_net, "output": out[0]["qty"]})
@@ -1881,6 +2075,11 @@ class Shop:
             FROM packs p WHERE p.status='available' AND p.removed_op IS NULL GROUP BY p.lot_id, p.location_id HAVING packed > stock""")
         unsold = self.store.all("""SELECT p.code FROM packs p WHERE p.status='sold' AND (p.sale_line_id IS NULL OR
             NOT EXISTS(SELECT 1 FROM sale_lines sl WHERE sl.id=p.sale_line_id AND sl.pack_id=p.id))""")
-        ok = not (bad or packs or pay or missing or over or unsold)
+        accounts = []
+        for c in self.store.all("SELECT id FROM customers"):
+            check = self.account_check(c["id"])
+            if not check["ok"]:
+                accounts.append({"customer": c["id"], "problems": check["problems"]})
+        ok = not (bad or packs or pay or missing or over or unsold or accounts)
         return {"ok": ok, "balances": bad, "missing_balances": missing, "packs": packs + unsold,
-                "packs_over_stock": over, "payments": pay}
+                "packs_over_stock": over, "payments": pay, "accounts": accounts}

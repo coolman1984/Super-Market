@@ -338,3 +338,129 @@ def m002(conn):
 
 MIGRATIONS.append((2, "audit fixes: refunds, credit allocation, safe, recall lifts, packs", m002))
 SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+# ---------------------------------------------------------------- migration 3
+# Review of 31 Oct 2026 (docs/REVIEW_MARKET_LANGUAGE_20261031.md). Adds only.
+# Old collections without an invoice allocation are re-allocated ONLY when the
+# replay is provable; anything else becomes a review item that blocks the
+# affected money paths until the owner resolves it.
+M003 = r"""
+CREATE TABLE pack_events(
+  id INTEGER PRIMARY KEY, pack_id INTEGER NOT NULL REFERENCES packs(id), op_id INTEGER NOT NULL REFERENCES ops(id),
+  kind TEXT NOT NULL CHECK(kind IN ('unpack')), qty INTEGER NOT NULL CHECK(qty>0),
+  lot_id INTEGER NOT NULL REFERENCES lots(id), at TEXT NOT NULL);
+CREATE TABLE refund_cancellations(
+  return_id INTEGER NOT NULL REFERENCES returns(id), kind TEXT NOT NULL CHECK(kind IN ('uncollected')),
+  amount INTEGER NOT NULL CHECK(typeof(amount)='integer' AND amount>0), PRIMARY KEY(return_id, kind));
+CREATE TABLE supplier_returns(
+  id INTEGER PRIMARY KEY, op_id INTEGER NOT NULL UNIQUE REFERENCES ops(id), supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+  lot_id INTEGER NOT NULL REFERENCES lots(id), location_id INTEGER NOT NULL REFERENCES locations(id),
+  qty INTEGER NOT NULL CHECK(qty>0), cost INTEGER NOT NULL CHECK(cost>=0),
+  reason TEXT NOT NULL CHECK(reason IN ('damaged','wrong_item','weight_dispute','expired','quality','other')),
+  user_id INTEGER NOT NULL, at TEXT NOT NULL, note TEXT);
+CREATE TABLE supplier_credit_notes(
+  id INTEGER PRIMARY KEY, op_id INTEGER NOT NULL UNIQUE REFERENCES ops(id), return_id INTEGER NOT NULL REFERENCES supplier_returns(id),
+  supplier_id INTEGER NOT NULL REFERENCES suppliers(id), amount INTEGER NOT NULL CHECK(typeof(amount)='integer' AND amount>0),
+  reference TEXT NOT NULL, user_id INTEGER NOT NULL, at TEXT NOT NULL);
+CREATE TABLE migration_reviews(
+  id INTEGER PRIMARY KEY, kind TEXT NOT NULL, ref TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL,
+  resolved_at TEXT, resolved_by INTEGER, resolution TEXT);
+ALTER TABLE products ADD COLUMN meat_permille INTEGER CHECK(meat_permille IS NULL OR (meat_permille BETWEEN 0 AND 1000));
+ALTER TABLE packs ADD COLUMN meat_basis TEXT;
+CREATE TRIGGER migration_reviews_frozen BEFORE UPDATE ON migration_reviews
+WHEN NEW.kind IS NOT OLD.kind OR NEW.ref IS NOT OLD.ref OR NEW.detail IS NOT OLD.detail OR OLD.resolved_at IS NOT NULL
+BEGIN SELECT RAISE(ABORT,'posted_is_immutable'); END;
+CREATE TRIGGER migration_reviews_no_delete BEFORE DELETE ON migration_reviews BEGIN SELECT RAISE(ABORT,'posted_is_immutable'); END;
+CREATE INDEX supplier_returns_supplier ON supplier_returns(supplier_id);
+"""
+
+
+def _rebuild_collection_allocations(conn):
+    """Replay customer accounts that predate credit_allocations.
+
+    Only entries WITHOUT any allocation row are touched, in id order, with the
+    rules the program uses today: a collection settles the oldest open sale of
+    that customer first; a legacy store-credit return first cancels the debt of
+    its own sale; a reversal mirrors the allocations of the collection it
+    reverses. A customer whose replay is not consistent gets a review item and
+    NO allocation rows."""
+    now = conn.execute("SELECT datetime('now')").fetchone()[0]
+    customers = [r[0] for r in conn.execute(
+        """SELECT DISTINCT e.customer_id FROM customer_entries e WHERE e.kind IN ('payment','return','payment_reversal')
+           AND NOT EXISTS(SELECT 1 FROM credit_allocations a WHERE a.entry_id=e.id)""")]
+    for cid in customers:
+        owed = {}      # sale id -> on-account amount still open (own sales only)
+        order = []
+        born = {}      # sale id -> id of its on-account entry (a collection settles only older sales)
+        for s in conn.execute("""SELECT s.id, s.op_id FROM sales s WHERE s.customer_id=? ORDER BY s.id""", (cid,)):
+            debt = conn.execute("""SELECT COALESCE(SUM(p.amount),0) FROM payments p LEFT JOIN payment_confirmations c ON c.payment_id=p.id
+                WHERE p.sale_id=? AND ((p.method='credit' AND COALESCE(c.outcome,'')<>'rejected')
+                OR (p.method IN ('transfer','wallet') AND c.outcome='rejected'))""", (s[0],)).fetchone()[0]
+            allocated = conn.execute("SELECT COALESCE(SUM(amount),0) FROM credit_allocations WHERE sale_id=?", (s[0],)).fetchone()[0]
+            if debt:
+                owed[s[0]] = debt - allocated
+                order.append(s[0])
+                entry = conn.execute("SELECT MIN(id) FROM customer_entries WHERE customer_id=? AND op_id=? AND kind='sale'",
+                                     (cid, s[1])).fetchone()[0]
+                born[s[0]] = entry if entry is not None else 10 ** 18   # unknown age: never settled automatically
+        plan, ok, reason = [], True, ""
+        mirrored = {}
+        for e in conn.execute("""SELECT e.id, e.kind, e.amount, e.op_id, e.reverses FROM customer_entries e WHERE e.customer_id=?
+                AND e.kind IN ('payment','return','payment_reversal') AND NOT EXISTS(SELECT 1 FROM credit_allocations a WHERE a.entry_id=e.id)
+                ORDER BY e.id""", (cid,)):
+            eid, kind, amount, op_id, reverses = e
+            if kind == "payment":
+                left, pairs = -amount, []
+                for sid in order:
+                    if born[sid] > eid:
+                        continue
+                    take = min(left, owed[sid])
+                    if take > 0:
+                        pairs.append((sid, take)); owed[sid] -= take; left -= take
+                    if not left:
+                        break
+                plan.append((eid, pairs)); mirrored[eid] = pairs
+            elif kind == "return":
+                sale = conn.execute("SELECT sale_id FROM returns WHERE op_id=?", (op_id,)).fetchone()
+                pairs = []
+                if sale and sale[0] in owed:
+                    take = min(-amount, owed[sale[0]])
+                    if take > 0:
+                        pairs.append((sale[0], take)); owed[sale[0]] -= take
+                plan.append((eid, pairs))
+            else:  # payment_reversal
+                if reverses is None:
+                    ok, reason = False, "reversal %d has no original" % eid
+                    break
+                pairs = mirrored.get(reverses)
+                if pairs is None:   # original already had allocation rows (new program): mirror them
+                    pairs = [(r[0], r[1]) for r in conn.execute("SELECT sale_id, amount FROM credit_allocations WHERE entry_id=?", (reverses,))]
+                mirror = []
+                for sid, amt in pairs:
+                    if sid in owed:
+                        owed[sid] += amt
+                    mirror.append((sid, -amt))
+                plan.append((eid, mirror))
+        if ok and any(v < 0 for v in owed.values()):
+            ok, reason = False, "a sale would be over-collected"
+        if not ok:
+            conn.execute("INSERT INTO migration_reviews(kind,ref,detail,created_at) VALUES('customer_allocation',?,?,?)",
+                         (str(cid), reason, now))
+            continue
+        for eid, pairs in plan:
+            for sid, amt in pairs:
+                conn.execute("INSERT INTO credit_allocations VALUES(?,?,?)", (eid, sid, amt))
+
+
+def m003(conn):
+    run_script(conn, M003)
+    for table in ("pack_events", "refund_cancellations", "supplier_returns", "supplier_credit_notes"):
+        for action in ("UPDATE", "DELETE"):
+            conn.execute(f"CREATE TRIGGER {table}_no_{action.lower()} BEFORE {action} ON {table} "
+                         f"BEGIN SELECT RAISE(ABORT,'posted_is_immutable'); END")
+    _rebuild_collection_allocations(conn)
+
+
+MIGRATIONS.append((3, "review 2026-10-31: pack unpacking, uncollected cancellation, supplier returns, legacy collections", m003))
+SCHEMA_VERSION = MIGRATIONS[-1][0]

@@ -56,4 +56,5 @@ def migration(f):
  op=f.store.scalar('SELECT MAX(id) FROM ops')
  f.store.tx(lambda:f.store.db.execute("INSERT INTO customer_entries(customer_id,op_id,kind,amount,at) VALUES(?,?,'payment',-10000,'2026-10-30')",(c,op)))
  return {'customer_balance':f.shop.customer_balance(c),'sale_outstanding':f.shop._sale_outstanding(s['sale']),'cash_refund_capacity':f.shop._refund_caps(s['sale'])['cash']}
-for n,fn in [('E01',reverse_after_refund),('E02',packed_input),('E03',false_meat_role),('E04',equal_total_prices),('E05',anonymous_reject),('E06',migration)]:run(n,fn)
+if __name__=='__main__':
+ for n,fn in [('E01',reverse_after_refund),('E02',packed_input),('E03',false_meat_role),('E04',equal_total_prices),('E05',anonymous_reject),('E06',migration)]:run(n,fn)
