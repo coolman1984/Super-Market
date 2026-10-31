@@ -15,8 +15,12 @@ const out = process.argv[3] || '.';
     if (await p.locator('.side-foot .logout-btn').count()) await p.locator('.side-foot .logout-btn').click();
     await p.waitForSelector('input[autocomplete=username]');
     await p.fill('input[autocomplete=username]', user); await p.fill('input[type=password]', pass);
-    await p.click('button[type=submit]');
-    await p.waitForFunction(() => document.querySelector('.sidebar') || document.querySelector('.auth-card'));
+    await Promise.all([
+      p.waitForResponse((r) => r.url().includes('/api/login') && r.request().method() === 'POST'),
+      p.click('button[type=submit]'),
+    ]);
+    // the login card is already on screen, so wait for the shell or the forced-password fields
+    await p.waitForFunction(() => document.querySelector('.sidebar') || document.querySelector('[data-guide="account.old"]'));
   };
   await login(page, 'owner', 'training-only');
   const T = (k, v) => page.evaluate(([k, v]) => SM.t(k, v), [k, v]);
@@ -47,8 +51,10 @@ const out = process.argv[3] || '.';
   await login(p2, 'newcash', 'temp-pass-1');
   res.forced_screen = await p2.locator('.auth-card').count() === 1 && !(await p2.locator('.sidebar').count());
   await p2.screenshot({ path: out + '/forced-password-ar-phone.png' });
-  const pw = p2.locator('input[type=password]');
-  await pw.nth(0).fill('temp-pass-1'); await pw.nth(1).fill('my-pass-123'); await pw.nth(2).fill('my-pass-123');
+  await p2.waitForSelector('[data-guide="account.old"]');
+  await p2.fill('[data-guide="account.old"]', 'temp-pass-1');
+  await p2.fill('[data-guide="account.new"]', 'my-pass-123');
+  await p2.locator('input[autocomplete="new-password"]').nth(1).fill('my-pass-123');
   const [changed] = await Promise.all([
     p2.waitForResponse((r) => r.url().includes('/api/account/password') && r.request().method() === 'POST'),
     p2.click('button[type=submit]'),
