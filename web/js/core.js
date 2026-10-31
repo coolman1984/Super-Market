@@ -258,12 +258,21 @@ SM.ask = (question, opts = {}) => new Promise((resolve) => {
   const onKey = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopImmediatePropagation(); finish(null); } };
   const finish = (v) => { if (done) return; done = true; window.removeEventListener('keydown', onKey, true); layer.classList.remove('on'); SM.put(layer); resolve(v); };
   window.addEventListener('keydown', onKey, true);
-  const ok = () => { const v = input.value.trim(); if (!v) { note.textContent = t(opts.empty || 'ask.empty'); input.focus(); return; } finish(v); };
+  const ok = () => {
+    const v = input.value.trim();
+    if (!v) { note.textContent = t(opts.empty || 'ask.empty'); input.focus(); return; }
+    if (opts.accept) {
+      const err = opts.accept(v);
+      if (err) { note.textContent = err; input.classList.add('invalid'); input.setAttribute('aria-invalid', 'true'); input.focus(); return; }
+    }
+    finish(v);
+  };
+  input.addEventListener('input', () => { note.textContent = ''; input.classList.remove('invalid'); input.removeAttribute('aria-invalid'); });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ok(); } });
   const dlg = h('div', { class: 'dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': opts.title || question },
     h('header', {}, h('h2', { text: opts.title || t('ask.title') }), h('button', { class: 'icon-btn', 'aria-label': t('close'), onclick: () => finish(null) }, icon('x'))),
     h('div', { class: 'body' }, h('label', { class: 'field' }, h('span', { class: 'label', text: question }), input), opts.help ? h('p', { class: 'muted', text: opts.help }) : null, note),
-    h('footer', {}, h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => finish(null) }), h('button', { class: 'btn primary', id: 'ask-ok', text: opts.ok || t('confirm'), onclick: ok })));
+    h('footer', {}, h('button', { class: 'btn' + (opts.large ? ' lg' : ' ghost'), text: t('cancel'), onclick: () => finish(null) }), h('button', { class: 'btn primary' + (opts.large ? ' lg' : ''), id: 'ask-ok', text: opts.ok || t('confirm'), onclick: ok })));
   SM.put(layer, dlg);
   layer.classList.add('on');
   layer.onclick = (ev) => { if (ev.target === layer) finish(null); };
@@ -271,7 +280,7 @@ SM.ask = (question, opts = {}) => new Promise((resolve) => {
 });
 
 /* Yes/no on its own layer above any open window (review PR #18): cancelling never loses the form underneath. */
-SM.confirm = (title, text) => new Promise((resolve) => {
+SM.confirm = (title, text, opts = {}) => new Promise((resolve) => {
   let layer = document.getElementById('ask-layer');
   if (!layer) { layer = h('div', { id: 'ask-layer' }); document.body.append(layer); }
   const previous = document.activeElement;
@@ -280,15 +289,17 @@ SM.confirm = (title, text) => new Promise((resolve) => {
   const onKey = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopImmediatePropagation(); finish(false); } };
   const finish = (v) => { if (done) return; done = true; window.removeEventListener('keydown', onKey, true); layer.classList.remove('on'); SM.put(layer); if (previous && previous.focus) previous.focus(); resolve(v); };
   window.addEventListener('keydown', onKey, true);
-  const yes = h('button', { class: 'btn primary', id: 'confirm-yes', text: t('confirm'), onclick: () => finish(true) });
+  const big = opts.large ? ' lg' : '';
+  const yes = h('button', { class: 'btn primary' + big, id: 'confirm-yes', text: opts.yes || t('confirm'), onclick: () => finish(true) });
+  const no = h('button', { class: 'btn' + (opts.large ? ' lg' : ' ghost'), id: 'confirm-no', text: opts.no || t('cancel'), onclick: () => finish(false) });
   const dlg = h('div', { class: 'dialog', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': title },
     h('header', {}, h('h2', { text: title }), h('button', { class: 'icon-btn', 'aria-label': t('close'), onclick: () => finish(false) }, icon('x'))),
     h('div', { class: 'body' }, h('p', { text })),
-    h('footer', {}, h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => finish(false) }), yes));
+    h('footer', {}, no, yes));
   SM.put(layer, dlg);
   layer.classList.add('on');
   layer.onclick = (ev) => { if (ev.target === layer) finish(false); };
-  yes.focus();
+  (opts.focus === 'no' ? no : yes).focus();
 });
 
 /* A simple random temporary password (no look-alike letters), shown to the owner so he can read it out: one click, no thinking. */

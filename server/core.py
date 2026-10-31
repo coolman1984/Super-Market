@@ -42,6 +42,15 @@ def integer(value, minimum=0, code="bad_number", maximum=MAX_PLAUSIBLE):
     return value
 
 
+def sale_price(value):
+    """Selling price in piastres. Only a JSON integer is a price.
+
+    Text, a decimal, true/false, and null are refused. They are never stored
+    as zero and never dropped so the product saves with no price.
+    """
+    return integer(value, 0, "bad_price")
+
+
 def text(value, code="required", max_len=200, optional=False):
     if value is None and optional:
         return None
