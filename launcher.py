@@ -50,6 +50,8 @@ MESSAGES = {
     "not_running": ("البرنامج لا يعمل الآن.", "The program is not running now."),
     "not_writable": ("لا يمكن الكتابة في مجلد البرنامج:\n{folder}\n\nانقل مجلد البرنامج كله إلى مكان تملكه مثل C:\\SuperMarket ثم شغّله من جديد.",
                      "The program folder is not writable:\n{folder}\n\nMove the whole folder to a place you own, e.g. C:\\SuperMarket, and start again."),
+    "no_access_user": ("حساب ويندوز هذا لا يملك صلاحية على بيانات المحل (محمية لحساب التثبيت).\nسجّل الدخول بحساب ويندوز الذي ثبّت البرنامج، أو اطلب من المسؤول تشغيله هناك، أو أعد التثبيت واختر «السماح لكل حسابات ويندوز».",
+                       "This Windows account has no access to the shop data (it is protected for the account that installed the program).\nSign in with the Windows account that installed it, or ask the administrator to start it there, or reinstall and choose \"Allow every Windows account\"."),
     "port_busy": ("المنفذ {port} مستخدم من برنامج آخر. أغلق البرنامج الآخر أو اتصل بالدعم.",
                   "Port {port} is used by another program. Close it or call support."),
     "other_shop": ("برنامج سوبر ماركت آخر (مجلد بيانات مختلف) يعمل على المنفذ {port}.\nأغلق نافذته أولًا ثم شغّل هذا المحل.",
@@ -295,11 +297,23 @@ def main(argv=None):
         done = stop(port, data)
         tell("stopped" if done else "not_running")
         return 0 if done else 7
+    url = "http://127.0.0.1:%d/" % port
     if not writable(data):
+        # H6: another Windows account of this PC. The data is protected for the installing account; when the
+        # program already runs there, this account only opens its window; autostart of this account stays silent.
+        if COMPILED:
+            running = running_here(port, mode, None)
+            if isinstance(running, tuple):
+                if "--background" not in argv:
+                    window.open_ui(url)
+                return 0
+            if "--background" in argv:
+                return 0
+            tell("no_access_user")
+            return 2
         tell("not_writable", folder=HOME)
         return 2
     state = running_here(port, mode, data)
-    url = "http://127.0.0.1:%d/" % port
     if state == "other":
         tell("other_shop", port=port)
         return 3

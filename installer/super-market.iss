@@ -68,6 +68,8 @@ arabic.AutoStart=التشغيل مع ويندوز (موصى به)
 english.AutoStart=Start with Windows (recommended)
 arabic.Lan=أجهزة كاشير أخرى على شبكة المحل تدخل إلى البرنامج
 english.Lan=Other tills on the shop network can connect
+arabic.AllUsers=السماح لكل حسابات ويندوز على هذا الجهاز بالدخول إلى بيانات المحل (حماية أقل؛ مفيد إذا كان الكاشير يستخدم حساب ويندوز آخر)
+english.AllUsers=Allow every Windows account on this PC to use the shop data (less protection; useful when the cashier signs in with another Windows account)
 arabic.Training=السوبر ماركت - تدريب
 english.Training=Super Market - training
 arabic.Stop=إيقاف السوبر ماركت
@@ -88,6 +90,9 @@ Name: "desktopicon"; Description: "{cm:DesktopIcon}"
 Name: "autostart"; Description: "{cm:AutoStart}"
 ; by default the program serves this PC only; other tills are an explicit choice (firewall: private networks only)
 Name: "lan"; Description: "{cm:Lan}"; Flags: unchecked
+; default: the data folder stays closed to other Windows accounts. Choosing this grants Modify on the DATA folder only
+; (never the program folder) to the local Users group (review H6).
+Name: "allusers"; Description: "{cm:AllUsers}"; Flags: unchecked
 
 [Dirs]
 ; data, backups and logs: kept when the program is updated or removed. Access is narrowed in [Code] (icacls): SYSTEM, the
@@ -156,7 +161,11 @@ begin
   if CurStep = ssPostInstall then
   begin
     WizardForm.StatusLabel.Caption := CustomMessage('Protect');
-    Exec(ExpandConstant('{sys}\icacls.exe'), '"' + ExpandConstant('{commonappdata}\SuperMarket') + '" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "'
-      + OperatorAccount() + ':(OI)(CI)M" /remove:g "*S-1-5-32-545" "*S-1-5-11"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+    if WizardIsTaskSelected('allusers') then
+      Exec(ExpandConstant('{sys}\icacls.exe'), '"' + ExpandConstant('{commonappdata}\SuperMarket') + '" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "'
+        + OperatorAccount() + ':(OI)(CI)M" "*S-1-5-32-545:(OI)(CI)M" /remove:g "*S-1-5-11"', '', SW_HIDE, ewWaitUntilTerminated, Code)
+    else
+      Exec(ExpandConstant('{sys}\icacls.exe'), '"' + ExpandConstant('{commonappdata}\SuperMarket') + '" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "'
+        + OperatorAccount() + ':(OI)(CI)M" /remove:g "*S-1-5-32-545" "*S-1-5-11"', '', SW_HIDE, ewWaitUntilTerminated, Code);
   end;
 end;

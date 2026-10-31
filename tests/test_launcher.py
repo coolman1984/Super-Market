@@ -77,6 +77,27 @@ class Launcher(ShopFixture, unittest.TestCase):
         with mock.patch.object(pathlib.Path, "write_text", side_effect=PermissionError):
             self.assertFalse(launcher.writable(self.folder / "x"))
 
+    def test_h6_second_windows_account_opens_the_running_program_or_is_told_why(self):
+        with mock.patch.object(launcher, "COMPILED", True), mock.patch.object(launcher, "writable", return_value=False), \
+                mock.patch.object(launcher.window, "open_ui") as open_ui, mock.patch.object(launcher, "tell") as tell:
+            with mock.patch.object(launcher, "running_here", return_value=("same", False)):
+                self.assertEqual(launcher.main([]), 0)
+                open_ui.assert_called_once()
+                open_ui.reset_mock()
+                self.assertEqual(launcher.main(["--background"]), 0)       # its autostart stays silent
+                open_ui.assert_not_called()
+            with mock.patch.object(launcher, "running_here", return_value=None):
+                self.assertEqual(launcher.main(["--background"]), 0)
+                tell.assert_not_called()
+                self.assertEqual(launcher.main([]), 2)
+                tell.assert_called_once_with("no_access_user")
+
+    def test_h6_the_installer_keeps_the_data_folder_closed_unless_the_operator_chooses_all_users(self):
+        iss = (pathlib.Path(launcher.__file__).parent / "installer" / "super-market.iss").read_text(encoding="utf-8")
+        self.assertIn('Name: "allusers"', iss)
+        self.assertIn("Flags: unchecked", iss[iss.index('Name: "allusers"'):iss.index('Name: "allusers"') + 120])
+        self.assertIn('/remove:g "*S-1-5-32-545" "*S-1-5-11"', iss)           # default: Users and Authenticated Users removed
+
 
 if __name__ == "__main__":
     unittest.main()

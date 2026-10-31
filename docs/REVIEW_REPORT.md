@@ -105,7 +105,7 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 - **Impact:** with C1 unresolved, a failed disk loses everything; even after C1, an offline shop has no external copy.
 - **Fix:** add setting `backup_folder_2` (any path, e.g. USB/second drive/network share) and copy each verified daily backup there (`shutil.copytree`, verify manifest hash, skip silently when drive missing, show a yellow banner "no external copy for N days"). Include in Start-menu a "نسخة على فلاشة" action. Tests with a tmp folder.
 
-### [ ] H6 — Installer gives data access to one Windows account but starts for all users
+### [x] H6 — Installer gives data access to one Windows account but starts for all users
 - **Where:** `installer/super-market.iss:96,159` (icacls: SYSTEM + Administrators + the installing operator) vs `:109` autostart in `{commonstartup}` (all users).
 - **Impact:** a second Windows login (cashier's account) starts the EXE, cannot open `ProgramData\SuperMarket` → "program could not start"/"not writable". Common in shops that use a standard cashier Windows account.
 - **Fix:** grant `Modify` to the local `Users` group (`*S-1-5-32-545`) **only for the data/log/backup folders** (not the program folder) or run the server as a per-machine background service/scheduled task under one account and let other users only open the UI; add an installer-journey step that starts the EXE as a second standard user (CI can create a local user with `net user`).
