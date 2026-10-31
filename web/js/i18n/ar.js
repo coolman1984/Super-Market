@@ -824,7 +824,7 @@ Object.assign(SM.i18n.ar, {
   "stock.supplier_return_help": "تخرج البضاعة من المخزون بتكلفتها، ولا يتغير دين المورد إلا عند تسجيل إشعاره الدائن.",
   "party.return_reason": "سبب الرد",
   "party.return_done": "سُجّل رد البضاعة، وهو بانتظار الإشعار الدائن.",
-  "party.returns": "مردودات بانتظار إشعار المورد",
+  "party.returns": "مردودات المورد وإشعاراته الدائنة",
   "party.credit_note": "تسجيل إشعار دائن",
   "party.credit_ref": "رقم إشعار المورد",
   "party.credited": "المسجَّل",

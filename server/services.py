@@ -1114,8 +1114,11 @@ class Shop:
         for line in lines:
             running += line["amount"]
             line["balance"] = running
-        return {"supplier": supplier, "lines": lines, "balance": running,
-                "open_returns": self.supplier_open_returns(supplier_id)}
+        returns = self.supplier_open_returns(supplier_id)
+        if not can(actor, "see_cost"):
+            for r in returns:
+                r.pop("cost", None)
+        return {"supplier": supplier, "lines": lines, "balance": running, "open_returns": returns}
 
     # =============== supplier returns and credit notes ===============
     RETURN_REASONS = ("damaged", "wrong_item", "weight_dispute", "expired", "quality", "other")
@@ -1175,7 +1178,7 @@ class Shop:
             FROM supplier_returns r JOIN lots l ON l.id=r.lot_id JOIN products p ON p.id=l.product_id
             WHERE r.supplier_id=? ORDER BY r.id""", (supplier_id,))
         for r in rows:
-            r["open"] = r["credited"] == 0
+            r["open"] = r["credited"] < r["cost"]          # a part-credit does not complete a return
         return rows
 
     def aging(self, actor):
@@ -1524,7 +1527,8 @@ class Shop:
                 ON r.id=a.return_id WHERE r.sale_id=? GROUP BY a.method""", (sale_id,)):
             refunded[r["method"]] = r["amount"]
         for r in self.store.all("""SELECT method, SUM(amount) amount FROM returns r WHERE sale_id=? AND NOT EXISTS
-                (SELECT 1 FROM refund_allocations a WHERE a.return_id=r.id) GROUP BY method""", (sale_id,)):
+                (SELECT 1 FROM refund_allocations a WHERE a.return_id=r.id) AND NOT EXISTS
+                (SELECT 1 FROM refund_cancellations c WHERE c.return_id=r.id) GROUP BY method""", (sale_id,)):
             legacy = {"cash": "cash", "credit_note": "store_credit", "original": "card"}[r["method"]]   # before migration 2
             refunded[legacy] = refunded.get(legacy, 0) + r["amount"]
         for c in self.CHANNELS:

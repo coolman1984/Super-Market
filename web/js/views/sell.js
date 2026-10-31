@@ -84,13 +84,18 @@
     const body = list.length ? list.map((h1, i) => h('div', { class: 'card row' }, h('div', { class: 'grow' }, h('b', { class: 'ltr', text: h1.at.slice(0, 16).replace('T', ' ') }),
       h('span', { class: 'muted', text: ' — ' + h1.lines.length })),
       h('button', { class: 'btn primary sm', text: t('sell.resume'), onclick: async () => {
-        const rest = held().filter((_, j) => j !== i); SM.prefs.set(heldKey(), rest);
+        const session = SM.state.session, owner = cart.owner, key = heldKey();
         d.close(); cart.key = null;
+        const restored = [];
         for (const l of h1.lines) {
-          if (l.pack) { const r = await SM.api('POST', '/api/scan', { raw: l.pack }).catch(() => null); if (r && r.ok && r.pack) cart.lines.push({ product: r.product, qty: r.pack.net_g, pack: r.pack, scanned: l.scanned }); else SM.toast(t('err.' + (r ? r.error : 'network')), 'bad'); }
-          else { const p = await SM.api('GET', '/api/products/' + l.id).catch(() => null); if (p) cart.lines.push({ product: p, qty: l.qty, scanned: l.scanned, manualWeight: l.manualWeight }); }
+          if (l.pack) { const r = await SM.api('POST', '/api/scan', { raw: l.pack }).catch(() => null); if (session !== SM.state.session || owner !== cart.owner) return;
+            if (r && r.ok && r.pack) restored.push({ product: r.product, qty: r.pack.net_g, pack: r.pack, scanned: l.scanned }); else SM.toast(t('err.' + (r ? r.error : 'network')), 'bad'); }
+          else { const p = await SM.api('GET', '/api/products/' + l.id).catch(() => null); if (session !== SM.state.session || owner !== cart.owner) return;
+            if (p) restored.push({ product: p, qty: l.qty, scanned: l.scanned, manualWeight: l.manualWeight }); }
         }
-        cart.invoiceDiscount = h1.invoiceDiscount || 0; view.render();
+        // the answer belongs to the user who asked: a logout meanwhile leaves their held sale where it was
+        SM.prefs.set(key, SM.prefs.get(key, []).filter(x => x.at !== h1.at));
+        cart.lines.push(...restored); cart.invoiceDiscount = h1.invoiceDiscount || 0; view.render();
       } }),
       h('button', { class: 'icon-btn', 'aria-label': t('remove'), onclick: () => { SM.prefs.set(heldKey(), held().filter((_, j) => j !== i)); d.close(); resumeDialog(view); } }, icon('trash'))))
       : [h('p', { text: t('sell.held_none') })];

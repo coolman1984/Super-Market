@@ -44,12 +44,13 @@
     const st = await SM.api('GET', '/api/suppliers/' + s.id + '/statement').catch(e => { SM.fail(e); return null; });
     if (!st) return;
     const parts = [h('p', {}, t('party.we_owe'), ' ', SM.num(SM.moneyText(st.balance))), statementTable(st.lines)];
-    const open = (st.open_returns || []).filter(r => r.open);
+    const open = st.open_returns || [];     // every return stays here: a part-credit does not complete it
     if (open.length) {
       parts.push(h('div', { class: 'card' }, h('h3', { text: t('party.returns') }), SM.table([
         { label: t('stock.lot'), render: r => h('span', { class: 'ltr', text: r.lot_no }) }, { label: t('stock.product'), render: r => SM.name(r) },
         { label: t('party.return_reason'), render: r => t('reason.' + r.reason) },
-        { label: t('party.cost'), num: true, render: r => SM.can('see_cost') ? SM.num(SM.money(r.cost)) : '—' },
+        { label: t('party.cost'), num: true, render: r => SM.can('see_cost') && r.cost !== undefined ? SM.num(SM.money(r.cost)) : '—' },
+        { label: t('party.credited'), num: true, render: r => SM.num(SM.money(r.credited)) },
         { label: '', render: r => SM.can('supplier_pay') ? h('button', { class: 'btn sm', text: t('party.credit_note'), onclick: () => creditNoteDialog(r, () => { d.close(); after(); }) }) : null }], open)));
     }
     if (SM.can('supplier_pay')) {

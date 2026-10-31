@@ -126,6 +126,9 @@ class Matrix(ShopFixture, unittest.TestCase):
         statement = self.shop.supplier_statement(self.owner, sup)
         self.assertEqual([x["kind"] for x in statement["lines"]], ["invoice", "credit_note"])
         self.assertEqual(statement["open_returns"][0]["credited"], 3500)
+        self.assertTrue(statement["open_returns"][0]["open"])             # a part-credit does not complete the return
+        self.shop.supplier_credit_note(self.owner, key(), ret["supplier_return"], 500, "CN-78")   # the rest arrives later
+        self.assertFalse(self.shop.supplier_statement(self.owner, sup)["open_returns"][0]["open"])
 
     # row 10: the same barcode for another product or packaging is refused, never merged silently
     def test_row10_the_same_barcode_is_refused_not_merged(self):

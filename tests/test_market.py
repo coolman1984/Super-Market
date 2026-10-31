@@ -184,6 +184,35 @@ class Chain(ShopFixture, unittest.TestCase):
         self.assertEqual((r2["cancelled_uncollected"], r2["refunds"]), (200, [{"method": "cash", "amount": 800}]))
         self.assertEqual(self.shop.shift_expected(shift), 0)
 
+    def test_e05_cancellation_only_return_is_not_counted_as_a_refund_by_method(self):
+        """Review finding: a return that only cancels the rejected transfer wrote no allocation row and was
+        taken for an old cash refund, so the 800 actually received could not be refunded afterwards."""
+        p = self.grocery(price=1000)
+        self.receive(p, 2, 100, expires=None)
+        self.open_shift(self.manager, 0)
+        s = self.shop.sell(self.manager, key(), {"lines": [{"product_id": p, "qty": 2}], "cash_tendered": 800,
+                                                 "payments": [{"method": "transfer", "amount": 1200}]})
+        self.shop.confirm_payment(self.manager, key(), self.store.scalar("SELECT id FROM payments WHERE method='transfer'"), "rejected")
+        line = self.shop.sale_detail(self.manager, s["sale"])["lines"][0]["id"]
+        r1 = self.shop.return_sale(self.manager, key(), {"sale_id": s["sale"], "reason": "wrong_item", "method": "cash",
+                                                         "lines": [{"sale_line_id": line, "qty": 1}]})
+        self.assertEqual(r1["refunds"], [])
+        r2 = self.shop.return_sale(self.manager, key(), {"sale_id": s["sale"], "reason": "wrong_item", "method": "cash",
+                                                         "lines": [{"sale_line_id": line, "qty": 1}]})
+        self.assertEqual(r2["refunds"], [{"method": "cash", "amount": 800}])
+
+    def test_supplier_statement_hides_stock_cost_from_a_user_without_see_cost(self):
+        sup = self.shop.add_party(self.owner, "supplier", "S")
+        p = self.grocery()
+        r = self.shop.receive(self.owner, key(), {"supplier_id": sup, "supplier_invoice": "I1", "lines": [
+            {"product_id": p, "qty": 10, "line_cost": 10000, "location_id": self.shelf}]})
+        self.shop.supplier_return(self.owner, key(), sup, r["lines"][0]["lot"], self.shelf, 2, "damaged")
+        self.store.tx(lambda: self.shop.auth.create_user("rcv", "R", "receiver", PASSWORD))
+        receiver = self.actor("rcv")
+        st = self.shop.supplier_statement(receiver, sup)
+        self.assertNotIn("cost", st["open_returns"][0])
+        self.assertIn("cost", self.shop.supplier_statement(self.owner, sup)["open_returns"][0])
+
     # ---- E06 + upgrade
     def test_unallocated_cash_collection_blocks_nothing_it_cannot_prove(self):
         p, c, s, line = self.credit_sale()

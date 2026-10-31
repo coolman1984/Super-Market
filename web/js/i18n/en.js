@@ -824,7 +824,7 @@ Object.assign(SM.i18n.en, {
   "stock.supplier_return_help": "Goods leave stock at their cost; the supplier debt changes only when its credit note is recorded.",
   "party.return_reason": "Reason for the return",
   "party.return_done": "The return was recorded and awaits the credit note.",
-  "party.returns": "Returns awaiting a supplier credit note",
+  "party.returns": "Supplier returns and their credit notes",
   "party.credit_note": "Record a credit note",
   "party.credit_ref": "Supplier credit note number",
   "party.credited": "Credited",
