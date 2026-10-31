@@ -1517,6 +1517,17 @@ class Shop:
         return self.store.command("packaging_replace", key, [packaging_id, factor_num, factor_den, reason, bool(move_barcodes)], actor, work)
 
     # =============== thawing (row 14) ===============
+    THAW_PLACES = ("prep_fridge", "display_fridge")
+
+    def _storage_move_rule(self, lot_id, src, dst):
+        """One rule for every path that moves or uses stock (review case 6): what is
+        in a freezer leaves it only through thawing, which sets the shorter date;
+        freezer to freezer is fine; thawed stock never goes back into a freezer."""
+        if src["kind"] == "freezer" and dst["kind"] != "freezer":
+            raise ShopError("use_thaw")
+        if dst["kind"] == "freezer" and src["kind"] != "freezer" and self._thawed(lot_id):
+            raise ShopError("no_refreeze")
+
     def _thawed(self, lot_id):
         """True when this lot, or any lot it was made from, was thawed here."""
         lots = self.ancestors(lot_id)
@@ -1537,8 +1548,10 @@ class Shop:
             src, dst = self._location(integer(from_location, 1)), self._location(integer(to_location, 1))
             if src["kind"] != "freezer":
                 raise ShopError("not_in_freezer")
-            if dst["kind"] in ("freezer", "waste"):
-                raise ShopError("no_refreeze" if dst["kind"] == "freezer" else "bad_location")
+            if dst["kind"] == "freezer":
+                raise ShopError("no_refreeze")
+            if dst["kind"] not in self.THAW_PLACES:      # thawed meat waits in the cold, never on a shelf (review case 7)
+                raise ShopError("thaw_needs_fridge")
             parent = self._usable_lot(lot_id)
             self._check_free(lot_id, src["id"], qty)
             cost = self._consume(op, "thaw_out", lot_id, src["id"], qty, check=False)
@@ -2034,8 +2047,7 @@ class Shop:
                 raise ShopError("same_location")
             if not self.store.scalar("SELECT 1 FROM lots WHERE id=?", (lot_id,)):
                 raise ShopError("unknown_lot")
-            if dst["kind"] == "freezer" and src["kind"] != "freezer" and self._thawed(lot_id):
-                raise ShopError("no_refreeze")
+            self._storage_move_rule(lot_id, src, dst)
             self._check_free(lot_id, src["id"], qty)
             cost = self._consume(op, "transfer_out", lot_id, src["id"], qty, check=False)
             self._entry(op, "transfer_in", lot_id, dst["id"], qty, cost)
@@ -2389,6 +2401,8 @@ class Shop:
                     raise ShopError("duplicate_input")
                 seen.add((lot_id, loc_id))
                 lot = self._usable_lot(lot_id, day)
+                if self._location(loc_id)["kind"] == "freezer":
+                    raise ShopError("use_thaw")         # frozen inputs are thawed first, with their shorter date (review case 6)
                 self._check_free(lot_id, loc_id, qty)   # stock promised to labelled packs stays (audit E02)
                 if kind == "recipe":
                     if lot["product_id"] not in allowed:

@@ -5,8 +5,53 @@
   const { h, t, icon } = SM;
   /* The cart belongs to one user, till and mode (audit R17); logout empties it. */
   const cart = { lines: [], invoiceDiscount: 0, customer: null, owner: null, key: null, unknown: false };
-  function resetCart() { Object.assign(cart, { lines: [], invoiceDiscount: 0, customer: null, key: null, unknown: false }); }
-  const ownerOf = () => [SM.state.user && SM.state.user.id, SM.workstation(), SM.state.mode].join('|');
+  function resetCart() { Object.assign(cart, { lines: [], invoiceDiscount: 0, customer: null, key: null, unknown: false, restoring: false }); }
+  /* the shop's own identity first: a draft never crosses to another shop folder on the same browser */
+  const ownerOf = () => [SM.state.instance || '-', SM.state.user && SM.state.user.id, SM.workstation(), SM.state.mode].join('|');
+  const HELD_MAX = 10;
+
+  /* An unpaid cart survives a page reload. Only references are kept (product, quantity, pack,
+     scanned code); prices, stock and expiry are asked again from the server when it comes back,
+     and again at payment. A sale whose answer was lost keeps its key, so it is checked, not re-sold. */
+  const draftKey = () => 'draft.' + ownerOf();
+  function saveDraft() {
+    if (!cart.owner || cart.owner !== ownerOf() || cart.restoring) return;   // never overwrite a draft not yet read back
+    if (!cart.lines.length && !cart.unknown) { SM.prefs.set(draftKey(), null); return; }
+    SM.prefs.set(draftKey(), { at: new Date().toISOString(), invoiceDiscount: cart.invoiceDiscount, customer: cart.customer,
+      key: cart.unknown ? cart.key : null,
+      lines: cart.lines.map(l => ({ id: l.product.id, qty: l.qty, pack: l.pack ? l.pack.code : null, scanned: l.scanned || null,
+        manualWeight: !!l.manualWeight, discount: l.discount || 0 })) });
+  }
+  async function restoreDraft(view) {
+    const d = SM.prefs.get(draftKey(), null);
+    if (!d || cart.lines.length) { cart.restoring = false; return; }
+    const session = SM.state.session, owner = cart.owner;
+    const lines = await restoreLines(d.lines, session, owner);
+    if (lines === null) return;
+    cart.restoring = false;
+    cart.lines.push(...lines);
+    cart.invoiceDiscount = d.invoiceDiscount || 0; cart.customer = d.customer || null;
+    if (d.key && SM.pendingOps().some(p => p.key === d.key)) { cart.key = d.key; cart.unknown = true; }   // the lost answer is checked first
+    view.render();
+    if (lines.length) SM.toast(t('sell.draft_restored', { n: lines.length }));
+  }
+  /* Re-read every saved line from the server; a pack that sold meanwhile or a missing product is reported, not added. */
+  async function restoreLines(saved, session, owner) {
+    const out = [];
+    for (const l of saved || []) {
+      if (l.pack) {
+        const r = await SM.api('POST', '/api/scan', { raw: l.pack }).catch(() => null);
+        if (session !== SM.state.session || owner !== cart.owner) return null;
+        if (r && r.ok && r.pack) out.push({ product: r.product, qty: r.pack.net_g, pack: r.pack, scanned: l.scanned });
+        else SM.toast(t('err.' + (r ? r.error : 'network')), 'bad');
+      } else {
+        const p = await SM.api('GET', '/api/products/' + l.id).catch(() => null);
+        if (session !== SM.state.session || owner !== cart.owner) return null;
+        if (p) out.push({ product: p, qty: l.qty, scanned: l.scanned, manualWeight: l.manualWeight, discount: l.discount || 0 });
+      }
+    }
+    return out;
+  }
   SM.draftResets.push(() => { resetCart(); cart.owner = null; });
   let shift = null;
 
@@ -75,8 +120,10 @@
   const held = () => SM.prefs.get(heldKey(), []);
   function holdCart(view) {
     if (!cart.lines.length || cart.unknown) return;
+    // never drop an older held sale to make room: the cashier decides which one goes
+    if (held().length >= HELD_MAX) { SM.toast(t('sell.held_full', { n: HELD_MAX }), 'bad'); return; }
     const lines = cart.lines.map(l => ({ id: l.product.id, qty: l.qty, pack: l.pack ? l.pack.code : null, scanned: l.scanned || null, manualWeight: !!l.manualWeight }));
-    SM.prefs.set(heldKey(), held().concat([{ at: new Date().toISOString(), lines, invoiceDiscount: cart.invoiceDiscount }]).slice(-10));
+    SM.prefs.set(heldKey(), held().concat([{ at: new Date().toISOString(), lines, invoiceDiscount: cart.invoiceDiscount }]));
     resetCart(); view.render(); SM.toast(t('sell.held_saved'));
   }
   async function resumeDialog(view) {
@@ -86,13 +133,8 @@
       h('button', { class: 'btn primary sm', text: t('sell.resume'), onclick: async () => {
         const session = SM.state.session, owner = cart.owner, key = heldKey();
         d.close(); cart.key = null;
-        const restored = [];
-        for (const l of h1.lines) {
-          if (l.pack) { const r = await SM.api('POST', '/api/scan', { raw: l.pack }).catch(() => null); if (session !== SM.state.session || owner !== cart.owner) return;
-            if (r && r.ok && r.pack) restored.push({ product: r.product, qty: r.pack.net_g, pack: r.pack, scanned: l.scanned }); else SM.toast(t('err.' + (r ? r.error : 'network')), 'bad'); }
-          else { const p = await SM.api('GET', '/api/products/' + l.id).catch(() => null); if (session !== SM.state.session || owner !== cart.owner) return;
-            if (p) restored.push({ product: p, qty: l.qty, scanned: l.scanned, manualWeight: l.manualWeight }); }
-        }
+        const restored = await restoreLines(h1.lines, session, owner);
+        if (restored === null) return;
         // the answer belongs to the user who asked: a logout meanwhile leaves their held sale where it was
         SM.prefs.set(key, SM.prefs.get(key, []).filter(x => x.at !== h1.at));
         cart.lines.push(...restored); cart.invoiceDiscount = h1.invoiceDiscount || 0; view.render();
@@ -294,7 +336,8 @@
   SM.views.sell = {
     icon: 'cart', perm: 'sell',
     async mount(root) {
-      if (cart.owner !== ownerOf()) { resetCart(); cart.owner = ownerOf(); }
+      const fresh = cart.owner !== ownerOf();
+      if (fresh) { resetCart(); cart.owner = ownerOf(); cart.restoring = true; }
       try { shift = await SM.api('GET', '/api/shift'); } catch (e) { shift = null; }
       const scanInput = SM.scanner.field({});
       const status = h('div', { class: 'scan-status', role: 'status', 'aria-live': 'polite' });
@@ -309,13 +352,14 @@
           if (r.price_changed) status.append(h('span', { class: 'badge warn', text: t('sell.pack_price_changed', { packed: SM.money(r.price_changed.packed), current: SM.money(r.price_changed.current) }) }));
         },
         render() {
+          saveDraft();
           const tot = totals();
           SM.put(cartBox, cart.lines.length ? SM.table([
             { label: t('sell.item'), render: l => h('div', {}, h('b', { text: SM.name(l.product) }),
               l.pack ? h('div', { class: 'muted ltr', text: t('sell.pack') + ' ' + l.pack.code }) : null,
               l.manualWeight ? h('div', { class: 'badge warn', text: t('sell.manual_weight') }) : null) },
             { label: t('sell.qty'), render: l => h('div', { class: 'row qty-cell' },
-              !l.pack && l.product.measure !== 'g' ? h('button', { class: 'icon-btn', 'aria-label': t('less'), onclick: () => { cart.key = null; l.qty > 1 ? l.qty-- : cart.key = null; cart.lines.splice(cart.lines.indexOf(l), 1); view.render(); } }, icon('minus')) : null,
+              !l.pack && l.product.measure !== 'g' ? h('button', { class: 'icon-btn', 'aria-label': t('less'), disabled: l.qty <= 1, onclick: () => { if (l.qty <= 1) return; cart.key = null; l.qty--; view.render(); } }, icon('minus')) : null,
               SM.num(SM.qty(l.qty, l.product.measure)),
               !l.pack && l.product.measure !== 'g' ? h('button', { class: 'icon-btn', 'aria-label': t('more'), onclick: () => { cart.key = null; l.qty++; view.render(); } }, icon('plus')) : null) },
             { label: t('sell.price'), num: true, render: l => SM.num(l.pack ? SM.money(l.pack.price) : SM.money(l.product.price) + (l.product.measure === 'g' ? ' / ' + t('unit.kg') : '')) },
@@ -347,6 +391,7 @@
             status, cartBox),
           side));
       view.render();
+      if (fresh) restoreDraft(view);
       this.keys = (e) => {
         if (SM.state.dialogOpen) return;
         if (e.key === 'F9') { e.preventDefault(); if (cart.lines.length && shift) payDialog(view); }
