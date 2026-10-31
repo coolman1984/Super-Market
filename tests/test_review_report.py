@@ -353,3 +353,53 @@ class ServerErrors(ShopFixture, unittest.TestCase):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         c.putrequest("POST", "/api/login"); c.putheader("X-SM", "1"); c.putheader("Content-Length", "2000000"); c.endheaders()
         self.assertEqual(c.getresponse().status, 413)
+
+
+class ApprovalLock(ShopFixture, unittest.TestCase):
+    """M3 - guessing a manager's password at the till locks the requester, in the database, and is audited."""
+
+    def setUp(self):
+        self.make_shop()
+
+    def guess(self, actor, password="wrong-password"):
+        return self.shop.verify_approval({"username": "manager", "password": password}, actor)
+
+    def fail(self, actor, n):
+        for _ in range(n):
+            with self.assertRaises(ShopError):
+                self.guess(actor)
+
+    def test_five_failures_lock_the_requester_with_a_growing_wait_and_audit(self):
+        import datetime
+        self.fail(self.cash1, 5)
+        with self.assertRaises(ShopError) as c:
+            self.guess(self.cash1, PASSWORD)                               # even the right password is refused while locked
+        self.assertEqual((c.exception.code, c.exception.status), ("approval_attempts_exceeded", 429))
+        self.assertGreater(c.exception.detail["retry_after"], 800)
+        self.assertEqual(self.store.scalar("SELECT COUNT(*) FROM audit WHERE action='approval.failed'"), 5)
+        self.assertIn('"seconds": 900', self.store.scalar("SELECT detail FROM audit WHERE action='approval.locked'"))
+        core.set_clock(core.now() + datetime.timedelta(minutes=16))
+        self.assertEqual(self.guess(self.cash1, PASSWORD)["role"], "manager")  # the first lock ends after 15 minutes
+        self.fail(self.cash1, 5)
+        core.set_clock(core.now() + datetime.timedelta(minutes=16))
+        with self.assertRaises(ShopError):                                  # second lock is 1 hour
+            self.guess(self.cash1, PASSWORD)
+        self.assertIn('"seconds": 3600', self.store.scalar("SELECT detail FROM audit WHERE action='approval.locked' ORDER BY id DESC"))
+
+    def test_the_lock_survives_a_restart_and_is_per_requester(self):
+        from server.db import Store
+        from server.services import Shop
+        self.fail(self.cash1, 5)
+        path = self.store.folder
+        self.store.close()
+        self.store = Store(path, "shop")
+        self.shop = Shop(self.store)
+        with self.assertRaises(ShopError) as c:
+            self.guess(self.actor("cash1"), PASSWORD)
+        self.assertEqual(c.exception.code, "approval_attempts_exceeded")
+        self.assertEqual(self.guess(self.actor("cash2"), PASSWORD)["role"], "manager")   # another cashier is not affected
+        self.assertEqual(self.shop.auth.verify("manager", PASSWORD)["username"], "manager")  # the manager himself is never locked
+
+    def test_the_lock_row_is_not_shown_in_settings(self):
+        self.fail(self.cash1, 1)
+        self.assertFalse([k for k in self.shop.settings() if k.startswith("_")])

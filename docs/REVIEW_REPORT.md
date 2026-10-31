@@ -128,7 +128,7 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 - **Impact:** tills must use the numeric IP; breaks when DHCP changes.
 - **Fix:** allow the PC's own hostname + `<hostname>.local` and private-range IPs in LAN mode; show the correct address in the startup message; recommend a fixed IP.
 
-### [ ] M3 — Approval-password guessing at the till
+### [x] M3 — Approval-password guessing at the till
 - **Where:** `services.py:~740-750` (`_approval_failures`: 5 per 5 min per requesting user, **in memory**, reset at restart).
 - **Impact:** a cashier can try ~1,440 manager passwords/day; restart resets.
 - **Fix:** persist failures in DB, 5 failures ⇒ exponential lock (15 min → 24 h) for the *requester*, audit each failure, notify owner.

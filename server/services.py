@@ -47,7 +47,7 @@ class Shop:
     # =============== settings & master data ===============
     def settings(self):
         out = dict(DEFAULT_SETTINGS)
-        for row in self.store.all("SELECT key, value FROM settings WHERE key<>'mode'"):
+        for row in self.store.all("SELECT key, value FROM settings WHERE key<>'mode' AND key NOT LIKE '\\_%' ESCAPE '\\'"):
             out[row["key"]] = json.loads(row["value"])
         out["mode"] = self.store.mode
         return out
@@ -746,29 +746,60 @@ class Shop:
         return self.store.command("shift_close", key, [counted, note, shift_id], actor, work)
 
     # =============== approvals ===============
-    _approval_failures = {}
+    APPROVAL_WINDOW_S, APPROVAL_FAILS = 300, 5
+    APPROVAL_LOCKS_S = (900, 3600, 4 * 3600, 24 * 3600)      # 15 min, 1 h, 4 h, 24 h: each new lock is longer (review M3)
+    _LOCK_KEY = "_approval_lock"                             # settings row; kept across restarts, never shown by settings()
+
+    def _approval_state(self):
+        row = self.store.scalar("SELECT value FROM settings WHERE key=?", (self._LOCK_KEY,))
+        return json.loads(row) if row else {}
 
     def verify_approval(self, approval, actor=None):
-        """Check typed manager credentials before the command transaction.
-        Failures are limited per REQUESTING user (5 per 5 minutes) and do not
-        lock the manager's own login. Returns {'id', 'role'} or None."""
+        """Check typed manager credentials before the command transaction. Wrong passwords are counted
+        per REQUESTING user in the database (a restart does not reset them): 5 within 5 minutes lock that
+        requester for 15 min, then 1 h, 4 h, 24 h; every failure and every lock is audited, and the manager's
+        own login is never locked by someone else's guesses. Returns {'id', 'role'} or None."""
         if not approval:
             return None
         if not isinstance(approval, dict) or not isinstance(approval.get("username"), str) \
                 or not isinstance(approval.get("password"), str):
             raise ShopError("bad_approval")
-        import time
-        who = actor["id"] if actor else 0
-        recent = [t for t in self._approval_failures.get(who, []) if time.monotonic() - t < 300]
-        if len(recent) >= 5:
-            raise ShopError("approval_attempts_exceeded", status=429)
+        who = str(actor["id"] if actor else 0)
+        moment = _dt.datetime.fromisoformat(now_iso())
+        with self.store.lock:
+            mine = self._approval_state().get(who, {})
+        until = mine.get("until")
+        if until and _dt.datetime.fromisoformat(until) > moment:
+            wait = int((_dt.datetime.fromisoformat(until) - moment).total_seconds()) + 1
+            raise ShopError("approval_attempts_exceeded", {"retry_after": wait}, status=429)
         try:
             with self.store.lock:
                 user = self.auth.verify(approval["username"], approval["password"], count_failures=False)
         except ShopError:
-            self._approval_failures[who] = recent + [time.monotonic()]
+            self._approval_failed(actor, who, approval["username"], moment)
             raise
         return {"id": user["id"], "role": user["role"]}
+
+    def _approval_failed(self, actor, who, typed_username, moment):
+        def work():
+            state = self._approval_state()
+            mine = state.get(who, {})
+            cutoff = moment - _dt.timedelta(seconds=self.APPROVAL_WINDOW_S)
+            recent = [t for t in mine.get("fails", []) if _dt.datetime.fromisoformat(t) > cutoff] + [moment.isoformat(timespec="seconds")]
+            level = mine.get("level", 0)
+            last = mine.get("last")
+            if last and _dt.datetime.fromisoformat(last) < moment - _dt.timedelta(days=2):
+                level = 0                                  # two quiet days: the ladder starts again
+            entry = {"fails": recent[-self.APPROVAL_FAILS:], "level": level, "until": None, "last": moment.isoformat(timespec="seconds")}
+            self.store.audit(actor, "approval.failed", None, {"typed_user": typed_username[:60]})
+            if len(recent) >= self.APPROVAL_FAILS:
+                seconds = self.APPROVAL_LOCKS_S[min(level, len(self.APPROVAL_LOCKS_S) - 1)]
+                entry.update(fails=[], level=level + 1, until=(moment + _dt.timedelta(seconds=seconds)).isoformat(timespec="seconds"))
+                self.store.audit(actor, "approval.locked", None, {"seconds": seconds, "level": level + 1})
+            state[who] = entry
+            self.store.db.execute("INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                                  (self._LOCK_KEY, json.dumps(state, sort_keys=True)))
+        self.store.tx(work)
 
     @staticmethod
     def _approved(actor, approver, permission):

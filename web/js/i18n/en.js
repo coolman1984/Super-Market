@@ -714,7 +714,7 @@ Object.assign(SM.i18n.en, {
   "err.pack_prefix_in_use": "The pack prefix cannot change after packs were printed.",
   "err.bad_setting": "Invalid setting value.",
   "err.bad_request": "Invalid request.",
-  "err.approval_attempts_exceeded": "Too many wrong approval attempts; wait 5 minutes.",
+  "err.approval_attempts_exceeded": "Too many wrong approval attempts: approvals are paused for this user for a while and this is recorded in the audit log. Wait and try again, or ask the manager to sign in himself.",
   "err.bad_approval": "Invalid approval data.",
   "err.bad_host": "Address not allowed.",
   "err.drawer_insufficient": "The drawer holds {drawer}; it cannot pay out {needed}.",
