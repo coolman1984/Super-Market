@@ -39,6 +39,24 @@ def dt_date(text_value):
     return _dt.date.fromisoformat(text_value)
 
 
+def normalize_phone(value):
+    """Egyptian numbers, stored the one way: 01xxxxxxxxx for a mobile (010, 011, 012, 015), 0 + area code for a landline.
+    Arabic-Indic digits, spaces, dashes and a +20 / 0020 prefix are accepted. Empty stays empty (the phone is optional)."""
+    if value is None or str(value).strip() == "":
+        return None
+    digits = str(value).translate(str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"))
+    digits = re.sub(r"[\s\-().]", "", digits)
+    if digits.startswith("+"):
+        digits = digits[1:]
+    if digits.startswith("0020"):
+        digits = digits[2:]
+    if digits.startswith("20") and len(digits) in (11, 12):
+        digits = "0" + digits[2:]
+    if re.fullmatch(r"01[0125]\d{8}", digits) or re.fullmatch(r"0(?:2\d{8}|[3-9]\d{7,8})", digits):
+        return digits
+    raise ShopError("bad_phone")
+
+
 class Shop:
     def __init__(self, store):
         self.store = store
@@ -220,11 +238,18 @@ class Shop:
     def current_price(self, product_id):
         return self.store.scalar("SELECT price FROM prices WHERE product_id=? ORDER BY id DESC LIMIT 1", (product_id,))
 
-    def add_party(self, actor, kind, name, phone=None, credit_limit=0):
+    def add_party(self, actor, kind, name, phone=None, credit_limit=0, allow_duplicate=False):
         require(actor, "catalog" if kind == "customer" else "receive")
         name = text(name, "bad_name", 120)
+        phone = normalize_phone(phone)
 
         def work():
+            table = {"supplier": "suppliers", "customer": "customers"}.get(kind)
+            if table and not allow_duplicate:                    # a double click or a second entry of the same person (L8)
+                same = " ".join(name.split()).casefold()
+                for row in self.store.all("SELECT id, name, phone FROM %s" % table):
+                    if " ".join(row["name"].split()).casefold() == same and row["phone"] == phone:
+                        raise ShopError("party_duplicate", {"id": row["id"]})
             if kind == "supplier":
                 cur = self.store.db.execute("INSERT INTO suppliers(name,phone,created_at) VALUES(?,?,?)",
                                             (name, phone, now_iso()))

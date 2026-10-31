@@ -1834,6 +1834,8 @@
    ],
    "errors": [
     "err.bad_setting",
+    "err.bad_phone",
+    "err.party_duplicate",
     "err.unknown_setting"
    ]
   },

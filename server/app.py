@@ -82,7 +82,7 @@ class App:
         r("GET", r"/api/locations", lambda a, q, b: self.shop.locations())
         r("POST", r"/api/locations", lambda a, q, b: {"id": self.shop.add_location(a, b.get("code"), b.get("name_ar"), b.get("name_en"), b.get("kind"), b.get("sellable"))})
         r("GET", r"/api/parties", self.parties)
-        r("POST", r"/api/parties", lambda a, q, b: {"id": self.shop.add_party(a, b.get("kind"), b.get("name"), b.get("phone"), b.get("credit_limit", 0))})
+        r("POST", r"/api/parties", lambda a, q, b: {"id": self.shop.add_party(a, b.get("kind"), b.get("name"), b.get("phone"), b.get("credit_limit", 0), b.get("allow_duplicate") is True)})
         r("POST", r"/api/scan", lambda a, q, b: self.shop.resolve_scan(a, b.get("raw"), b.get("profile") or self.profile_for(a)))
         r("POST", r"/api/receipts", lambda a, q, b: self.shop.receive(a, b.get("key"), b.get("payload")))
         r("GET", r"/api/shift", lambda a, q, b: self.shop.shift_summary(a, _int(q.get("id"), None)))

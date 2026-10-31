@@ -514,3 +514,32 @@ class StatePrivacy(ShopFixture, unittest.TestCase):
         self.assertTrue(local["instance"])
         signed_in = app.state({"id": 1}, {}, {}, client="192.168.1.50")
         self.assertEqual(signed_in["shop_name"], "Secret Shop")
+
+
+class PartyEntry(ShopFixture, unittest.TestCase):
+    """L8 - Egyptian phone numbers are normalized and checked; the same person is not added twice by accident."""
+
+    def setUp(self):
+        self.make_shop()
+
+    def test_phone_is_normalized_or_refused(self):
+        from server.services import normalize_phone
+        self.assertEqual(normalize_phone("+20 100 123 4567"), "01001234567")
+        self.assertEqual(normalize_phone("٠١٠٠١٢٣٤٥٦٧"), "01001234567")
+        self.assertEqual(normalize_phone("0020-112-345-6789"), "01123456789")
+        self.assertEqual(normalize_phone("02 2345 6789"), "0223456789")
+        self.assertIsNone(normalize_phone(""))
+        for bad in ("12345", "01312345678", "abc", "0100123456"):
+            with self.assertRaises(ShopError) as c:
+                normalize_phone(bad)
+            self.assertEqual(c.exception.code, "bad_phone")
+
+    def test_same_name_and_phone_asks_first_and_can_be_confirmed(self):
+        first = self.shop.add_party(self.owner, "customer", "أحمد  علي", "01001234567")
+        with self.assertRaises(ShopError) as c:
+            self.shop.add_party(self.owner, "customer", "أحمد علي", "+201001234567")      # a double click or a re-typed number
+        self.assertEqual((c.exception.code, c.exception.detail["id"]), ("party_duplicate", first))
+        self.shop.add_party(self.owner, "customer", "أحمد علي", "01111234567")             # same name, other phone: a different person
+        again = self.shop.add_party(self.owner, "customer", "أحمد علي", "01001234567", allow_duplicate=True)
+        self.assertNotEqual(first, again)
+        self.assertEqual(self.store.scalar("SELECT phone FROM customers WHERE id=?", (first,)), "01001234567")
