@@ -172,13 +172,15 @@ def owner_recovery(data):
     from server.db import Store
     from server.services import Shop
     print("استعادة دخول صاحب المحل — تعمل على جهاز المحل فقط ولا تحذف أي بيانات.")
-    username = input("اسم دخول صاحب المحل: ").strip()
-    first = getpass.getpass("كلمة المرور الجديدة (8 أحرف على الأقل): ")
-    if first != getpass.getpass("اكتبها مرة ثانية: "):
-        print("الكلمتان غير متطابقتين. لم يتغير شيء.")
-        return 1
     store = Store(data, "shop")
     try:
+        owners = [r["username"] for r in store.all("SELECT username FROM users WHERE role='owner' ORDER BY id")]
+        # one owner (the usual shop): nothing to type but the new password
+        username = owners[0] if len(owners) == 1 else input("اسم دخول صاحب المحل: ").strip()
+        first = getpass.getpass("كلمة المرور الجديدة (8 أحرف على الأقل): ")
+        if first != getpass.getpass("اكتبها مرة ثانية: "):
+            print("الكلمتان غير متطابقتين. لم يتغير شيء.")
+            return 1
         Shop(store).auth.recover_owner(username, first)
     except ShopError as exc:
         print("لم يتغير شيء:", exc.code)

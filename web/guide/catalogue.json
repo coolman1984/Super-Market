@@ -334,6 +334,26 @@
   "account.save": {
    "page": "today",
    "sel": ".dialog button[type=\"submit\"]"
+  },
+  "set.users": {
+   "page": "settings",
+   "sel": "[data-guide=\"set.users\"]"
+  },
+  "set.roles_help": {
+   "page": "settings",
+   "sel": "[data-guide=\"set.roles_help\"]"
+  },
+  "set.reset_password": {
+   "page": "settings",
+   "sel": "[data-guide=\"set.reset_password\"]"
+  },
+  "set.temp_pw": {
+   "page": "settings",
+   "sel": "[data-guide=\"set.temp_pw\"]"
+  },
+  "help.account": {
+   "page": "help",
+   "sel": "[data-guide=\"help.account\"]"
   }
  },
  "guides": [
@@ -1215,6 +1235,192 @@
      "k": "done"
     }
    ]
+  },
+  {
+   "id": "owner-account",
+   "cat": "start",
+   "perm": "users",
+   "minutes": 2,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "today",
+     "until": {
+      "route": "today"
+     }
+    },
+    {
+     "k": "check",
+     "target": "shell.password"
+    },
+    {
+     "k": "check",
+     "target": "shell.lock"
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "done"
+    }
+   ]
+  },
+  {
+   "id": "staff-roles",
+   "cat": "admin",
+   "perm": "users",
+   "minutes": 2,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "settings",
+     "until": {
+      "route": "settings"
+     }
+    },
+    {
+     "k": "check",
+     "target": "set.users"
+    },
+    {
+     "k": "check",
+     "target": "set.roles_help"
+    },
+    {
+     "k": "check",
+     "target": "set.role"
+    },
+    {
+     "k": "done"
+    }
+   ]
+  },
+  {
+   "id": "reset-password",
+   "cat": "admin",
+   "perm": "users",
+   "minutes": 2,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "settings",
+     "until": {
+      "route": "settings"
+     }
+    },
+    {
+     "k": "check",
+     "target": "set.users"
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "done"
+    }
+   ]
+  },
+  {
+   "id": "refund-approval",
+   "cat": "daily",
+   "perm": "refund",
+   "minutes": 2,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "returns",
+     "until": {
+      "route": "returns"
+     }
+    },
+    {
+     "k": "check",
+     "target": "ret.post"
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "done"
+    }
+   ]
+  },
+  {
+   "id": "wrong-password",
+   "cat": "start",
+   "perm": "*",
+   "minutes": 1,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "help",
+     "until": {
+      "route": "help"
+     }
+    },
+    {
+     "k": "check",
+     "target": "help.account"
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "done"
+    }
+   ]
+  },
+  {
+   "id": "forgot-owner-password",
+   "cat": "admin",
+   "perm": "users",
+   "minutes": 2,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "help",
+     "until": {
+      "route": "help"
+     }
+    },
+    {
+     "k": "check",
+     "target": "help.account"
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "done"
+    }
+   ]
   }
  ],
  "roles": [
@@ -1225,16 +1431,23 @@
    ],
    "path": [
     "first-look",
+    "owner-account",
     "change-password",
     "add-product",
     "receive-goods",
     "open-shift",
     "first-sale",
     "return-item",
+    "refund-approval",
     "close-shift",
     "day-report",
     "close-day",
     "add-user",
+    "staff-roles",
+    "reset-password",
+    "lock-screen",
+    "wrong-password",
+    "forgot-owner-password",
     "backup-now"
    ]
   },
@@ -1252,7 +1465,10 @@
     "close-shift",
     "count-stock",
     "day-report",
-    "close-day"
+    "close-day",
+    "refund-approval",
+    "lock-screen",
+    "wrong-password"
    ]
   },
   {
@@ -1269,7 +1485,9 @@
     "hold-sale",
     "return-item",
     "lock-screen",
-    "close-shift"
+    "close-shift",
+    "refund-approval",
+    "wrong-password"
    ]
   },
   {
@@ -1281,7 +1499,8 @@
     "first-look",
     "change-password",
     "receive-goods",
-    "count-stock"
+    "count-stock",
+    "wrong-password"
    ]
   },
   {
@@ -1294,7 +1513,8 @@
     "change-password",
     "cut-meat",
     "make-tagine",
-    "count-stock"
+    "count-stock",
+    "wrong-password"
    ]
   },
   {
@@ -1305,7 +1525,8 @@
    "path": [
     "first-look",
     "change-password",
-    "count-stock"
+    "count-stock",
+    "wrong-password"
    ]
   },
   {
@@ -1317,7 +1538,8 @@
     "first-look",
     "change-password",
     "day-report",
-    "pay-supplier"
+    "pay-supplier",
+    "wrong-password"
    ]
   },
   {
@@ -1327,7 +1549,8 @@
    ],
    "path": [
     "first-look",
-    "day-report"
+    "day-report",
+    "wrong-password"
    ]
   }
  ],

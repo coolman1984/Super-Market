@@ -362,14 +362,19 @@
     const f = { username: h('input', { class: 'input', autocomplete: 'off', 'data-guide': 'set.username' }), name: h('input', { class: 'input' }), password: h('input', { class: 'input', type: 'password', autocomplete: 'new-password', 'data-guide': 'set.password' }),
       role: SM.select(['manager', 'cashier', 'receiver', 'butcher', 'counter', 'accountant', 'viewer', 'owner'].map(r => ({ value: r, label: t('role.' + r) }))) };
     f.role.setAttribute('data-guide', 'set.role');
-    return h('div', { class: 'card' }, h('h3', { text: t('set.users') }),
+    f.password.type = 'text'; f.password.classList.add('ltr'); f.password.value = SM.tempPassword();     // one less thing to think of: a ready temporary password, shown so it can be read out
+    return h('div', { class: 'card', 'data-guide': 'set.users' }, h('h3', { text: t('set.users') }), h('p', { class: 'muted', 'data-guide': 'set.roles_help', text: t('set.roles_help') }),
       SM.table([{ label: t('username'), render: u => h('span', { class: 'ltr', text: u.username }) }, { label: t('set.display'), key: 'display_name' }, { label: t('set.role'), render: u => t('role.' + u.role) },
         { label: t('set.state'), render: u => h('span', { class: 'badge ' + (u.active ? (u.must_change ? 'warn' : 'ok') : 'bad'),
           text: u.active ? (u.must_change ? t('set.user_must_change') : t('set.user_active')) : t('set.user_stopped') }) },
         { label: '', render: u => SM.state.user && u.id === SM.state.user.id ? null : h('div', { class: 'row' },
-          h('button', { class: 'btn sm', text: t('set.reset_password'), onclick: SM.guard(async () => {
-            const pw = prompt(t('set.reset_password_q', { name: u.display_name })); if (!pw) return;
-            try { await SM.api('POST', '/api/users/' + u.id + '/password', { password: pw }); SM.toast(t('set.reset_done')); SM.go('settings'); } catch (e) { SM.fail(e); }
+          h('button', { class: 'btn sm', 'data-guide': 'set.reset_password', text: t('set.reset_password'), onclick: SM.guard(async () => {
+            const temp = h('input', { class: 'input ltr', value: SM.tempPassword(), 'data-guide': 'set.temp_pw', autocomplete: 'off' });
+            const d = SM.dialog({ title: t('set.reset_title', { name: u.display_name }), body: [h('p', { class: 'tip', text: t('set.reset_password_q', { name: u.display_name }) }), SM.field(t('set.temp_pw'), temp, t('set.temp_pw_help'))],
+              actions: [h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => d.close() }),
+                h('button', { class: 'btn primary', id: 'reset-save', text: t('set.reset_save'), onclick: async () => {
+                  try { await SM.api('POST', '/api/users/' + u.id + '/password', { password: temp.value }); d.close(); SM.toast(t('set.reset_done')); SM.go('settings'); } catch (e) { SM.fail(e); }
+                } })] });
           }) }),
           h('button', { class: 'btn sm ' + (u.active ? 'danger' : ''), text: u.active ? t('set.stop_user') : t('set.start_user'), onclick: SM.guard(async () => {
             const reason = prompt(u.active ? t('set.stop_user_q', { name: u.display_name }) : t('set.start_user_q')); if (!reason) return;
@@ -377,7 +382,7 @@
           }) })) }], users),
       h('div', { class: 'grid cols-4' }, SM.field(t('username'), f.username), SM.field(t('set.display'), f.name), SM.field(t('password'), f.password, t('set.pw_help')), SM.field(t('set.role'), f.role)),
       h('button', { class: 'btn', 'data-guide': 'set.add_user', text: t('set.add_user'), onclick: async () => {
-        try { await SM.api('POST', '/api/users', { username: f.username.value, name: f.name.value, password: f.password.value, role: f.role.value }); SM.toast(t('saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
+        try { await SM.api('POST', '/api/users', { username: f.username.value, name: f.name.value || f.username.value, password: f.password.value, role: f.role.value }); SM.toast(t('saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
       } }));
   }
 

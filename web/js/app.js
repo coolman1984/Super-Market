@@ -82,6 +82,13 @@
   }
   SM.passwordDialog = () => passwordScreen(null, false);
 
+  /* «نسيت كلمة المرور؟»: one plain answer for everyone, reachable from the login screen and from the help page. */
+  SM.forgotDialog = () => { const d = SM.dialog({ title: t('forgot.title'), actions: [h('button', { class: 'btn primary', id: 'forgot-ok', text: t('forgot.ok'), onclick: () => d.close() })], body: [
+    h('h4', { text: t('forgot.staff_title') }), h('p', { text: t('forgot.staff') }),
+    h('h4', { text: t('forgot.owner_title') }), h('ol', { class: 'steps' }, SM.fill(t('forgot.owner_steps')).split('|').filter(Boolean).map(x => h('li', { text: x }))),
+    h('h4', { text: t('forgot.wrong_title') }), h('p', { text: t('forgot.wrong') })] }); return d; };
+  SM.lockNow = async () => { await SM.api('POST', '/api/account/lock', {}).catch(() => {}); boot(); };
+
   SM.scanner.installGlobalOnce = function () { if (!this._installed) { this._installed = true; this.installGlobal(); } };
 
   function authFrame(title, sub, form) {
@@ -92,14 +99,14 @@
   }
 
   function setupScreen() {
-    const shop = h('input', { class: 'input' }), user = h('input', { class: 'input', autocomplete: 'username' }), name = h('input', { class: 'input' });
+    const shop = h('input', { class: 'input' }), user = h('input', { class: 'input', autocomplete: 'username', value: 'owner' }), name = h('input', { class: 'input' });
     const pass = h('input', { class: 'input', type: 'password', autocomplete: 'new-password' }), pass2 = h('input', { class: 'input', type: 'password', autocomplete: 'new-password' });
     authFrame(t('setup.title'), t('setup.sub'), h('form', { class: 'stack', onsubmit: async (e) => {
       e.preventDefault();
       if (pass.value !== pass2.value) return SM.toast(t('setup.mismatch'), 'bad');
       try { await SM.api('POST', '/api/setup', { shop_name: shop.value, username: user.value, name: name.value || user.value, password: pass.value }); SM.toast(t('setup.done')); boot(); } catch (err) { SM.fail(err); }
     } }, SM.field(t('set.shop_name'), shop), SM.field(t('setup.owner_name'), name), SM.field(t('username'), user), SM.field(t('password'), pass, t('set.pw_help')),
-      SM.field(t('setup.repeat'), pass2), h('button', { class: 'btn primary lg', type: 'submit', text: t('setup.go') })));
+      SM.field(t('setup.repeat'), pass2), h('p', { class: 'tip', text: t('setup.tip') }), h('button', { class: 'btn primary lg', type: 'submit', text: t('setup.go') })));
   }
 
   function loginScreen(state) {
@@ -109,6 +116,7 @@
       e.preventDefault();
       try { await SM.api('POST', '/api/login', { username: user.value, password: pass.value, workstation: SM.workstation() }); boot(); } catch (err) { SM.fail(err); }
     } }, SM.field(t('username'), user), SM.field(t('password'), pass), h('button', { class: 'btn primary lg', type: 'submit', text: t('login.go') }),
+      h('button', { class: 'btn ghost', type: 'button', id: 'login-forgot', text: t('login.forgot'), onclick: () => SM.forgotDialog() }),
       tl ? h('div', { class: 'tip' }, h('div', {}, h('b', { text: t('login.training_users') }), ' ', tl.users.join(' · '), h('br'), t('password'), ': ', h('code', { class: 'ltr', text: tl.password }))) : null));
     user.focus();
   }
@@ -120,7 +128,7 @@
       views.filter(allowed).map(v => h('a', { href: '#' + v, 'data-view': v }, icon(SM.views[v].icon), h('span', { text: t('nav.' + v) }))))));
     const side = h('aside', { class: 'sidebar' }, h('div', { class: 'brand' }, h('div', { class: 'mark' }, icon('cart')), h('div', { class: 'name' }, SM.state.settings.shop_name || t('app.name'), h('small', { text: t('app.tagline') }))),
       nav, h('div', { class: 'side-foot' }, h('div', { class: 'who' }, h('b', { text: u.name }), h('small', { text: t('role.' + u.role) })),
-        h('button', { class: 'icon-btn', 'data-guide': 'shell.lock', 'aria-label': t('lock.btn'), title: t('lock.btn'), onclick: async () => { await SM.api('POST', '/api/account/lock', {}).catch(() => {}); boot(); } }, icon('lock')),
+        h('button', { class: 'icon-btn', 'data-guide': 'shell.lock', 'aria-label': t('lock.btn'), title: t('lock.btn'), onclick: () => SM.lockNow() }, icon('lock')),
         h('button', { class: 'icon-btn', 'data-guide': 'shell.password', 'aria-label': t('account.change'), title: t('account.change'), onclick: () => SM.passwordDialog() }, icon('key')),
         h('button', { class: 'icon-btn logout-btn', 'aria-label': t('lock.switch'), title: t('lock.switch'), onclick: async () => { await SM.api('POST', '/api/logout', {}).catch(() => {}); SM.onLoggedOut(); } }, icon('out'))));
     const title = h('div', { class: 'crumbs' }, h('b', { id: 'view-title' }));

@@ -73,8 +73,13 @@
       // the guided lessons (same engine as the Yousef app): my course, with the coach on the real buttons
       const coach = h('div', { class: 'card row wrap' }, icon('school'), h('div', { class: 'grow' }, h('b', { text: t('help.guide_title') }), h('div', { class: 'muted', text: t('help.guide_sub') })),
         h('button', { class: 'btn primary', 'data-guide': 'help.open_guide', onclick: () => SM.guide && SM.guide.open('today') }, t('help.guide_open')));
+      const account = h('div', { class: 'card', id: 'help-account', 'data-guide': 'help.account' }, h('h3', { text: t('help.account_title') }), h('p', { class: 'muted', text: t('help.account_sub') }),
+        h('div', { class: 'row wrap' },
+          h('button', { class: 'btn', id: 'help-password', text: t('account.change'), onclick: () => SM.passwordDialog() }),
+          h('button', { class: 'btn', id: 'help-lock', text: t('lock.btn'), onclick: () => SM.lockNow() }),
+          h('button', { class: 'btn', id: 'help-forgot', text: t('login.forgot'), onclick: () => SM.forgotDialog() })));
       const training = SM.state.mode === 'training' ? await trainingCard() : null;
-      SM.put(root, intro, coach, training, ...TOPICS.map(v => block(v, ctx)));
+      SM.put(root, intro, coach, account, training, ...TOPICS.map(v => block(v, ctx)));
     },
   };
 })();

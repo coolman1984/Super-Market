@@ -29,7 +29,7 @@ python -m server.app --data shop-data-restored
 
 ## استعادة دخول المالك
 
-`owner-recovery.bat` (أو `python tools\shopctl.py owner-recovery --data shop-data`) على جهاز المحل نفسه: يضع كلمة مرور جديدة للمالك، ويفك القفل، وينهي جلساته، ويسجّل `owner.recovery` في سجل المراجعة. لا يوجد باب خلفي عبر الشبكة؛ من يملك مجلد البيانات يملك البيانات أصلًا.
+`owner-recovery.bat` (أو `python tools\shopctl.py owner-recovery --data shop-data`) على جهاز المحل نفسه (من قائمة ابدأ: «استعادة دخول صاحب المحل»؛ لا يسأل عن اسم المستخدم إن كان للمحل مالك واحد): يضع كلمة مرور جديدة للمالك، ويفك القفل، وينهي جلساته، ويسجّل `owner.recovery` في سجل المراجعة. لا يوجد باب خلفي عبر الشبكة؛ من يملك مجلد البيانات يملك البيانات أصلًا.
 
 ## يوم العمل
 
@@ -40,6 +40,7 @@ python -m server.app --data shop-data-restored
 - المحرك منقول كما هو من مصنع البرامج الخاص بالمالك (af-guide، نفس محرك برنامج يوسف): `web/js/vendor/af-guide.js` و`web/css/af-guide.css` و`server/afguide.py` و`server/afguide_ar_lexicon.json`. لا تُعدَّل هذه الملفات هنا.
 - محتوى الدليل: `web/guide/catalogue.json` (الدروس والخطوات والأهداف والأدوار والمشكلات) و`ar.json` و`en.json` (النصوص).
 - الربط: `web/js/guide.js` (المتصفح) و`server/guidebook.py` (التقدم لكل شخص، والدروس التي تثبتها السجلات). الترحيل 6 يضيف جدول `guide_progress`.
+- دروس الحسابات (`owner-account`, `staff-roles`, `reset-password`, `refund-approval`, `wrong-password`, `forgot-owner-password`, `lock-screen`) وأهدافها `set.users`, `set.roles_help`, `set.reset_password`, `set.temp_pw`, `help.account`. شاشة الدخول وأول تشغيل قبل المرشد، فتشرحهما نافذة «نسيت كلمة المرور؟» ونص ظاهر في شاشة الإعداد. اختبارها: `tests/ui/simple_accounts.js`.
 - البوابة: `tests/test_guide_gate.py` يشغّل فحص المصنع في وضع الإصدار: كل خطأ من الخادم له شرح، كل زر مذكور موجود في القاموسين، الصياغة «العربية الميسّرة».
 
 ## الترقية
