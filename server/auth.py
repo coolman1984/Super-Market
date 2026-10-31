@@ -50,10 +50,34 @@ def hash_password(password, salt=None, iterations=None):
     return digest.hex(), salt, iterations
 
 
+COMMON_PASSWORDS = {"password", "password1", "passw0rd", "qwertyui", "qwerty123", "asdfghjk", "iloveyou", "abcdefgh",
+                    "abcd1234", "1234abcd", "admin123", "administrator", "welcome1", "letmein1", "11223344", "12341234",
+                    "12121212", "00001111", "1q2w3e4r", "q1w2e3r4", "zxcvbnm1", "aa123456", "123123123", "supermarket"}
+
+
+def _easy(password):
+    """Guessed in seconds: one or two repeated characters, a run like 12345678 / 87654321 / abcdefgh,
+    a short repeated block (12121212, abcabcab) or one of the most used passwords (review report M3)."""
+    p = password.lower()
+    if len(set(p)) <= 2 or p in COMMON_PASSWORDS:
+        return True
+    steps = {ord(b) - ord(a) for a, b in zip(p, p[1:])}
+    if steps <= {1} or steps <= {-1}:
+        return True
+    return any(p == (p[:n] * len(p))[:len(p)] for n in (2, 3, 4))
+
+
 def check_password_rules(password):
-    if not isinstance(password, str) or len(password) < 8 or len(password) > 128:
+    if not isinstance(password, str) or len(password) < 8 or len(password) > 128 or _easy(password):
         raise ShopError("weak_password")
     return password
+
+
+def _expired(expires_at):
+    try:
+        return dt.datetime.fromisoformat(expires_at) <= now()
+    except (TypeError, ValueError):
+        return True             # an unreadable expiry never keeps a session alive
 
 
 def token_hash(token):
@@ -198,7 +222,8 @@ class Auth:
         th = token_hash(token)
         row = self.store.one("""SELECT u.*, s.workstation, s.expires_at, s.locked FROM sessions s
             JOIN users u ON u.id=s.user_id WHERE s.token_hash=?""", (th,))
-        if not row or not row["active"] or row["expires_at"] < now_iso():
+        # review report L13: compare moments, not text: "+03:00" and "+02:00" strings sort wrongly around the DST change
+        if not row or not row["active"] or _expired(row["expires_at"]):
             return None
         locked = bool(row["locked"])
         if self.idle_lock_s:

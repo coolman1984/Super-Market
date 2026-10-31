@@ -7,6 +7,9 @@ No float ever enters a posted amount; JSON numbers from clients must be ints.
 import datetime as dt
 
 MAX_INT = 2**63 - 1
+# Review report L6: no posted number may be absurd. 10^11 = 1,000,000,000 EGP in piastres, 100,000 tonnes in
+# grams or 100 billion pieces: far above any shop, far below any overflow. integer() uses it unless told otherwise.
+MAX_PLAUSIBLE = 10**11
 
 
 class ShopError(ValueError):
@@ -33,7 +36,7 @@ class Conflict(ShopError):
     status = 409
 
 
-def integer(value, minimum=0, code="bad_number", maximum=MAX_INT):
+def integer(value, minimum=0, code="bad_number", maximum=MAX_PLAUSIBLE):
     if type(value) is not int or not minimum <= value <= maximum:
         raise ShopError(code, {"min": minimum})
     return value

@@ -31,9 +31,10 @@
     const full = await SM.api('GET', '/api/products/' + p.id);
     const acts = [];
     if (SM.can('prices')) acts.push(h('button', { class: 'btn', text: t('cat.change_price'), onclick: async () => {
-      const v = prompt(t('cat.new_price_q') + (full.measure === 'g' ? ' (' + t('cat.per_kg') + ')' : ''));
+      const v = await SM.ask(t('cat.new_price_q') + (full.measure === 'g' ? ' (' + t('cat.per_kg') + ')' : ''), { inputmode: 'decimal', title: t('cat.change_price') });
       if (v === null) return;
-      const price = SM.parseMoney(v); if (price === null) return SM.toast(t('err.bad_amount'), 'bad');
+      const price = SM.parseMoney(v); if (price === null || price < 0) return SM.toast(t('err.bad_amount'), 'bad');
+      if (price === 0 && !(await SM.confirm(t('cat.zero_price_title'), t('cat.zero_price_q')))) return;
       try { await SM.command('/api/prices', SM.newKey(), undefined, { product_id: full.id, price }); SM.toast(t('saved')); d.close(); } catch (e) { SM.fail(e); }
     } }));
     if (SM.can('catalog')) acts.push(h('button', { class: 'btn', text: t('cat.add_barcode'), onclick: () => barcodeDialog(full, () => d.close()) }));
@@ -106,17 +107,24 @@
       needs_expiry: h('input', { type: 'checkbox', checked: true }), allergens: h('input', { class: 'input' }),
       meat_share: h('input', { class: 'input', inputmode: 'numeric', placeholder: '700' }),
       carton: h('input', { class: 'input', inputmode: 'numeric', placeholder: '12' }), carton_barcode: h('input', { class: 'input', dir: 'ltr' }) };
+    // report M6: the four things every item needs first; the rest folded under "more options"
+    f.code.placeholder = t('cat.code_auto');
     const d = SM.dialog({ title: t('cat.add'), wide: true, body: [h('div', { class: 'grid cols-2' },
-      SM.field(t('cat.code'), f.code), SM.field(t('cat.kind'), f.kind, t('cat.kind_help')), SM.field(t('cat.name_ar'), f.name_ar), SM.field(t('cat.name_en'), f.name_en),
-      SM.field(t('cat.price'), f.price, t('cat.price_help')), SM.field(t('cat.barcode'), f.barcode, t('cat.barcode_help')),
-      SM.field(t('cat.carton_units'), f.carton), SM.field(t('cat.carton_barcode'), f.carton_barcode),
-      SM.field(t('lots.allergens'), f.allergens, t('cat.allergens_help')), SM.field(t('cat.meat_share'), f.meat_share, t('cat.meat_share_help')),
-      h('label', { class: 'row' }, f.needs_expiry, t('cat.needs_expiry')))],
+      SM.field(t('cat.name_ar'), f.name_ar), SM.field(t('cat.kind'), f.kind, t('cat.kind_help')),
+      SM.field(t('cat.price'), f.price, t('cat.price_help')), SM.field(t('cat.barcode'), f.barcode, t('cat.barcode_help'))),
+      h('details', { class: 'advanced' }, h('summary', { text: t('cat.more_options') }), h('div', { class: 'grid cols-2' },
+        SM.field(t('cat.code'), f.code, t('cat.code_help')), SM.field(t('cat.name_en'), f.name_en),
+        SM.field(t('cat.carton_units'), f.carton), SM.field(t('cat.carton_barcode'), f.carton_barcode),
+        SM.field(t('lots.allergens'), f.allergens, t('cat.allergens_help')), SM.field(t('cat.meat_share'), f.meat_share, t('cat.meat_share_help')),
+        h('label', { class: 'row' }, f.needs_expiry, t('cat.needs_expiry'))))],
       actions: [h('button', { class: 'btn primary', text: t('save'), onclick: async () => {
         const weighed = ['raw_meat', 'prepared', 'ingredient'].includes(f.kind.value);
+        const price = f.price.value.trim() ? SM.parseMoney(f.price.value) : undefined;
+        if (price === null || (price !== undefined && price < 0)) { SM.toast(t('err.bad_amount'), 'bad'); f.price.focus(); return; }
+        if (price === 0 && !(await SM.confirm(t('cat.zero_price_title'), t('cat.zero_price_q')))) return;
         const body = { code: f.code.value, name_ar: f.name_ar.value, name_en: f.name_en.value || f.name_ar.value, kind: f.kind.value,
           measure: weighed ? 'g' : 'unit', needs_expiry: f.needs_expiry.checked, allergens: f.allergens.value,
-          price: f.price.value ? SM.parseMoney(f.price.value) : undefined, barcodes: f.barcode.value ? [f.barcode.value.trim()] : [] };
+          price, barcodes: f.barcode.value ? [f.barcode.value.trim()] : [] };
         if (f.meat_share.value) body.meat_permille = SM.parseInt(f.meat_share.value);
         if (f.carton.value) body.packagings = [{ name_ar: 'كرتونة', name_en: 'Carton', factor_num: SM.parseInt(f.carton.value), barcodes: f.carton_barcode.value ? [f.carton_barcode.value.trim()] : [] }];
         try { await SM.api('POST', '/api/products', body); SM.toast(t('saved')); d.close(); after(); } catch (e) { SM.fail(e); }
@@ -278,7 +286,7 @@
         return h('div', { class: 'card', 'data-guide': 'dev.card' }, h('h3', { text: t('dev.title') }), h('p', { class: 'muted', text: t('dev.help') }),
           h('div', { class: 'toolbar' }, [58, 80].map(mm => h('button', { class: 'btn', text: t('dev.print', { mm }), onclick: SM.guard(() => run(mm)) }))), lastBox);
       };
-      SM.put(root, h('p', { class: 'tip', text: t('scn.intro') }), h('div', { class: 'toolbar' }, seg), body, sheet, deviceTest());
+      SM.put(root, h('p', { class: 'tip', text: t('scn.intro') }), h('div', { class: 'toolbar' }, seg), body, await SM.scaleCards(), sheet, deviceTest());
       draw();
     },
   };
@@ -302,29 +310,42 @@
         const footer = h('input', { class: 'input', value: s.receipt_footer || '' });
         const width = SM.select([{ value: 80, label: '80 mm' }, { value: 58, label: '58 mm' }], s.receipt_width_mm);
         const near = h('input', { class: 'input', inputmode: 'numeric', value: String(s.near_expiry_days) });
-        const disc = h('input', { class: 'input', inputmode: 'numeric', value: String(s.cashier_discount_permille) });
-        const tol = h('input', { class: 'input', inputmode: 'numeric', value: s.cutting_loss_tolerance_permille === null ? '' : String(s.cutting_loss_tolerance_permille) });
+        // shown and typed as a percent (5 or 2.5); stored per mille as before
+        const pct = (pm) => pm === null || pm === undefined ? '' : (pm % 10 ? (pm / 10).toFixed(1) : String(pm / 10));
+        const permille = (v) => { if (String(v).trim() === '') return null; const x = SM.parseMoney(v); return x === null || x % 10 ? NaN : x / 10; };
+        const disc = h('input', { class: 'input', inputmode: 'decimal', value: pct(s.cashier_discount_permille) });
+        const tol = h('input', { class: 'input', inputmode: 'decimal', value: pct(s.cutting_loss_tolerance_permille) });
         const dayStart = h('input', { class: 'input', inputmode: 'numeric', value: String(s.day_start_hour === undefined ? 4 : s.day_start_hour) });
         const thawDays = h('input', { class: 'input', inputmode: 'numeric', value: s.thaw_shelf_life_days ? String(s.thaw_shelf_life_days) : '' });
         const refundOver = h('input', { class: 'input', inputmode: 'decimal', value: SM.money(s.refund_approval_over === undefined ? 20000 : s.refund_approval_over) });
         const refundDays = h('input', { class: 'input', inputmode: 'numeric', value: String(s.refund_days_without_approval === undefined ? 7 : s.refund_days_without_approval) });
         const below = h('input', { type: 'checkbox', checked: s.block_below_cost });
         const gtin = h('input', { type: 'checkbox', checked: s.gtin_equivalence });
-        parts.push(h('div', { class: 'card' }, h('h3', { text: t('set.shop') }), h('div', { class: 'grid cols-3' },
-          SM.field(t('set.shop_name'), name), SM.field(t('set.footer'), footer), SM.field(t('set.width'), width), SM.field(t('set.near'), near),
-          SM.field(t('set.discount'), disc, t('set.discount_help')), SM.field(t('set.tolerance'), tol, t('set.tolerance_help')),
-          SM.field(t('set.thaw_days'), thawDays, t('set.thaw_days_help')), SM.field(t('set.day_start'), dayStart, t('set.day_start_help')),
-          SM.field(t('set.refund_over'), refundOver, t('set.refund_help')), SM.field(t('set.refund_days'), refundDays),
-          h('label', { class: 'row' }, below, t('set.below_cost')), h('label', { class: 'row' }, gtin, t('set.gtin'))),
-          h('p', { class: 'tip', text: t('set.tax_note') }),
+        const byKey = { shop_name: name, receipt_footer: footer, receipt_width_mm: width, near_expiry_days: near, cashier_discount_permille: disc,
+          cutting_loss_tolerance_permille: tol, thaw_shelf_life_days: thawDays, day_start_hour: dayStart, refund_approval_over: refundOver, refund_days_without_approval: refundDays };
+        parts.push(h('div', { class: 'card', id: 'shop-settings' }, h('h3', { text: t('set.shop') }), h('div', { class: 'grid cols-3' },
+          SM.field(t('set.shop_name'), name), SM.field(t('set.width'), width), SM.field(t('set.footer'), footer)),
+          h('details', { class: 'advanced', id: 'shop-advanced' }, h('summary', { text: t('set.advanced') }), h('div', { class: 'grid cols-3' },
+            SM.field(t('set.near'), near), SM.field(t('set.discount'), disc, t('set.discount_help')), SM.field(t('set.tolerance'), tol, t('set.tolerance_help')),
+            SM.field(t('set.thaw_days'), thawDays, t('set.thaw_days_help')), SM.field(t('set.day_start'), dayStart, t('set.day_start_help')),
+            SM.field(t('set.refund_over'), refundOver, t('set.refund_help')), SM.field(t('set.refund_days'), refundDays),
+            h('label', { class: 'row' }, below, t('set.below_cost')), h('label', { class: 'row' }, gtin, t('set.gtin'))),
+            h('p', { class: 'tip', text: t('set.tax_note') })),
           h('button', { class: 'btn primary', text: t('save'), onclick: async () => {
+            Object.values(byKey).forEach(el => el.classList.remove('invalid'));
             try {
               await SM.api('POST', '/api/settings', { shop_name: name.value, receipt_footer: footer.value, receipt_width_mm: parseInt(width.value, 10),
-                near_expiry_days: SM.parseInt(near.value), cashier_discount_permille: SM.parseInt(disc.value), cutting_loss_tolerance_permille: tol.value === '' ? null : SM.parseInt(tol.value),
+                near_expiry_days: SM.parseInt(near.value), cashier_discount_permille: permille(disc.value), cutting_loss_tolerance_permille: permille(tol.value),
                 block_below_cost: below.checked, gtin_equivalence: gtin.checked, thaw_shelf_life_days: thawDays.value === '' ? null : SM.parseInt(thawDays.value), day_start_hour: SM.parseInt(dayStart.value || '0'),
                 refund_approval_over: SM.parseMoney(refundOver.value), refund_days_without_approval: SM.parseInt(refundDays.value) });
               SM.state.settings = await SM.api('GET', '/api/settings'); SM.toast(t('saved'));
-            } catch (e) { SM.fail(e); }
+            } catch (e) {
+              // report M5: say WHICH box is wrong, open it and put the cursor there
+              const el = e && e.detail && byKey[e.detail.key];
+              if (el) { const adv = el.closest('details'); if (adv) adv.open = true; el.classList.add('invalid'); el.focus();
+                SM.toast(t('set.bad_field', { field: (el.closest('.field') && el.closest('.field').querySelector('label') || {}).textContent || '' }), 'bad'); }
+              else SM.fail(e);
+            }
           } })));
         parts.push(await labelCard());
       }
@@ -346,15 +367,16 @@
     const f = { name: h('input', { class: 'input' }), prefix: h('input', { class: 'input', inputmode: 'numeric', value: '21' }), item_start: h('input', { class: 'input', value: '2' }),
       item_len: h('input', { class: 'input', value: '5' }), value_start: h('input', { class: 'input', value: '7' }), value_len: h('input', { class: 'input', value: '5' }),
       kind: SM.select([{ value: 'weight', label: t('lbl.weight') }, { value: 'price', label: t('lbl.price') }]), decimals: h('input', { class: 'input', value: '3' }) };
-    return h('div', { class: 'card' }, h('h3', { text: t('lbl.title') }), h('p', { class: 'tip', text: t('lbl.tip') }),
-      list.length ? h('ul', {}, list.map(x => h('li', { class: 'ltr', text: x.name + ': ' + x.prefix + ' item[' + x.item_start + ',' + x.item_len + '] ' + x.value_kind + '[' + x.value_start + ',' + x.value_len + '] /10^' + x.decimals }))) : null,
-      h('div', { class: 'grid cols-4' }, SM.field(t('lbl.name'), f.name), SM.field(t('lbl.prefix'), f.prefix), SM.field(t('lbl.item_start'), f.item_start), SM.field(t('lbl.item_len'), f.item_len),
+    return h('div', { class: 'card' }, h('h3', { text: t('lbl.title') }), h('p', { class: 'tip', text: t('scale.settings_tip') }),
+      list.length ? h('ul', { class: 'clean' }, list.map(x => h('li', {}, h('span', { class: 'badge ok', text: t('scale.ready_short') }), ' ', layoutText(x)))) : null,
+      h('button', { class: 'btn primary', id: 'go-scale-setup', text: t('scale.setup_btn'), onclick: () => SM.go('scanner') }),
+      h('details', { class: 'advanced' }, h('summary', { text: t('scale.manual_tech') }), h('div', { class: 'grid cols-4' }, SM.field(t('lbl.name'), f.name), SM.field(t('lbl.prefix'), f.prefix), SM.field(t('lbl.item_start'), f.item_start), SM.field(t('lbl.item_len'), f.item_len),
         SM.field(t('lbl.value_start'), f.value_start), SM.field(t('lbl.value_len'), f.value_len), SM.field(t('lbl.kind'), f.kind), SM.field(t('lbl.decimals'), f.decimals)),
       h('button', { class: 'btn', text: t('save'), onclick: async () => {
         const n = (el) => SM.parseInt(el.value);
         try { await SM.api('POST', '/api/label-templates', { name: f.name.value || 'scale', prefix: f.prefix.value, length: 13, item_start: n(f.item_start), item_len: n(f.item_len),
           value_start: n(f.value_start), value_len: n(f.value_len), value_kind: f.kind.value, decimals: n(f.decimals) }); SM.toast(t('saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
-      } }));
+      } })));
   }
 
   async function usersCard() {
@@ -377,7 +399,7 @@
                 } })] });
           }) }),
           h('button', { class: 'btn sm ' + (u.active ? 'danger' : ''), text: u.active ? t('set.stop_user') : t('set.start_user'), onclick: SM.guard(async () => {
-            const reason = prompt(u.active ? t('set.stop_user_q', { name: u.display_name }) : t('set.start_user_q')); if (!reason) return;
+            const reason = await SM.ask(u.active ? t('set.stop_user_q', { name: u.display_name }) : t('set.start_user_q')); if (!reason) return;
             try { await SM.api('POST', '/api/users/' + u.id + '/active', { active: !u.active, reason }); SM.toast(t('saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
           }) })) }], users),
       h('div', { class: 'grid cols-4' }, SM.field(t('username'), f.username), SM.field(t('set.display'), f.name), SM.field(t('password'), f.password, t('set.pw_help')), SM.field(t('set.role'), f.role)),
@@ -425,4 +447,76 @@
         } }), shown] : null);
   }
 
+
+  /* ---------------- scales (owner, 31 Oct 2026: the scales common in Egypt) ----------------
+     1. A scale that prints a barcode sticker: scan ONE real sticker, type what is written on it,
+        the program finds the layout (server/scale.py). No positions or lengths to type.
+     2. A scale cabled to this PC: pick the port, see the weight move, save. */
+  const layoutText = (x) => t('scale.layout_' + x.value_kind, { prefix: x.prefix, item: x.item_len, value: x.value_len });
+  SM.scaleCards = async () => {
+    const templates = await SM.api('GET', '/api/label-templates').catch(() => []);
+    const canSave = SM.can('settings');
+    const code = h('input', { class: 'input big ltr', inputmode: 'numeric', autocomplete: 'off', id: 'scale-sticker', 'data-guide': 'scale.code', placeholder: '2100123012503' });
+    const kind = SM.select([{ value: 'weight', label: t('scale.printed_weight') }, { value: 'price', label: t('scale.printed_price') }]);
+    const printed = h('input', { class: 'input big ltr', inputmode: 'decimal', autocomplete: 'off', id: 'scale-printed', 'data-guide': 'scale.printed', placeholder: '1.250' });
+    const item = h('input', { class: 'input ltr', inputmode: 'numeric', autocomplete: 'off', id: 'scale-item' });
+    const answer = h('div', { id: 'scale-answer' });
+    const save = async (tpl) => {
+      try { await SM.api('POST', '/api/label-templates', Object.assign({}, tpl, { name: t('scale.sticker_name', { prefix: tpl.prefix }) })); SM.toast(t('scale.saved')); SM.go('scanner'); } catch (e) { SM.fail(e); }
+    };
+    const detect = async () => {
+      const r = await SM.api('POST', '/api/label-templates/detect', { code: code.value, printed: printed.value, item_code: item.value }).catch(e => { SM.fail(e); return null; });
+      if (!r) return;
+      const mine = r.candidates.filter(c => !printed.value || c.value_kind === kind.value);
+      if (!mine.length) { SM.put(answer, h('p', { class: 'badge bad', text: t('err.label_not_understood') })); return; }
+      SM.put(answer, h('p', { class: 'tip', text: mine.length === 1 ? t('scale.understood') : t('scale.pick_first') }),
+        // the most common layout first and clearly marked; any other fit is shown smaller below it
+        mine.map((c, i) => h('div', { class: 'scale-choice' + (i ? ' other' : '') },
+          h('div', {}, i ? null : h('span', { class: 'badge ok', text: t('scale.most_common') }), ' ', h('b', { text: layoutText(c) }),
+            h('div', { class: 'muted', text: t('scale.reads_as', { item: c.item_code, value: c.value_kind === 'weight' ? SM.qty(c.value, 'g') : SM.money(c.value) }) })),
+          canSave ? h('button', { class: i ? 'btn' : 'btn primary', text: t('scale.use_this'), onclick: () => save(c) }) : null)));
+    };
+    code.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); printed.focus(); } });
+    printed.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); detect(); } });
+    const pick = SM.select([['w5', 'weight', 5, 5], ['p5', 'price', 5, 5], ['w4', 'weight', 4, 6], ['p4', 'price', 4, 6], ['w6', 'weight', 6, 4], ['p6', 'price', 6, 4]]
+      .map(([id, k, i, v]) => ({ value: id, label: t('scale.layout_' + k, { prefix: '2x', item: i, value: v }) })));
+    const prefix = h('input', { class: 'input ltr', inputmode: 'numeric', value: '21', maxlength: '2' });
+    const stickers = h('div', { class: 'card', id: 'scale-stickers', 'data-guide': 'scale.sticker' }, h('h3', { text: t('scale.sticker_title') }), h('p', { class: 'muted', text: t('scale.sticker_help') }),
+      templates.length ? h('ul', { class: 'clean' }, templates.map(x => h('li', {}, h('span', { class: 'badge ok', text: t('scale.ready_short') }), ' ', layoutText(x)))) : null,
+      h('ol', { class: 'steps' }, h('li', { text: t('scale.step1') }), h('li', { text: t('scale.step2') }), h('li', { text: t('scale.step3') })),
+      h('div', { class: 'grid cols-2' }, SM.field(t('scale.scan_sticker'), code), SM.field(t('scale.what_printed'), h('div', { class: 'row' }, kind, printed))),
+      h('details', {}, h('summary', { text: t('scale.item_optional') }), SM.field(t('scale.item_code'), item, t('scale.item_help'))),
+      h('button', { class: 'btn primary big', id: 'scale-detect', 'data-guide': 'scale.detect', text: t('scale.detect'), onclick: SM.guard(detect) }), answer,
+      canSave ? h('details', { class: 'advanced' }, h('summary', { text: t('scale.no_sticker') }),
+        h('div', { class: 'grid cols-2' }, SM.field(t('scale.layout'), pick), SM.field(t('scale.prefix'), prefix, t('scale.prefix_help'))),
+        h('button', { class: 'btn', text: t('save'), onclick: () => { const lay = { w5: [5, 'weight', 3], p5: [5, 'price', 2], w4: [4, 'weight', 3], p4: [4, 'price', 2], w6: [6, 'weight', 3], p6: [6, 'price', 2] }[pick.value];
+          save({ prefix: prefix.value, length: 13, item_start: 2, item_len: lay[0], value_start: 2 + lay[0], value_len: 10 - lay[0], value_kind: lay[1], decimals: lay[2] }); } })) : null);
+
+    // a scale cabled to this PC
+    const ports = await SM.api('GET', '/api/scanner/ports').catch(() => ({ serial: [], devices: [] }));
+    const settings = canSave ? await SM.api('GET', '/api/settings').catch(() => ({})) : {};
+    const mine = (settings.scanner_devices || []).find(d => d.role === 'scale' && d.workstation === SM.workstation()) || {};
+    const port = SM.select((ports.serial.length ? ports.serial : [mine.port || 'COM1']).map(p => ({ value: p, label: p })), mine.port);
+    const poll = SM.select(['none', 'W', 'ENQ', 'P'].map(p => ({ value: p, label: t('scale.poll.' + p) })), mine.poll || 'none');
+    const baud = SM.select([9600, 4800, 2400, 19200].map(b => ({ value: b, label: String(b) })), mine.baud || 9600);
+    const liveBox = h('div', { class: 'scale-weight ltr', id: 'scale-live', text: '—' });
+    const cabled = h('div', { class: 'card', id: 'scale-cabled', 'data-guide': 'scale.cabled' }, h('h3', { text: t('scale.cable_title') }), h('p', { class: 'muted', text: t('scale.cable_help') }),
+      h('div', { class: 'grid cols-3' }, SM.field(t('scale.port'), port, ports.serial.length ? null : t('scale.no_ports')), SM.field(t('scale.sends'), poll, t('scale.sends_help')), SM.field(t('scale.speed'), baud)),
+      canSave ? h('button', { class: 'btn primary', id: 'scale-save', text: t('scale.connect'), onclick: SM.guard(async () => {
+        const dev = { id: mine.id || 'scale1', type: 'serial', role: 'scale', port: port.value, poll: poll.value, baud: parseInt(baud.value, 10), parity: 'none', bits: 8, stop: 1, enabled: true, workstation: SM.workstation() };
+        const others = (settings.scanner_devices || []).filter(d => d.id !== dev.id);
+        try { await SM.api('POST', '/api/scanner/devices', { devices: [...others, dev] }); SM.toast(t('scale.connected_ok')); SM.go('scanner'); } catch (e) { SM.fail(e); }
+      }) }) : h('p', { class: 'muted', text: t('scn.need_manager') }),
+      mine.id ? [h('p', { class: 'muted', text: t('scale.on_scale') }), liveBox] : null);
+    if (mine.id && SM.can('sell')) (async () => {
+      while (SM.state.view === 'scanner' && document.body.contains(liveBox)) {
+        const r = await SM.api('GET', '/api/scale/weight').catch(() => null);
+        liveBox.textContent = !r || !r.has_scale ? '—' : !r.connected ? t('scale.not_connected') : r.grams === null ? '—' : SM.qty(r.grams, 'g') + (r.stable ? '' : ' …');
+        await new Promise(res => setTimeout(res, 400));
+      }
+    })();
+    return h('div', {}, stickers, cabled);
+  };
+
 })();
+

@@ -25,6 +25,7 @@ FACTS = {
     "product.added": "SELECT 1 FROM audit WHERE user_id=:u AND action='product.add' AND id > :seed_audit",
     "user.added": "SELECT 1 FROM audit WHERE user_id=:u AND action='user.added'",
     "backup.made": "SELECT 1 FROM audit WHERE user_id=:u AND action LIKE 'backup%'",
+    "scale.sticker_ready": "SELECT 1 FROM label_templates WHERE active=1",
     "password.changed": "SELECT 1 FROM audit WHERE user_id=:u AND action='user.password_changed'",
     "day.closed": "SELECT 1 FROM day_closes WHERE user_id=:u",
     "supplier.paid": "SELECT 1 FROM supplier_entries e JOIN ops o ON o.id=e.op_id WHERE e.kind='payment' AND o.user_id=:u",

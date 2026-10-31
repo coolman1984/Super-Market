@@ -26,7 +26,7 @@
         if (l.kind !== 'payment' || l.reversed) continue;
         const key = SM.newKey();
         l.actions = h('button', { class: 'btn sm danger', text: t('party.reverse'), onclick: SM.guard(async () => {
-          const reason = prompt(t('party.reverse_q'));
+          const reason = await SM.ask(t('party.reverse_q'));
           if (!reason) return;
           try { await SM.command('/api/customers/reverse', key, undefined, { entry_id: l.id, reason }); SM.toast(t('saved')); d.close(); after(); }
           catch (e) { SM.fail(e); }
@@ -60,7 +60,7 @@
           SM.can('supplier_pay') && !r.settlement ? h('div', { class: 'toolbar' },
           h('button', { class: 'btn sm', text: t('party.credit_note'), onclick: () => creditNoteDialog(r, () => { d.close(); after(); }) }),
           h('button', { class: 'btn sm', text: t('party.close_claim'), onclick: SM.guard(async () => {
-            const reason = prompt(t('party.close_claim_q')); if (!reason) return;
+            const reason = await SM.ask(t('party.close_claim_q')); if (!reason) return;
             try { await SM.command('/api/supplier-returns/close', SM.newKey(), undefined, { return_id: r.id, reason });
               SM.toast(t('saved')); d.close(); after(); } catch (e) { SM.fail(e); }
           }) })) : null);
@@ -72,7 +72,7 @@
         { label: t('recv.invoice'), render: i => h('span', { class: 'ltr', text: i.number + ' — ' + i.invoice_date }) },
         { label: t('recv.invoice_left'), render: i => i.lines.filter(l => l.qty_left).map(l => SM.name(l) + ': ' + SM.qty(l.qty_left, l.measure)).join('، ') },
         { label: '', render: i => h('button', { class: 'btn sm', text: t('party.close_invoice'), onclick: SM.guard(async () => {
-          const reason = prompt(t('party.close_invoice_q')); if (!reason) return;
+          const reason = await SM.ask(t('party.close_invoice_q')); if (!reason) return;
           try { await SM.command('/api/supplier-invoices/close', SM.newKey(), undefined, { invoice_id: i.id, reason }); SM.toast(t('saved')); d.close(); after(); }
           catch (e) { SM.fail(e); }
         }) }) }], invoices)));

@@ -24,6 +24,7 @@ const out = process.argv[3] || '.';
   const juice = (await api('GET', '/api/products?q=1001'))[0];
   // ---- row 2: register the invoice in its dialog, then receive against it
   await page.goto(base + '/#receive'); await page.waitForSelector('#view select');
+  await page.click('#view details.advanced > summary');          // an invoice before the goods is the exception: folded under its heading
   await page.click('text=' + await page.evaluate(() => SM.t('recv.register_invoice')));
   await page.waitForSelector('.dialog');
   const dlg = page.locator('.dialog');
@@ -40,7 +41,8 @@ const out = process.argv[3] || '.';
   const inv = invs.find(i => i.number === 'UI-INV-1');
   const before = (await api('GET', '/api/products?q=1001'))[0].available;
   res.row02_no_stock_yet = before === juice.available;
-  await page.locator('#view select').first().selectOption(String(inv.id));
+  if (!(await page.locator('#view details.advanced').evaluate(d => d.open))) await page.click('#view details.advanced > summary');
+  await page.locator('#view details.advanced select').first().selectOption(String(inv.id));
   await page.click('text=' + await page.evaluate(() => SM.t('recv.add_product')));
   await page.waitForSelector('.dialog select');
   await page.locator('.dialog select').selectOption(String(juice.id));

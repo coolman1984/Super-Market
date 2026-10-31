@@ -126,7 +126,10 @@ SM.api = async function (method, path, body) {
   } catch (e) { throw new ApiError(0, { error: 'network' }); }
   const data = await resp.json().catch(() => ({ error: 'bad_reply' }));
   if (!resp.ok) {
-    if (resp.status === 401 && data.error === 'login_required' && SM.onLoggedOut) SM.onLoggedOut();
+    if (resp.status === 401 && data.error === 'login_required' && SM.onLoggedOut) {
+      if (SM.state.user) SM.state.sessionEnded = true;     // report L1: the sign-in screen says why it is back
+      SM.onLoggedOut();
+    }
     // the server refuses everything on a locked till or before a forced password change: show that screen
     if ((data.error === 'screen_locked' || data.error === 'must_change_password') && SM.onAccountGate) SM.onAccountGate(data.error);
     throw new ApiError(resp.status, data);
@@ -243,6 +246,27 @@ SM.drawer = function ({ title, body, actions }) {
   requestAnimationFrame(() => { scrim.classList.add('on'); panel.classList.add('on'); });
   return { close };
 };
+
+/* One question in the program's own window, on its own layer above any open window (review report M9:
+   no browser prompt()). Resolves the trimmed answer, or null on cancel. An empty answer is not accepted. */
+SM.ask = (question, opts = {}) => new Promise((resolve) => {
+  let layer = document.getElementById('ask-layer');
+  if (!layer) { layer = h('div', { id: 'ask-layer' }); document.body.append(layer); }
+  const input = h('input', { class: 'input big', autocomplete: 'off', id: 'ask-input', inputmode: opts.inputmode || 'text', value: opts.value || '' });
+  const note = h('p', { class: 'field-error', role: 'alert' });
+  let done = false;
+  const finish = (v) => { if (done) return; done = true; layer.classList.remove('on'); SM.put(layer); resolve(v); };
+  const ok = () => { const v = input.value.trim(); if (!v) { note.textContent = t(opts.empty || 'ask.empty'); input.focus(); return; } finish(v); };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ok(); } if (e.key === 'Escape') { e.stopPropagation(); finish(null); } });
+  const dlg = h('div', { class: 'dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': opts.title || question },
+    h('header', {}, h('h2', { text: opts.title || t('ask.title') }), h('button', { class: 'icon-btn', 'aria-label': t('close'), onclick: () => finish(null) }, icon('x'))),
+    h('div', { class: 'body' }, h('label', { class: 'field' }, h('span', { class: 'label', text: question }), input), opts.help ? h('p', { class: 'muted', text: opts.help }) : null, note),
+    h('footer', {}, h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => finish(null) }), h('button', { class: 'btn primary', id: 'ask-ok', text: opts.ok || t('confirm'), onclick: ok })));
+  SM.put(layer, dlg);
+  layer.classList.add('on');
+  layer.onclick = (ev) => { if (ev.target === layer) finish(null); };
+  setTimeout(() => input.focus(), 30);
+});
 
 SM.confirm = (title, text) => new Promise((resolve) => {
   let done = false;

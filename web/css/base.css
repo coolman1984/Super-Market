@@ -268,9 +268,10 @@ table.tbl { border-collapse: separate; border-spacing: 0; width: 100%; }
 .kv dd { margin: 0; font-weight: 550; }
 
 /* ---------- modal, palette, sheets ---------- */
-#overlay { position: fixed; inset: 0; z-index: 80; display: none; place-items: start center; padding: 10vh 1rem 1rem; background: var(--scrim); backdrop-filter: blur(3px); animation: fade var(--t-fast) both; }
-#overlay.on { display: grid; }
-#overlay.center { place-items: center; padding-top: 1rem; }
+#overlay, #ask-layer { position: fixed; inset: 0; z-index: 80; display: none; place-items: start center; padding: 10vh 1rem 1rem; background: var(--scrim); backdrop-filter: blur(3px); animation: fade var(--t-fast) both; }
+#overlay.on, #ask-layer.on { display: grid; }
+#overlay.center, #ask-layer { place-items: center; padding-top: 1rem; }
+#ask-layer { z-index: 90; }
 .dialog { background: var(--raised); border-radius: var(--r-3); box-shadow: var(--shadow-3); width: min(44rem, 100%); max-height: 84vh; overflow: hidden; display: flex; flex-direction: column; animation: pop var(--t-med) var(--ease) both; border: 1px solid var(--line); }
 .dialog > header { padding: 1.1rem 1.3rem; display: flex; align-items: center; gap: .7rem; border-bottom: 1px solid var(--line-2); }
 .dialog > header h2 { flex: 1; }
@@ -653,3 +654,29 @@ body .afg-panel, body .afg-coach { z-index: 70; }
 .nm-fix .input { max-width: 11rem; }
 .nm-fix .input[aria-invalid="true"] { border-color: var(--bad); }
 @media (max-width: 640px) { .nm-row select { max-width: 100%; width: 100%; } }
+
+/* scales (server/scale.py) and the program's own question window (SM.ask) */
+.field-error { color: var(--bad, #b42318); min-height: 1.2em; margin: .25rem 0 0; }
+.scale-live { text-align: center; padding: .75rem; border: 1px solid var(--line, #d0d5dd); border-radius: 12px; margin-bottom: .75rem; display: grid; gap: .5rem; justify-items: center; }
+.scale-live[hidden] { display: none; }
+.scale-weight { font-size: 2.6rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.scale-choice { display: flex; gap: 1rem; align-items: center; justify-content: space-between; padding: .75rem; border: 1px solid var(--line, #d0d5dd); border-radius: 12px; margin: .5rem 0; flex-wrap: wrap; }
+ul.clean { list-style: none; padding: 0; margin: .5rem 0; display: grid; gap: .4rem; }
+details.advanced { margin-top: 1rem; }
+details.advanced > summary, details > summary { cursor: pointer; font-weight: 600; padding: .5rem 0; }
+.input.invalid, select.invalid { border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
+
+/* Arabic placeholder text must never be drawn in the monospace digit font: the letters break apart */
+.input.mono::placeholder, input.mono::placeholder, textarea.mono::placeholder, .scan-input::placeholder { font-family: var(--font-sans); letter-spacing: normal; }
+.tip.no-shift { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.tip.no-shift .btn { margin-inline-start: auto; }
+/* every button a thumb can hit (WCAG 2.5.8 target size): small buttons are at least 36 px high */
+.btn.sm { min-height: 2.4rem; min-width: 2.4rem; }
+@media (max-width: 720px) {
+  .afg-fab { inset-block-end: 88px; }          /* the guide button must not sit on the cart total and the pay button */
+  .pay-panel { overflow-wrap: anywhere; }
+}
+.pay-panel .total, .pay-panel .big-num { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+/* an empty scan box shows its Arabic hint right-to-left and whole; typed codes stay left-to-right */
+[dir="rtl"] .scan-input:placeholder-shown { direction: rtl; }
+.scale-choice.other { opacity: .85; font-size: .95em; }
