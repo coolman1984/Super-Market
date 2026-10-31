@@ -357,10 +357,11 @@
 
   // Hourly and nightly copies to the owner's cloud (server/cloud.py). Never shows the secret or the address.
   async function cloudCard() {
-    const st = await SM.api('GET', '/api/cloud').catch(() => ({ enabled: false }));
+    const st = await SM.api('GET', '/api/cloud').catch(() => ({ unknown: true }));
     const known = ['offline', 'certificate', 'clock', 'busy', 'not_ready', 'pc_full', 'copy_failed'];
-    const lines = !st.enabled ? [t('set.cloud_off')] : [
+    const lines = st.unknown ? [t('set.cloud_unknown')] : !st.enabled ? [t('set.cloud_off')] : [
       st.last_ok_at ? t('set.cloud_ok', { at: '\u2066' + st.last_ok_at.replace('T', ' ').slice(0, 16) + '\u2069' }) : t('set.cloud_never'),
+      st.last_copy ? t('set.cloud_copy', { name: '\u2066' + st.last_copy + '\u2069' }) : null,
       st.queued ? t('set.cloud_wait', { n: st.queued }) : null,
       st.error ? t('set.cloud_problem', { why: t('cloud.' + (known.includes(st.error) ? st.error : 'other')) }) : null].filter(Boolean);
     return h('div', { class: 'card', id: 'cloud-card' }, h('h3', { text: t('set.cloud') }), h('p', { class: 'muted', text: t('set.cloud_help') }),

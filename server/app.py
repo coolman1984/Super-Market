@@ -95,6 +95,7 @@ class App:
         r("GET", r"/api/suppliers/(\d+)/statement", lambda a, q, b, sid: self.shop.supplier_statement(a, int(sid)))
         r("POST", r"/api/supplier-returns", lambda a, q, b: self.shop.supplier_return(a, b.get("key"), b.get("supplier_id"), b.get("lot_id"), b.get("location_id"), b.get("qty"), b.get("reason"), b.get("note")))
         r("POST", r"/api/supplier-credit-notes", lambda a, q, b: self.shop.supplier_credit_note(a, b.get("key"), b.get("return_id"), b.get("amount"), b.get("reference")))
+        r('POST', r'/api/supplier-returns/close', lambda a, q, b: self.shop.close_supplier_return(a, b.get('key'), b.get('return_id'), b.get('reason')))
         r("GET", r"/api/aging", lambda a, q, b: self.shop.aging(a))
         r("GET", r"/api/supplier-invoices", lambda a, q, b: self.shop.supplier_invoices(a, _int(q.get("supplier"), None), q.get("all") != "1"))
         r("POST", r"/api/supplier-invoices", lambda a, q, b: self.shop.register_supplier_invoice(a, b.get("key"), b.get("payload")))
@@ -199,9 +200,8 @@ class App:
             if body.get("shop_name"):
                 self.store.db.execute("INSERT INTO settings VALUES('shop_name',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                                       (json.dumps(str(body["shop_name"])[:80]),))
-            # owner decision 31 Oct 2026: thawed meat keeps 2 days at most (still capped by its own expiry);
-            # changeable in settings, and an empty value stops thawing again
-            self.store.db.execute("INSERT OR IGNORE INTO settings VALUES('thaw_shelf_life_days','2')")
+            # No teaching value is silently promoted into a new shop's food
+            # safety policy. Existing explicitly configured policies are retained.
             for code, ar, en, kind, sellable in (("SH", "رفوف البقالة", "Grocery shelves", "shelf", 1),
                                                  ("FR", "ثلاجة العرض", "Display fridge", "display_fridge", 1),
                                                  ("PR", "ثلاجة التجهيز", "Prep fridge", "prep_fridge", 0),
@@ -415,7 +415,9 @@ def _int(value, default):
 
 
 COST_KEYS = {"cost", "cost_total", "abnormal_loss_cost", "cost_of_sales", "gross_margin", "losses",
-             "margin_after_recorded_losses", "landed_cost", "line_cost", "input_cost"}
+             "margin_after_recorded_losses", "landed_cost", "line_cost", "input_cost", 'difference_from_cost', 'cost_difference',
+             'cost_adjustments', 'cost_adjustment_parts', 'supplier_return_adjustments', 'purchase_variance',
+             'to_stock', 'to_cost_of_sales', 'to_losses', 'to_supplier_returns', 'to_variance'}
 
 
 def redact_cost(value):

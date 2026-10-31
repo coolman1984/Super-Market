@@ -83,7 +83,8 @@ class OpenRows(ShopFixture, unittest.TestCase):
         adj = self.shop.supplier_adjustment(self.owner, key(), {"kind": "invoice_correction", "supplier_id": self.sup,
                                                                "receipt_id": r["receipt"], "amount": -1500, "reference": "CN-3"})
         self.assertEqual(adj["to_stock"], -1000)                                       # down to zero, not below
-        self.assertEqual(adj["to_cost_of_sales"], -500)
+        self.assertEqual(adj["to_cost_of_sales"], 0)       # nothing was sold
+        self.assertEqual(adj['to_variance'], -500)       # excess rebate is explicit, never negative inventory
         self.assertEqual(self.store.scalar("SELECT cost FROM stock_balances WHERE lot_id=?", (r["lines"][0]["lot"],)), 0)
 
     # ---------------- row 5: gift and sample

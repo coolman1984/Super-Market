@@ -130,10 +130,10 @@ class Api(unittest.TestCase):
         status, err = self.call("GET", "/api/scanner/events?wait=0&window=w1&after=0")
         self.assertEqual((status, err["error"]), (409, "scanner_taken_by_other_window"))
 
-    def test_new_shop_starts_with_the_owner_thaw_rule_of_two_days(self):
+    def test_new_shop_needs_an_explicit_thaw_policy(self):
         self.call("POST", "/api/setup", {"username": "boss", "name": "Boss", "password": "long-enough-1"})
         self.login("boss", "long-enough-1")
-        self.assertEqual(self.call("GET", "/api/settings")[1]["thaw_shelf_life_days"], 2)   # owner decision 2026-10-31
+        self.assertIsNone(self.call("GET", "/api/settings")[1]["thaw_shelf_life_days"])
 
     def test_login_lockout(self):
         self.call("POST", "/api/setup", {"username": "boss", "name": "Boss", "password": "long-enough-1"})

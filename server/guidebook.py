@@ -33,7 +33,7 @@ FACTS = {
 def live_states(store, user_id):
     training = store.mode == "training"
     args = {"u": user_id, "seed": 1 if training else 0,
-            "seed_audit": (store.scalar("SELECT MAX(id) FROM audit WHERE action='product.add' AND user_id=(SELECT MIN(id) FROM users)") or 0)
+            "seed_audit": int(store.scalar("SELECT value FROM settings WHERE key='training_seed_audit'") or 0)
             if training else 0}
     return [name for name, sql in FACTS.items() if store.db.execute(sql, args).fetchone()]
 
