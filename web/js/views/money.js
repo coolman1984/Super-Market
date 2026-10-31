@@ -8,14 +8,16 @@
   SM.views.today = {
     icon: 'home',
     async mount(root) {
-      const [shift, report] = await Promise.all([
+      const [shift, report, gapsDoc] = await Promise.all([
         SM.can('shift') ? SM.api('GET', '/api/shift').catch(() => null) : null,
         SM.can('reports') ? SM.api('GET', '/api/reports/day').catch(() => null) : null,
+        SM.can('reports') ? SM.api('GET', '/api/reports/gaps').catch(() => null) : null,
       ]);
-      const gaps = ((report && report.shifts) || []).filter(s => s.difference);
+      const gaps = (gapsDoc && gapsDoc.gaps) || [];
       const steps = [];
-      // a drawer gap is the news; "open a shift" would hide it
-      if (SM.can('shift') && !shift && !gaps.length) steps.push(['cash', 'today.step_shift']);
+      // the owner is not sent to open a shift while a gap is waiting; a manager without one still is
+      const ownerWaiting = SM.state.user && SM.state.user.role === 'owner' && gaps.length;
+      if (SM.can('shift') && !shift && !ownerWaiting) steps.push(['cash', 'today.step_shift']);
       if (SM.can('receive')) steps.push(['receive', 'today.step_receive']);
       if (SM.can('cutting') || SM.can('produce')) steps.push(['prepare', 'today.step_prepare']);
       if (SM.can('sell') && shift) steps.push(['sell', 'today.step_sell']);
@@ -32,7 +34,9 @@
           kpi(t('rep.sales_count'), String(r.sales_count), null, 1),
           kpi(t('rep.near_expiry'), String(r.near_expiry.length), t('rep.near_expiry_hint'), 2),
           kpi(t('rep.pending_payments'), String(r.pending_payments), t('rep.pending_hint'), 3)));
-        const attention = gaps.map(s => h('li', {}, h('a', { href: '#reports' }, h('span', { class: 'badge bad', text: t(s.difference < 0 ? 'today.short' : 'today.over', { name: s.cashier || '—', amount: SM.moneyText(Math.abs(s.difference)) }) }))));
+        const attention = gaps.map(s => h('li', { class: 'gap-row' },
+          h('a', { href: '#reports', onclick: (e) => openGap(s, e) }, h('span', { class: 'badge bad', text: gapText(s, report) })),
+          h('button', { class: 'btn sm', text: t('today.gap_done'), onclick: SM.guard(() => settleGap(s)) })));
         attention.push(...[...r.near_expiry, ...r.held].slice(0, 12).map(x => h('li', {}, SM.badge(x.state), ' ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); SM.lotDrawer(x.lot_id); } }, SM.name(x) + ' — ' + x.lot_no))));
         if (attention.length) parts.push(h('div', { class: 'card', id: 'today-attention' }, h('header', {}, h('h3', { text: t('today.attention') })), h('ul', {}, attention)));
       }
@@ -40,6 +44,49 @@
       SM.put(root, ...parts);
     },
   };
+
+  function gapText(s, report) {
+    const line = t(s.difference < 0 ? 'today.short' : 'today.over', { name: s.cashier || '—', amount: SM.moneyText(Math.abs(s.difference)) });
+    return s.business_day && report && s.business_day !== report.day ? line + ' — ' + s.business_day : line;
+  }
+  function openGap(s, e) {
+    e.preventDefault();
+    SM.state.reportDay = s.business_day || null;
+    SM.state.scrollShift = true;
+    SM.go('reports');
+  }
+  async function settleGap(s) {
+    let note;
+    if (!s.close_note) {
+      note = await SM.ask(t('today.gap_ask'));
+      if (!note) return;
+    }
+    try {
+      await SM.command('/api/shifts/gap', SM.newKey(), undefined, { shift_id: s.id, note: note || undefined });
+      SM.toast(t('saved'));
+      SM.go('today');
+    } catch (e) { SM.fail(e); }
+  }
+
+  function shiftTable(rows) {
+    return SM.table([{ label: '#', key: 'id' },
+      { label: t('rep.cashier'), render: s => s.cashier || '—' },
+      { label: t('rep.closed'), render: s => s.closed_at ? h('span', { class: 'ltr nowrap', text: s.closed_at.slice(0, 16).replace('T', ' ') }) : '—' },
+      { label: t('cash.expected'), num: true, render: s => s.expected === null ? t('state.open') : SM.num(SM.money(s.expected)) },
+      { label: t('cash.counted'), num: true, render: s => s.counted === null ? '—' : SM.num(SM.money(s.counted)) },
+      { label: t('cash.diff'), num: true, render: s => s.difference === null ? '—' : h('span', { class: 'badge ' + (s.difference ? 'bad' : 'ok') }, SM.num(SM.money(s.difference))) },
+      { label: t('rep.reason'), render: s => s.close_note || '—' }], rows);
+  }
+  function shiftCards(rows) {
+    return h('div', { class: 'shift-cards' }, rows.map(s => h('article', { class: 'shift-card' },
+      h('div', { class: 'shift-line' }, h('b', { text: s.cashier || '—' }),
+        h('span', { class: 'muted ltr nowrap', text: s.closed_at ? s.closed_at.slice(0, 16).replace('T', ' ') : t('state.open') })),
+      h('div', { class: 'shift-line' }, h('span', { class: 'muted', text: t('cash.diff') }),
+        s.difference === null ? '—' : h('span', { class: 'badge ' + (s.difference ? 'bad' : 'ok') }, SM.num(SM.money(s.difference)))),
+      h('div', { class: 'shift-line' }, h('span', { class: 'muted', text: t('rep.reason') }), h('span', { class: 'reason', text: s.close_note || '—' })),
+      h('div', { class: 'muted' }, t('cash.expected'), ' ', s.expected === null ? t('state.open') : SM.money(s.expected),
+        ' · ', t('cash.counted'), ' ', s.counted === null ? '—' : SM.money(s.counted)))));
+  }
 
   /* ---------------- cash / shift ---------------- */
   SM.views.cash = {
@@ -192,7 +239,11 @@
       // the business day moves while the program stays open (day-start hour, a day close): ask the server each time
       const st = await SM.api('GET', '/api/state').catch(() => null);
       if (st && st.business_day) SM.state.businessDay = st.business_day;
-      const day = h('input', { class: 'input', type: 'date', value: SM.state.businessDay || SM.today(), 'data-guide': 'rep.day' });
+      const focusDay = SM.state.reportDay;
+      SM.state.reportDay = null;
+      const scrollShift = SM.state.scrollShift;
+      SM.state.scrollShift = false;
+      const day = h('input', { class: 'input', type: 'date', value: focusDay || SM.state.businessDay || SM.today(), 'data-guide': 'rep.day' });
       const box = h('div');
       const load = async () => {
         const r = await SM.api('GET', '/api/reports/day?day=' + day.value).catch(e => { SM.fail(e); return null; });
@@ -228,17 +279,15 @@
           h('div', { class: 'card' }, h('h3', { text: t('rep.by_method') }), h('p', { class: 'muted', text: t('rep.sales_not_cash') }),
             h('dl', { class: 'kv' }, r.by_method.map(m => kv(t('pay.m.' + m.method) + (m.state !== 'settled' ? ' (' + t('state.' + m.state) + ')' : ''), SM.money(m.amount)))),
             r.refunds_by_method && r.refunds_by_method.length ? [h('h4', { text: t('rep.refunds') }), h('dl', { class: 'kv' }, r.refunds_by_method.map(m => kv(t('refund.' + m.method), SM.money(m.amount))))] : null),
-          h('div', { class: 'card', id: 'shifts-card', style: { gridColumn: '1 / -1' } }, h('h3', { text: t('rep.shifts') }), r.shifts.length ? SM.table([{ label: '#', key: 'id' },
-            { label: t('rep.cashier'), render: s => s.cashier || '—' },
-            { label: t('rep.closed'), render: s => s.closed_at ? h('span', { class: 'ltr nowrap', text: s.closed_at.slice(0, 16).replace('T', ' ') }) : '—' },
-            { label: t('cash.expected'), num: true, render: s => s.expected === null ? t('state.open') : SM.num(SM.money(s.expected)) },
-            { label: t('cash.counted'), num: true, render: s => s.counted === null ? '—' : SM.num(SM.money(s.counted)) },
-            { label: t('cash.diff'), num: true, render: s => s.difference === null ? '—' : h('span', { class: 'badge ' + (s.difference ? 'bad' : 'ok') }, SM.num(SM.money(s.difference))) },
-            { label: t('rep.reason'), render: s => s.close_note || '—' }], r.shifts) : h('p', { text: t('none') })),
+          h('div', { class: 'card', id: 'shifts-card', style: { gridColumn: '1 / -1' } }, h('h3', { text: t('rep.shifts') }), r.shifts.length ? [shiftTable(r.shifts), shiftCards(r.shifts)] : h('p', { text: t('none') })),
           r.rejected_payments.length ? h('div', { class: 'card' }, h('h3', { text: t('rep.rejected') }), h('ul', {}, r.rejected_payments.map(x => h('li', { class: 'ltr', text: x.no + ' — ' + t('pay.m.' + x.method) + ' — ' + SM.money(x.amount) })))) : null,
           h('div', { class: 'card' }, h('h3', { text: t('rep.waste') }), r.waste.length ? h('dl', { class: 'kv' }, r.waste.map(w => kv(t('waste.' + w.reason), SM.money(w.cost)))) : h('p', { text: t('none') })),
           h('div', { class: 'card' }, h('h3', { text: t('rep.checks') }), h('p', {}, rec && rec.ok ? h('span', { class: 'badge ok', text: t('rep.reconcile_ok') }) : h('span', { class: 'badge bad', text: t('rep.reconcile_bad') })),
             h('p', { class: 'muted', text: t('rep.tax_unverified') }))));
+        if (scrollShift) {
+          const el = document.getElementById && document.getElementById('shifts-card');
+          if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+        }
       };
       day.onchange = load;
       const from = h('input', { class: 'input', type: 'date', value: SM.today().slice(0, 8) + '01' });

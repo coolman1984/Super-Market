@@ -82,6 +82,18 @@ svg.ean { width: 100%; height: 3.2rem; fill: #000; background: #fff; }
   .menu-btn { display: inline-grid; }
 }
 
+/* Phone: one card per shift. The 7-column table does not fit in 390px. */
+.shift-cards { display: none; }
+.gap-row { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; }
+.shift-card { display: grid; gap: .35rem; min-width: 0; padding: .75rem .85rem; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface-2); }
+.shift-line { display: flex; flex-wrap: wrap; gap: .35rem .6rem; align-items: baseline; min-width: 0; }
+.shift-card .reason { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  #shifts-card { overflow-x: hidden; }
+  #shifts-card .table-wrap { display: none; }
+  .shift-cards { display: grid; gap: .55rem; }
+}
+
 /* Help: one block per screen (purpose, steps, example, errors, fix, result, next step) */
 .help-row { margin-block: .9rem; }
 .help-row h4 { margin: 0 0 .3rem; font-size: .95rem; color: var(--ink-3, inherit); }

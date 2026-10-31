@@ -231,7 +231,7 @@ APPEND_ONLY = ["ops", "op_results", "audit", "stock_entries", "receipts", "recei
 GUARDED = {
     "lots": ["status"],
     "packs": ["status", "sale_line_id"],
-    "shifts": ["closed_at", "counted", "expected", "difference", "close_note", "closed_by"],
+    "shifts": ["closed_at", "counted", "expected", "difference", "close_note", "closed_by", "gap_handled_at"],
     "counts": ["status", "approved_by", "approved_at", "approve_op"],
     "users": ["display_name", "role", "pw_hash", "pw_salt", "pw_iter", "active", "failed", "locked_until"],
 }
@@ -666,4 +666,15 @@ def m009(conn):
 
 
 MIGRATIONS.append((9, "cloud copy: change log for the optional Cloudflare sync", m009))
+SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+# ---------------------------------------------------------------- migration 10
+# A drawer gap stays on Today after the business day rolls until someone
+# explains it or marks it done. The column is mutable (see GUARDED).
+def m010(conn):
+    run_script(conn, "ALTER TABLE shifts ADD COLUMN gap_handled_at TEXT;")
+
+
+MIGRATIONS.append((10, "shift gaps stay open until explained or marked done", m010))
 SCHEMA_VERSION = MIGRATIONS[-1][0]

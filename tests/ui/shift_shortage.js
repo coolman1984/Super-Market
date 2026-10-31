@@ -58,15 +58,33 @@ async function login(page, username, password) {
     assert.ok(!today.includes('افتح الوردية'), today);
     await page.locator('#today-attention').screenshot({ path: out + '/today-shortage-ar.png' });
     await page.screenshot({ path: out + '/today-owner-ar.png', fullPage: true });
-    await page.evaluate(() => SM.go('reports'));
+    await page.locator('#today-attention a').first().click();
+    await page.waitForFunction(() => location.hash === '#reports');
     await page.waitForSelector('#shifts-card');
     await page.waitForFunction(() => document.getElementById('shifts-card').innerText.includes('نقص في العد'));
     const shifts = await page.locator('#shifts-card').innerText();
     assert.ok(shifts.includes('ميدو') && shifts.includes('سارة'), shifts);
     assert.ok(shifts.includes('نقص في العد') && shifts.includes('باقي ناقص'), shifts);
     assert.ok(shifts.includes('-50.00') && shifts.includes('-5.00'), shifts);
-    await page.locator('#shifts-card').scrollIntoViewIfNeeded();
+    const seen = await page.locator('#shifts-card').evaluate(el => {
+      const r = el.getBoundingClientRect();
+      return r.top < innerHeight && r.bottom > 0;
+    });
+    assert.equal(seen, true);
     await page.locator('#shifts-card').screenshot({ path: out + '/shifts-report-ar.png' });
+    const desk = await page.locator('#shifts-card').evaluate(el => ({ w: el.clientWidth, sw: el.scrollWidth, table: getComputedStyle(el.querySelector('.table-wrap')).display }));
+    assert.ok(desk.sw <= desk.w + 1, JSON.stringify(desk));
+    assert.equal(desk.table, 'block');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForFunction(() => {
+      const el = document.getElementById('shifts-card');
+      const cards = el.querySelector('.shift-cards');
+      const wrap = el.querySelector('.table-wrap');
+      return getComputedStyle(wrap).display === 'none' && getComputedStyle(cards).display !== 'none'
+        && el.scrollWidth <= el.clientWidth + 1 && cards.innerText.includes('الفرق') && cards.innerText.includes('السبب')
+        && cards.innerText.includes('-50.00') && cards.innerText.includes('نقص في العد');
+    });
+    await page.locator('#shifts-card').screenshot({ path: out + '/shifts-390-ar.png' });
     assert.deepEqual(errors, []);
     console.log('shift shortage: owner today and shifts report passed');
   } finally { await browser.close(); }

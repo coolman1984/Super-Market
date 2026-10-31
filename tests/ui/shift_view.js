@@ -66,11 +66,15 @@ function owner() {
 function cashier() {
   s.state.user = { id: 2, role: 'cashier', permissions: ['sell', 'shift', 'discount', 'refund'] };
 }
+function manager() {
+  s.state.user = { id: 3, role: 'manager', permissions: ['shift', 'receive', 'sell', 'count', 'reports', 'close_day'] };
+}
 
 const calls = [];
 s.api = async (method, path) => {
   calls.push(path);
   if (path === '/api/shift') return null;
+  if (path === '/api/reports/gaps') return { gaps: (day.shifts || []).filter(s => s.difference).map(s => Object.assign({ business_day: s.business_day || '2026-10-30', gap_handled_at: null }, s)) };
   if (path.startsWith('/api/reports/day')) return day;
   if (path === '/api/state') return { business_day: '2026-10-30' };
   if (path === '/api/reconcile') return { ok: true };
@@ -105,6 +109,20 @@ s.api = async (method, path) => {
   assert.ok(over.textContent.includes('ميدو: زيادة 15.00 ج.م'), over.textContent);
   assert.ok(!over.textContent.includes('افتح الوردية'), over.textContent);
 
+  manager();
+  const lead = new N('root');
+  await s.views.today.mount(lead);
+  assert.ok(lead.textContent.includes('ميدو: زيادة 15.00 ج.م'), lead.textContent);
+  assert.ok(lead.textContent.includes('افتح الوردية'), 'a manager without a shift still sees open-shift');
+
+  owner();
+  day.shifts = [{ id: 8, cashier: 'ميدو', closed_at: '2026-10-30T22:00:00', expected: 10000, counted: 5000, difference: -5000, close_note: null, business_day: '2026-10-30' }];
+  day.day = '2026-10-31';
+  const later = new N('root');
+  await s.views.today.mount(later);
+  assert.ok(later.textContent.includes('ميدو: عجز 50.00 ج.م — 2026-10-30'), later.textContent);
+  day.day = undefined;
+
   calls.length = 0;
   cashier();
   const till = new N('root');
@@ -135,5 +153,6 @@ s.api = async (method, path) => {
   assert.ok(rows.includes('-50.00') && rows.includes('-5.00'), rows);
   assert.ok(rows.includes('2026-10-30 18:05'), rows);
   assert.ok(rows.includes('مفتوح'), rows);
+  assert.ok(rows.includes('الفرق') && rows.includes('السبب'), rows);
   console.log('shift view: shortage line, no false open-shift, cashier and reason on the report');
 })().catch(e => { console.error(e); process.exit(1); });

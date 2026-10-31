@@ -5,12 +5,15 @@ screen names the cashier and the amount, and does not tell the owner to open a
 shift when that gap is the news. The shifts report shows the name and the note.
 """
 
+import datetime as dt
 import pathlib
 import shutil
 import subprocess
 import unittest
 
-from helpers import ShopFixture, key
+from helpers import CAIRO, ShopFixture, key
+from server import core
+from server.core import ShopError
 
 NODE = shutil.which("node")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -49,6 +52,34 @@ class ShiftGap(ShopFixture, unittest.TestCase):
         self.assertIsNone(rows[open_id]["difference"])
         self.assertIsNone(rows[open_id]["close_note"])
         self.assertIsNone(rows[open_id]["closed_at"])
+        self.assertIsNone(rows[first]["gap_handled_at"])
+
+    def test_unresolved_gap_survives_the_day_start_until_it_is_handled(self):
+        core.set_clock(dt.datetime(2026, 10, 30, 22, tzinfo=CAIRO))
+        self.open_shift(self.cash1, 10000)
+        bare = self.shop.close_shift(self.cash1, key(), 5000, None)
+        self.open_shift(self.cash2, 2000)
+        noted = self.shop.close_shift(self.cash2, key(), 1500, "باقي ناقص")
+        core.set_clock(dt.datetime(2026, 10, 31, 5, tzinfo=CAIRO))
+        self.assertEqual(self.shop.day_report(self.owner)["shifts"], [])
+        gaps = {g["cashier"]: g for g in self.shop.open_gaps(self.owner)["gaps"]}
+        self.assertEqual(set(gaps), {"Cashier 1", "Cashier 2"})
+        self.assertEqual(gaps["Cashier 1"]["difference"], -5000)
+        self.assertIsInstance(gaps["Cashier 1"]["difference"], int)
+        self.assertIsNone(gaps["Cashier 1"]["close_note"])
+        self.assertEqual(gaps["Cashier 1"]["business_day"], "2026-10-30")
+        with self.assertRaises(ShopError) as err:
+            self.shop.handle_shift_gap(self.owner, key(), bare["shift"], None)
+        self.assertEqual(err.exception.code, "bad_note")
+        self.assertEqual({g["cashier"] for g in self.shop.open_gaps(self.owner)["gaps"]}, {"Cashier 1", "Cashier 2"})
+        self.shop.handle_shift_gap(self.owner, key(), bare["shift"], "نقص في العد")
+        self.shop.handle_shift_gap(self.owner, key(), noted["shift"])
+        self.assertEqual(self.shop.open_gaps(self.owner)["gaps"], [])
+        kept = self.store.one("SELECT difference, close_note, gap_handled_at FROM shifts WHERE id=?", (noted["shift"],))
+        self.assertEqual((kept["difference"], kept["close_note"]), (-500, "باقي ناقص"))
+        self.assertTrue(kept["gap_handled_at"])
+        again = self.shop.handle_shift_gap(self.owner, key(), noted["shift"])
+        self.assertTrue(again["already"])
 
     @unittest.skipUnless(NODE, "node renders the today and shifts screens")
     def test_owner_today_names_the_shortage_and_the_report_shows_the_reason(self):
