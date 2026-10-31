@@ -10,8 +10,10 @@ const out = process.argv[3] || '.';
   page.on('pageerror', e => errors.push(e.message));
   const login = async (p, user) => {
     await p.goto(base); await p.waitForSelector('[data-username="' + user + '"]');
-    await p.click('[data-username="' + user + '"]'); await p.fill('input[type=password]', 'training-only');
-    await p.click('#login-go'); await p.waitForSelector('.sidebar');
+    await p.click('[data-username="' + user + '"]');
+    const pins = { owner: '159382', manager: '470296', cashier: '3826', butcher: '2964', counter: '4702' };
+    for (const d of pins[user]) await p.click('.pin-key[data-digit="' + d + '"]');
+    await p.waitForSelector('.sidebar');
   };
   await login(page, 'owner');
   const T = (k, v) => page.evaluate(([k, v]) => SM.t(k, v), [k, v]);

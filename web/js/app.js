@@ -65,13 +65,15 @@
   /* Large digit pad. The red note sits under the dots and stays until the next digit. It is not a toast. */
   function pinPad(digits, hint, onFull, onType) {
     let value = '';
+    let locked = false;
     const dots = h('div', { class: 'pin-dots', 'aria-hidden': 'true' });
     const err = stayError();
     const onKey = (ev) => {
       if (!document.body.contains(dots)) { document.removeEventListener('keydown', onKey); if (pinKeys === onKey) pinKeys = null; return; }
       if (ev.target && ev.target.closest && ev.target.closest('input, textarea')) return;
-      if (/^[0-9]$/.test(ev.key)) { ev.preventDefault(); push(ev.key); }
-      else if (ev.key === 'Backspace') { ev.preventDefault(); value = value.slice(0, -1); paint(); }
+      const typed = SM.asciiPinKeys(ev.key);
+      if (typed) { ev.preventDefault(); for (const d of typed) push(d); }
+      else if (ev.key === 'Backspace') { ev.preventDefault(); if (!locked) { value = value.slice(0, -1); paint(); } }
     };
     if (onFull) {
       if (pinKeys) document.removeEventListener('keydown', pinKeys);
@@ -82,7 +84,7 @@
       SM.put(dots, Array.from({ length: digits }, (_, i) => h('span', { class: 'pin-dot' + (i < value.length ? ' on' : '') })));
     }
     function push(d) {
-      if (value.length >= digits) return;
+      if (locked || value.length >= digits) return;
       err.textContent = '';
       if (onType) onType();
       value += d;
@@ -97,7 +99,15 @@
       h('button', { type: 'button', class: 'pin-key pin-ghost', 'aria-label': t('login.pin_backspace'), text: '⌫', onclick: () => { value = value.slice(0, -1); paint(); } }));
     return { el: h('div', { class: 'pin-block' }, hint ? h('p', { class: 'pin-hint', text: hint }) : null, dots, err, grid),
       value: () => value,
-      setError(msg) { err.textContent = msg; value = ''; paint(); } };
+      setError(msg, freeze) {
+        err.textContent = msg || '';
+        value = '';
+        paint();
+        if (freeze) {
+          locked = true;
+          grid.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        }
+      } };
   }
 
   function pinHint(digits) { return t(digits === 6 ? 'login.pin_hint_6' : 'login.pin_hint_4'); }
@@ -130,7 +140,7 @@
     if (u.has_pin) {
       const pad = pinPad(u.pin_digits, '', async (pin) => {
         try { await SM.api('POST', '/api/account/unlock', { pin }); boot(); }
-        catch (err) { pad.setError(SM.errorText(err)); }
+        catch (err) { pad.setError(SM.errorText(err), err.code === 'account_locked' || err.code === 'too_many_attempts'); }
       });
       const swap = h('button', { class: 'btn ghost', type: 'button', id: 'login-password', text: t('login.use_password'), onclick: () => {
         setAuthTitle(t('lock.title', { name: u.name }), t('lock.sub'));
@@ -201,18 +211,27 @@
     SM.state.sessionEnded = false;
     const host = h('div', { class: 'stack', id: 'login-host' });
     const forgot = () => h('button', { class: 'btn ghost', type: 'button', id: 'login-forgot', text: t('login.forgot'), onclick: () => SM.forgotDialog() });
-    const trainingTip = tl ? h('div', { class: 'tip' }, h('div', {}, h('b', { text: t('login.training_users') }), ' ', tl.users.join(' · '), h('br'), t('password'), ': ', h('code', { class: 'ltr', text: tl.password }))) : null;
+    const trainingTip = tl && tl.people ? h('div', { class: 'tip', id: 'training-pins' },
+      h('div', { class: 'stack' }, h('b', { text: t('login.training_pins') }),
+        tl.people.map(p => h('div', {}, p.name, ' ', h('b', { class: 'num', text: p.pin }))))) : null;
     let people = [];
     authFrame(t('login.who'), t('login.who_sub'), host);
 
-    function showWho() {
-      setAuthTitle(t('login.who'), t('login.who_sub'));
-      const list = h('div', { class: 'who-list' }, people.map(p => h('button', {
+    function personButton(p) {
+      return h('button', {
         type: 'button', class: 'who-btn', 'data-username': p.username, 'data-role': p.role, 'data-user-id': String(p.id),
         onclick: () => (p.has_pin ? showPin(p) : showPassword(p)),
       }, h('span', { class: 'who-av', 'aria-hidden': 'true', text: initials(p.name) }),
-        h('span', { class: 'who-name' }, h('b', { text: p.name }), h('small', { text: t('role.' + p.role) })))));
-      SM.put(host, ended, list, forgot(), trainingTip);
+        h('span', { class: 'who-name' }, h('b', { text: p.name }), h('small', { text: t('role.' + p.role) })));
+    }
+    function showWho() {
+      setAuthTitle(t('login.who'), t('login.who_sub'));
+      const list = h('div', { class: 'who-list' });
+      const search = people.length > 12 ? h('input', { class: 'input', id: 'who-search', autocomplete: 'off', placeholder: t('login.search') }) : null;
+      const draw = () => SM.put(list, SM.filterPeople(people, search ? search.value : '').map(personButton));
+      if (search) search.addEventListener('input', draw);
+      draw();
+      SM.put(host, ended, trainingTip, search, list, forgot());
     }
 
     function showPassword(p) {
@@ -237,7 +256,7 @@
       setAuthTitle(p.name, pinHint(p.pin_digits));
       const pad = pinPad(p.pin_digits, '', async (pin) => {
         try { await SM.api('POST', '/api/login', { user_id: p.id, pin, workstation: SM.workstation() }); boot(); }
-        catch (err) { pad.setError(SM.errorText(err)); }
+        catch (err) { pad.setError(SM.errorText(err), err.code === 'account_locked' || err.code === 'too_many_attempts'); }
       });
       const passLink = (p.role === 'owner' || p.role === 'manager')
         ? h('button', { class: 'btn ghost', type: 'button', id: 'login-password', text: t('login.use_password'), onclick: () => showPassword(p) })
@@ -282,25 +301,33 @@
     const clearNote = () => { note.textContent = ''; };
     const fresh = pinPad(digits, pinHint(digits), null, clearNote);
     let usePin = !!u.has_pin;
+    let step = 1;
     const oldPw = h('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
     oldPw.addEventListener('input', clearNote);
     const oldPad = pinPad(digits, t('account.pin_old_pin'), null, clearNote);
-    const cred = h('div');
-    const paintCred = () => SM.put(cred, usePin ? oldPad.el : SM.field(t('account.pin_old'), oldPw));
-    paintCred();
-    const swap = h('button', { class: 'btn ghost', type: 'button', text: usePin ? t('login.use_password') : t('login.use_pin'), onclick: () => {
-      usePin = !usePin; swap.textContent = usePin ? t('login.use_password') : t('login.use_pin'); paintCred();
+    const body = h('div', { id: 'own-pin-body' });
+    const swap = h('button', { class: 'btn ghost', type: 'button', id: 'own-pin-swap', text: t('login.use_password'), onclick: () => {
+      usePin = !usePin;
+      swap.textContent = usePin ? t('login.use_password') : t('login.use_pin');
+      paint();
     } });
-    const d = SM.dialog({ title: t('account.pin'), body: [u.has_pin ? cred : SM.field(t('account.pin_old'), oldPw), fresh.el, note],
-      actions: [h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => d.close() }),
-        u.has_pin ? swap : null,
-        h('button', { class: 'btn primary', id: 'own-pin-save', text: t('set.pin_save'), onclick: async () => {
-          note.textContent = '';
-          const body = { pin: fresh.value() };
-          if (u.has_pin && usePin) body.old_pin = oldPad.value(); else body.old = oldPw.value;
-          try { await SM.api('POST', '/api/account/pin', body); d.close(); SM.toast(t('account.pin_saved')); boot(); }
-          catch (e) { note.textContent = SM.errorText(e); }
-        } })] });
+    const primary = h('button', { class: 'btn primary', id: 'own-pin-save', type: 'button', text: t('login.next'), onclick: async () => {
+      note.textContent = '';
+      if (step === 1) { step = 2; paint(); return; }
+      const payload = { pin: fresh.value() };
+      if (usePin) payload.old_pin = oldPad.value(); else payload.old = oldPw.value;
+      try { await SM.api('POST', '/api/account/pin', payload); d.close(); SM.toast(t('account.pin_saved')); boot(); }
+      catch (e) { note.textContent = SM.errorText(e); }
+    } });
+    function paint() {
+      primary.textContent = step === 1 ? t('login.next') : t('set.pin_save');
+      swap.hidden = step !== 1;
+      const cred = usePin ? oldPad.el : SM.field(t('account.pin_old'), oldPw);
+      SM.put(body, step === 1 ? cred : fresh.el, note);
+    }
+    paint();
+    const d = SM.dialog({ title: t('account.pin'), body: [body],
+      actions: [h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => d.close() }), u.has_pin ? swap : null, primary] });
     return d;
   };
 
@@ -328,8 +355,21 @@
     SM.put(document.body, h('div', { class: 'app' }, side, main));
     pendingBanner(main);
     backupBanner(main);
+    pinPrompt(main);
     route();
   };
+
+  /* After an upgrade, old accounts have no PIN. The owner sees one bar until they set them. */
+  async function pinPrompt(main) {
+    if (SM.state.mode === 'training' || !SM.can('users')) return;
+    const users = await SM.api('GET', '/api/users').catch(() => []);
+    const missing = (users || []).filter(u => u.active && !u.has_pin);
+    const top = main.querySelector('.topbar');
+    if (!missing.length || !top || !document.body.contains(main)) return;
+    top.parentNode.insertBefore(h('div', { class: 'tip warn-tip', id: 'pin-prompt', role: 'status' },
+      h('div', { class: 'grow', text: t('login.pin_prompt', { n: missing.length }) }),
+      h('button', { class: 'btn primary sm', id: 'pin-prompt-go', text: t('set.pin_btn'), onclick: () => SM.go('settings') })), top.nextSibling);
+  }
 
   /* Audit S03: an operation whose answer was lost stays visible until resolved. */
   function pendingBanner(main) {

@@ -88,14 +88,26 @@ def normalize_pin(pin):
     return pin.strip().translate(_PIN_EASTERN)
 
 
+# Phone-pad columns and rows, plus their reverse. 2580 is the middle column.
+_KEYPAD = ("147", "741", "258", "852", "369", "963", "123", "321", "456", "654", "789", "987", "2580", "0852")
+
+
 def _weak_pin(pin):
-    """All one digit (0000, 1111), a run (1234, 0123, 654321), or a repeated block (1212, 123123)."""
+    """Repeated digits, a short run (1234, 1357, 654321), a repeated block (1212),
+    a phone-pad column (2580), or a 4-digit birth year."""
     if len(set(pin)) == 1:
         return True
     steps = {int(b) - int(a) for a, b in zip(pin, pin[1:])}
-    if steps <= {1} or steps <= {-1}:
+    if steps and (steps <= {1} or steps <= {-1} or steps <= {2} or steps <= {-2}):
         return True
-    return any(n < len(pin) and pin == (pin[:n] * len(pin))[:len(pin)] for n in (2, 3))
+    if any(n < len(pin) and pin == (pin[:n] * len(pin))[:len(pin)] for n in (2, 3)):
+        return True
+    for seq in _KEYPAD:
+        if pin == (seq * len(pin))[:len(pin)] or (len(seq) >= 4 and seq in pin):
+            return True
+    if len(pin) == 4 and 1900 <= int(pin) <= 2030:
+        return True
+    return False
 
 
 def check_pin_rules(pin, role):
@@ -337,8 +349,8 @@ class Auth:
                 self._seen[th] = moment
         actor = self.public(row)
         actor["workstation"] = row["workstation"]
-        # a PIN sign-in is the cashier's own credential; a temporary password still blocks password sign-in
-        actor["must_change"] = bool(row["must_change"]) and not row["via_pin"]
+        # A temporary password still has to be changed, even after a PIN sign-in.
+        actor["must_change"] = bool(row["must_change"])
         actor["locked"] = locked
         return actor
 
@@ -466,7 +478,7 @@ class Auth:
             if not user:
                 raise ShopError("unknown_owner")
             self._set_password(user["id"], new_password, False)
-            self.store.db.execute("UPDATE users SET active=1 WHERE id=?", (user["id"],))
+            self.store.db.execute("UPDATE users SET active=1, pin_hash=NULL, pin_salt=NULL, pin_iter=NULL WHERE id=?", (user["id"],))
             self.store.db.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
             self.store.audit({"id": user["id"], "workstation": "shop-pc"}, "owner.recovery", str(user["id"]))
             return {"ok": True, "username": user["username"]}

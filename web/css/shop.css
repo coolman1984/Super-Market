@@ -21,7 +21,12 @@
 .pin-key { min-height: 4.1rem; font-size: 1.55rem; font-weight: 700; border-radius: .85rem; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); }
 .pin-key:hover, .pin-key:focus-visible { background: var(--brand-soft); }
 .pin-key.pin-ghost { font-size: 1rem; font-weight: 650; color: var(--ink-2); background: transparent; }
-.pin-block .field-error:not(:empty) { text-align: center; }
+.pin-block .field-error,
+.pin-block .field-error:empty,
+.pin-block .field-error:not(:empty) {
+  min-height: 2.8rem; margin-top: .45rem; padding: .6rem .8rem; box-sizing: border-box; text-align: center;
+}
+.pin-block .field-error:empty { background: transparent; color: transparent; }
 .brand-mark { width: 3.2rem; height: 3.2rem; border-radius: .9rem; display: grid; place-items: center; background: var(--signal); color: var(--signal-ink); }
 .auth-foot { justify-content: flex-end; }
 .wide { width: min(64rem, 100%); }

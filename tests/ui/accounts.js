@@ -10,13 +10,16 @@ const out = process.argv[3] || '.';
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   const res = {};
+  const PINS = { owner: '159382', manager: '470296', cashier: '3826', butcher: '2964', counter: '4702' };
+  const typePin = async (p, pin) => { for (const d of pin) await p.click('.pin-key[data-digit="' + d + '"]'); };
   const login = async (p, user, pass) => {
     await p.goto(base); await p.reload(); await p.waitForSelector('.sidebar, .who-list, input[type=password]');
     if (await p.locator('.side-foot .logout-btn').count()) await p.locator('.side-foot .logout-btn').click();
     await p.waitForSelector('[data-username="' + user + '"]');
     await p.click('[data-username="' + user + '"]');
-    await p.fill('input[type=password]', pass);
-    await p.click('#login-go'); await p.waitForTimeout(800);
+    if (PINS[user] && await p.locator('.pin-pad').count()) await typePin(p, PINS[user]);
+    else { await p.fill('input[type=password]', pass); await p.click('#login-go'); }
+    await p.waitForTimeout(800);
   };
   await login(page, 'owner', 'training-only');
   const T = (k, v) => page.evaluate(([k, v]) => SM.t(k, v), [k, v]);
@@ -25,9 +28,9 @@ const out = process.argv[3] || '.';
   await page.reload(); await page.waitForTimeout(800);
   res.locked_after_reload = await page.locator('.auth-card').count() === 1 && !(await page.locator('.sidebar').count());
   await page.screenshot({ path: out + '/lock-ar.png' });
-  await page.fill('input[type=password]', 'wrong-pass'); await page.click('button[type=submit]'); await page.waitForTimeout(600);
+  await typePin(page, '111111'); await page.waitForTimeout(400);
   res.wrong_refused = !(await page.locator('.sidebar').count());
-  await page.fill('input[type=password]', 'training-only'); await page.click('button[type=submit]'); await page.waitForTimeout(800);
+  await typePin(page, '159382'); await page.waitForTimeout(800);
   res.unlocked = await page.locator('.sidebar').count() === 1;
   // new employee from settings must change the password before working
   await page.evaluate(() => SM.api('POST', '/api/users', { username: 'newcash', name: 'كاشير جديد', role: 'cashier', password: 'temp-pass-1' }));

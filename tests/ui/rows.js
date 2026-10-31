@@ -14,8 +14,9 @@ const out = process.argv[3] || '.';
   await page.waitForSelector('.sidebar, .who-list');
   if (await page.locator('.side-foot .logout-btn').count()) await page.click('.side-foot .logout-btn');
   await page.waitForSelector('[data-username=owner]');
-  await page.click('[data-username=owner]'); await page.fill('input[type=password]', 'training-only');
-  await page.click('#login-go'); await page.waitForSelector('.sidebar');
+  await page.click('[data-username=owner]');
+  for (const d of '159382') await page.click('.pin-key[data-digit="' + d + '"]');
+  await page.waitForSelector('.sidebar');
   // a saved dialog closes; if it stays open the save failed and the toast says why
   const closed = () => page.waitForSelector('#overlay.on', { state: 'detached', timeout: 8000 }).catch(async () => {
     throw new Error('dialog still open: ' + (await page.locator('.toast').allTextContents()).join(' | ')); });

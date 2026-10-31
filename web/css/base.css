@@ -288,7 +288,7 @@ table.tbl { border-collapse: separate; border-spacing: 0; width: 100%; }
 .keys div { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .35rem 0; border-bottom: 1px dashed var(--line-2); }
 
 /* ---------- toasts ---------- */
-#toasts { position: fixed; inset-block-start: 1.2rem; inset-inline: 0; margin-inline: auto; width: fit-content; max-width: calc(100vw - 2rem); z-index: 100; display: grid; gap: .5rem; justify-items: center; pointer-events: none; }
+#toasts { position: fixed; inset-block-start: calc(var(--topbar-h) + .5rem); inset-inline: 0; margin-inline: auto; width: fit-content; max-width: calc(100vw - 2rem); z-index: 25; display: grid; gap: .5rem; justify-items: center; pointer-events: none; }
 .toast { pointer-events: auto; display: flex; align-items: center; gap: .6rem; padding: .7rem 1rem; border-radius: 1.2rem; max-width: 40rem; background: var(--raised); color: var(--ink); border: 1px solid var(--line); box-shadow: var(--shadow-2); font-weight: 600; animation: toast-in var(--t-med) var(--ease) both; }
 .toast.ok .ic { color: var(--ok); }
 .toast.bad .ic { color: var(--bad); }

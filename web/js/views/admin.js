@@ -408,7 +408,7 @@
             const reason = await SM.ask(u.active ? t('set.stop_user_q', { name: u.display_name }) : t('set.start_user_q')); if (!reason) return;
             try { await SM.api('POST', '/api/users/' + u.id + '/active', { active: !u.active, reason }); SM.toast(t('saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
           }) })) }], users),
-      h('div', { class: 'grid cols-4' }, SM.field(t('username'), f.username), SM.field(t('set.display'), f.name), SM.field(t('password'), f.password, t('set.pw_help')), SM.field(t('set.role'), f.role), SM.field(t('set.pin_field'), f.pin, pinHelp)),
+      h('div', { class: 'grid cols-4' }, SM.field(t('username'), f.username), SM.field(t('set.display'), f.name), SM.field(t('password'), f.password, t('set.pw_help')), SM.field(t('set.role'), f.role), ((field) => { field.append(pinHelp); return field; })(SM.field(t('set.pin_field'), f.pin))),
       h('button', { class: 'btn', 'data-guide': 'set.add_user', text: t('set.add_user'), onclick: async () => {
         try { await SM.api('POST', '/api/users', { username: f.username.value, name: f.name.value || f.username.value, password: f.password.value, role: f.role.value, pin: f.pin.value || undefined }); SM.toast(t('saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
       } }));

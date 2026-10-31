@@ -13,8 +13,9 @@ const out = process.argv[3] || '.';
   await page.waitForSelector('.sidebar, .who-list');
   if (await page.locator('.side-foot .logout-btn').count()) await page.click('.side-foot .logout-btn');
   await page.waitForSelector('[data-username=cashier]');
-  await page.click('[data-username=cashier]'); await page.fill('input[type=password]', 'training-only');
-  await page.click('#login-go'); await page.waitForSelector('.sidebar');
+  await page.click('[data-username=cashier]');
+  for (const d of '3826') await page.click('.pin-key[data-digit="' + d + '"]');
+  await page.waitForSelector('.sidebar');
   // earlier test scripts may have left this cashier's shift open: close it so the lesson starts from the beginning
   await page.evaluate(async () => { const s = await SM.api('GET', '/api/shift').catch(() => null);
     if (s && s.shift) await SM.command('/api/shift/close', SM.newKey(), undefined, { counted: s.expected || 0 }).catch(() => null); });

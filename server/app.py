@@ -185,7 +185,7 @@ class App:
                 "instance": s.get("instance_id") if private else None, "lan": self.lan if private else None,
                 "lan_addresses": self._lan_addresses() if self.lan and actor else None,
                 "clock_behind": ({"closed": self.store.clock_behind(), "today": today()} if self.store.clock_behind() else None),
-                "training_login": {"users": [u for u, _, _ in training.TRAINING_USERS], "password": training.TRAINING_PASSWORD}
+                "training_login": {"people": [{"name": n, "pin": training.TRAINING_PINS[u]} for u, n, _r in training.TRAINING_USERS]}
                 if self.store.mode == "training" else None}
 
     port = None
