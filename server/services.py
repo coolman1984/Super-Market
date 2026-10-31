@@ -24,6 +24,8 @@ DEFAULT_SETTINGS = {
     "receipt_footer": "", "receipt_width_mm": 80,
     # days a thawed piece may be kept chilled: the owner's approved policy; no default is assumed (matrix row 14)
     "thaw_shelf_life_days": None,
+    # business day (gap row 15): before this hour a posting still belongs to the previous day; shifts follow their opening
+    "day_start_hour": 4,
 }
 
 
@@ -63,7 +65,7 @@ class Shop:
     SETTING_RULES = {
         "near_expiry_days": (0, 60), "cashier_discount_permille": (0, 1000), "receipt_width_mm": (58, 80),
         "cutting_loss_tolerance_permille": (0, 500), "recipe_component_tolerance_permille": (0, 500),
-        "thaw_shelf_life_days": (1, 30),
+        "thaw_shelf_life_days": (1, 30), "day_start_hour": (0, 8),
     }
 
     def _check_setting(self, key, value):
@@ -655,12 +657,13 @@ class Shop:
         def work(op):
             if self._open_shift_of(actor, False):
                 raise ShopError("shift_already_open")
-            sid = self.store.db.execute("INSERT INTO shifts(user_id,workstation,opened_at,opening_float) VALUES(?,?,?,?)",
-                                        (actor["id"], actor["workstation"], now_iso(), opening_float)).lastrowid
+            day = self.store.scalar("SELECT business_day FROM ops WHERE id=?", (op,))
+            sid = self.store.db.execute("INSERT INTO shifts(user_id,workstation,opened_at,opening_float,business_day) VALUES(?,?,?,?,?)",
+                                        (actor["id"], actor["workstation"], now_iso(), opening_float, day)).lastrowid
             if opening_float:
                 self.store.db.execute("INSERT INTO cash_entries(shift_id,op_id,kind,amount,note,at) VALUES(?,?,?,?,?,?)",
                                       (sid, op, "float", opening_float, None, now_iso()))
-            return {"shift": sid}
+            return {"shift": sid, "business_day": day}
         return self.store.command("shift_open", key, [opening_float, actor["workstation"]], actor, work)
 
     CASH_SIGNS = {"expense": -1, "drop": -1, "deposit": 1, "owner_draw": -1}
@@ -1062,9 +1065,9 @@ class Shop:
                 raise ShopError("payment_already_decided")
             self.store.db.execute("INSERT INTO payment_confirmations VALUES(?,?,?,?,?)",
                                   (payment_id, op, outcome, actor["id"], now_iso()))
-            sale_at = self.store.one("SELECT at, no FROM sales WHERE id=?", (pay["sale_id"],))
+            sale_at = self.store.one("SELECT op_id, no FROM sales WHERE id=?", (pay["sale_id"],))
             if sale_at:
-                self._note_correction(op, sale_at["at"], "payment_" + outcome, sale_at["no"], outcome, actor, False)
+                self._note_correction(op, sale_at["op_id"], "payment_" + outcome, sale_at["no"], outcome, actor, False)
             follow_up = None
             if outcome == "rejected":
                 customer = self.store.scalar("SELECT customer_id FROM sales WHERE id=?", (pay["sale_id"],))
@@ -1126,7 +1129,7 @@ class Shop:
                 if a["amount"] > self._collected_free(a["sale_id"]):
                     # a refund already paid this money back: reversing now would pay it twice
                     raise ShopError("collection_already_refunded", {"sale": a["sale_id"]})
-            self._note_correction(op, entry["at"], "payment_reversal", "entry %d" % entry["id"], reason, actor, True)
+            self._note_correction(op, entry["op_id"], "payment_reversal", "entry %d" % entry["id"], reason, actor, True)
             shift = self._open_shift_of(actor)
             self._check_drawer(shift["id"], -entry["amount"])
             rev = self.store.db.execute("INSERT INTO customer_entries(customer_id,op_id,kind,amount,at,reverses) VALUES(?,?,?,?,?,?)",
@@ -1383,7 +1386,7 @@ class Shop:
                 (op, supplier, receipt["id"] if receipt else None, kind, delta, reference, actor["id"], now_iso(), note)).lastrowid
             to_stock = to_sold = 0
             if receipt:
-                self._note_correction(op, receipt["at"], "supplier_" + kind, "receipt %d" % receipt["id"], reference, actor, True)
+                self._note_correction(op, receipt["op_id"], "supplier_" + kind, "receipt %d" % receipt["id"], reference, actor, True)
                 lines = self.store.all("""SELECT * FROM receipt_lines WHERE receipt_id=? AND line_kind='purchase' ORDER BY id""",
                                        (receipt["id"],))
                 if payload.get("lines"):
@@ -1435,10 +1438,13 @@ class Shop:
     def _closed(self, day):
         return self.store.scalar("SELECT 1 FROM day_closes WHERE day=?", (day,)) is not None
 
-    def _note_correction(self, op, original_at, kind, ref, reason, actor, needs_permission):
+    def _bday(self, op_id):
+        return self.store.scalar("SELECT COALESCE(business_day, substr(at,1,10)) FROM ops WHERE id=?", (op_id,))
+
+    def _note_correction(self, op, original_op, kind, ref, reason, actor, needs_permission):
         """A posting today that corrects a document of a closed day: listed under
-        that day; when it changes that day's money or cost, it needs close_day."""
-        day = (original_at or "")[:10]
+        that (business) day; when it changes that day's money or cost, it needs close_day."""
+        day = self._bday(original_op) or ""
         if not self._closed(day):
             return
         if needs_permission:
@@ -1458,8 +1464,8 @@ class Shop:
         def work(op):
             if self._closed(day):
                 raise ShopError("day_already_closed")
-            open_shifts = self.store.all("SELECT id, user_id, opened_at FROM shifts WHERE closed_at IS NULL AND substr(opened_at,1,10)<=?",
-                                         (day,))
+            open_shifts = self.store.all("""SELECT id, user_id, opened_at FROM shifts WHERE closed_at IS NULL
+                AND COALESCE(business_day, substr(opened_at,1,10))<=?""", (day,))
             if open_shifts:
                 raise ShopError("shift_open_on_day", {"shifts": [s["id"] for s in open_shifts]})
             snapshot = self.day_report(actor, day)
@@ -1663,20 +1669,21 @@ class Shop:
 
         def put(day, key_, value):
             days.setdefault(day, {"sales": 0, "sales_total": 0, "returns": 0, "waste_cost": 0})[key_] += value
-        for r in self.store.all("""SELECT substr(at,1,10) d, COUNT(*) n, SUM(total) t FROM sales
-                WHERE substr(at,1,10) BETWEEN ? AND ? GROUP BY d""", (start, end)):
+        BD = "COALESCE(o.business_day, substr(o.at,1,10))"
+        for r in self.store.all(f"""SELECT {BD} d, COUNT(*) n, SUM(x.total) t FROM sales x JOIN ops o ON o.id=x.op_id
+                WHERE {BD} BETWEEN ? AND ? GROUP BY d""", (start, end)):
             put(r["d"], "sales", r["n"]); put(r["d"], "sales_total", r["t"])
-        for r in self.store.all("""SELECT substr(at,1,10) d, SUM(amount) t FROM returns
-                WHERE substr(at,1,10) BETWEEN ? AND ? GROUP BY d""", (start, end)):
+        for r in self.store.all(f"""SELECT {BD} d, SUM(x.amount) t FROM returns x JOIN ops o ON o.id=x.op_id
+                WHERE {BD} BETWEEN ? AND ? GROUP BY d""", (start, end)):
             put(r["d"], "returns", r["t"])
         if can(actor, "see_cost"):
-            for r in self.store.all("""SELECT substr(at,1,10) d, SUM(-cost) c FROM stock_entries WHERE kind='waste'
-                    AND substr(at,1,10) BETWEEN ? AND ? GROUP BY d""", (start, end)):
+            for r in self.store.all(f"""SELECT {BD} d, SUM(-x.cost) c FROM stock_entries x JOIN ops o ON o.id=x.op_id WHERE x.kind='waste'
+                    AND {BD} BETWEEN ? AND ? GROUP BY d""", (start, end)):
                 put(r["d"], "waste_cost", r["c"])
         series = [dict(day=d, **v, net_sales=v["sales_total"] - v["returns"]) for d, v in sorted(days.items())]
         totals = {k: sum(x[k] for x in series) for k in ("sales", "sales_total", "returns", "net_sales", "waste_cost")}
-        by_method = self.store.all("""SELECT p.method, p.eff_state state, SUM(p.amount) amount FROM payment_states p JOIN sales s ON s.id=p.sale_id
-            WHERE substr(s.at,1,10) BETWEEN ? AND ? GROUP BY p.method, p.eff_state""", (start, end))
+        by_method = self.store.all(f"""SELECT p.method, p.eff_state state, SUM(p.amount) amount FROM payment_states p JOIN sales s ON s.id=p.sale_id
+            JOIN ops o ON o.id=s.op_id WHERE {BD} BETWEEN ? AND ? GROUP BY p.method, p.eff_state""", (start, end))
         return {"start": start, "end": end, "series": series, "totals": totals, "by_method": by_method,
                 "notes": ["sales_not_cash", "margin_before_expenses"]}
 
@@ -1755,7 +1762,7 @@ class Shop:
                 VALUES(?,?,?,?,?,?,?,?,?,?)""",
                 (op, sale["id"], shift["id"] if shift else None, reason, method, total, actor["id"], approved_by, now_iso(),
                  text(payload.get("note"), "bad_note", 300, optional=True))).lastrowid
-            self._note_correction(op, sale["at"], "return", sale["no"], reason, actor, False)
+            self._note_correction(op, sale["op_id"], "return", sale["no"], reason, actor, False)
             blocked = self.recall_blocked()
             out = []
             for line, qty, amount, cost, restock in rows:
@@ -2664,33 +2671,40 @@ class Shop:
 
     def day_report(self, actor, day=None):
         require(actor, "reports")
-        day = iso_date(day) if day else today()
-        like = day + "%"
-        sales = self.store.one("""SELECT COUNT(*) n, COALESCE(SUM(total),0) total, COALESCE(SUM(line_discounts+invoice_discount),0) discounts
-            FROM sales WHERE at LIKE ?""", (like,))
-        cost = self.store.scalar("SELECT COALESCE(SUM(sl.cost),0) FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE s.at LIKE ?", (like,))
-        returns = self.store.one("""SELECT COALESCE(SUM(r.amount),0) amount,
-            COALESCE((SELECT SUM(cost) FROM return_lines rl JOIN returns r2 ON r2.id=rl.return_id WHERE r2.at LIKE ?),0) cost
-            FROM returns r WHERE r.at LIKE ?""", (like, like))
-        by_method = self.store.all("""SELECT p.method, p.eff_state state, COALESCE(SUM(p.amount),0) amount FROM payment_states p
-            JOIN sales s ON s.id=p.sale_id WHERE s.at LIKE ? GROUP BY p.method, p.eff_state""", (like,))
-        refunds = self.store.all("""SELECT a.method, SUM(a.amount) amount FROM refund_allocations a JOIN returns r
-            ON r.id=a.return_id WHERE r.at LIKE ? GROUP BY a.method""", (like,))
-        waste = self.store.all("""SELECT reason, COALESCE(SUM(-qty),0) qty, COALESCE(SUM(-cost),0) cost FROM stock_entries
-            WHERE kind='waste' AND at LIKE ? GROUP BY reason""", (like,))
-        abnormal = self.store.scalar("SELECT COALESCE(SUM(abnormal_loss_cost),0) FROM productions WHERE at LIKE ?", (like,))
-        count_diff = self.store.scalar("SELECT COALESCE(SUM(cost),0) FROM stock_entries WHERE kind='count' AND at LIKE ?", (like,))
+        day = iso_date(day) if day else self.store.current_business_day()
+        # every figure belongs to the BUSINESS day of its posting (gap row 15): a 01:30 sale in a shift
+        # opened at 18:00 is that evening's; old rows without a business day keep their calendar date
+        OPS = "(SELECT id FROM ops WHERE COALESCE(business_day, substr(at,1,10))=?)"
+        q = lambda sql: sql.replace("{OPS}", OPS)  # noqa: E731
+        sales = self.store.one(q("""SELECT COUNT(*) n, COALESCE(SUM(total),0) total, COALESCE(SUM(line_discounts+invoice_discount),0) discounts
+            FROM sales WHERE op_id IN {OPS}"""), (day,))
+        cost = self.store.scalar(q("SELECT COALESCE(SUM(sl.cost),0) FROM sale_lines sl JOIN sales s ON s.id=sl.sale_id WHERE s.op_id IN {OPS}"), (day,))
+        returns = self.store.one(q("""SELECT COALESCE(SUM(r.amount),0) amount,
+            COALESCE((SELECT SUM(cost) FROM return_lines rl JOIN returns r2 ON r2.id=rl.return_id WHERE r2.op_id IN {OPS}),0) cost
+            FROM returns r WHERE r.op_id IN {OPS}"""), (day, day))
+        by_method = self.store.all(q("""SELECT p.method, p.eff_state state, COALESCE(SUM(p.amount),0) amount FROM payment_states p
+            JOIN sales s ON s.id=p.sale_id WHERE s.op_id IN {OPS} GROUP BY p.method, p.eff_state"""), (day,))
+        refunds = self.store.all(q("""SELECT a.method, SUM(a.amount) amount FROM refund_allocations a JOIN returns r
+            ON r.id=a.return_id WHERE r.op_id IN {OPS} GROUP BY a.method"""), (day,))
+        waste = self.store.all(q("""SELECT reason, COALESCE(SUM(-qty),0) qty, COALESCE(SUM(-cost),0) cost FROM stock_entries
+            WHERE kind='waste' AND op_id IN {OPS} GROUP BY reason"""), (day,))
+        abnormal = self.store.scalar(q("SELECT COALESCE(SUM(abnormal_loss_cost),0) FROM productions WHERE op_id IN {OPS}"), (day,))
+        count_diff = self.store.scalar(q("SELECT COALESCE(SUM(cost),0) FROM stock_entries WHERE kind='count' AND op_id IN {OPS}"), (day,))
         # later supplier price changes: the part for goods already gone is a cost of THIS day (rows 3, 6)
-        adjusted = self.store.scalar("""SELECT COALESCE(SUM(c.to_cost_of_sales),0) FROM cost_adjustments c
-            JOIN supplier_adjustments a ON a.id=c.adjustment_id WHERE a.at LIKE ?""", (like,))
-        rebates = self.store.scalar("""SELECT COALESCE(SUM(-amount),0) FROM supplier_adjustments
-            WHERE kind='rebate' AND receipt_id IS NULL AND at LIKE ?""", (like,))
-        gifts = self.store.scalar("""SELECT COUNT(*) FROM receipt_lines rl JOIN receipts r ON r.id=rl.receipt_id
-            WHERE rl.line_kind<>'purchase' AND r.at LIKE ?""", (like,))
-        shifts = self.store.all("SELECT id, user_id, opened_at, closed_at, expected, counted, difference FROM shifts WHERE opened_at LIKE ? OR closed_at LIKE ?",
-                                (like, like))
+        adjusted = self.store.scalar(q("""SELECT COALESCE(SUM(c.to_cost_of_sales),0) FROM cost_adjustments c
+            JOIN supplier_adjustments a ON a.id=c.adjustment_id WHERE a.op_id IN {OPS}"""), (day,))
+        rebates = self.store.scalar(q("""SELECT COALESCE(SUM(-amount),0) FROM supplier_adjustments
+            WHERE kind='rebate' AND receipt_id IS NULL AND op_id IN {OPS}"""), (day,))
+        gifts = self.store.scalar(q("""SELECT COUNT(*) FROM receipt_lines rl JOIN receipts r ON r.id=rl.receipt_id
+            WHERE rl.line_kind<>'purchase' AND r.op_id IN {OPS}"""), (day,))
+        shifts = self.store.all("""SELECT id, user_id, opened_at, closed_at, expected, counted, difference,
+            COALESCE(business_day, substr(opened_at,1,10)) business_day FROM shifts
+            WHERE COALESCE(business_day, substr(opened_at,1,10))=?""", (day,))
+        rejected = self.store.all(q("""SELECT s.no, p.method, p.amount, c.at FROM payment_confirmations c
+            JOIN payments p ON p.id=c.payment_id JOIN sales s ON s.id=p.sale_id
+            WHERE c.outcome='rejected' AND c.op_id IN {OPS}"""), (day,))
         net_sales = sales["total"] - returns["amount"]
-        out = {"day": day, "sales_count": sales["n"], "sales_total": sales["total"], "discounts": sales["discounts"],
+        out = {"day": day, "day_start_hour": self.store.day_start_hour(), "sales_count": sales["n"], "sales_total": sales["total"], "discounts": sales["discounts"],
                "returns": returns["amount"], "net_sales": net_sales, "by_method": by_method, "refunds_by_method": refunds,
                "safe": self.safe_balance() if can(actor, "safe") else None, "shifts": shifts,
                "waste": waste, "near_expiry": [r for r in self.stock_report(actor) if r["state"] in ("near_expiry", "expired")],
@@ -2698,9 +2712,7 @@ class Shop:
                "pending_payments": self.store.scalar("""SELECT COUNT(*) FROM payments WHERE state='pending'
                     AND id NOT IN (SELECT payment_id FROM payment_confirmations)"""),
                # a rejected transfer/wallet is money NOT collected: shown, never hidden
-               "rejected_payments": self.store.all("""SELECT s.no, p.method, p.amount, c.at FROM payment_confirmations c
-                    JOIN payments p ON p.id=c.payment_id JOIN sales s ON s.id=p.sale_id
-                    WHERE c.outcome='rejected' AND c.at LIKE ?""", (like,)),
+               "rejected_payments": rejected,
                "gift_lines": gifts, "closed": self._closed(day),
                "notes": ["sales_not_cash", "margin_before_expenses", "tax_unverified"]}
         if can(actor, "see_cost"):

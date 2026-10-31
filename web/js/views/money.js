@@ -185,7 +185,7 @@
   SM.views.reports = {
     icon: 'chart', perm: 'reports',
     async mount(root) {
-      const day = h('input', { class: 'input', type: 'date', value: SM.today(), 'data-guide': 'rep.day' });
+      const day = h('input', { class: 'input', type: 'date', value: SM.state.businessDay || SM.today(), 'data-guide': 'rep.day' });
       const box = h('div');
       const load = async () => {
         const r = await SM.api('GET', '/api/reports/day?day=' + day.value).catch(e => { SM.fail(e); return null; });
@@ -206,7 +206,8 @@
                 if (!(await SM.confirm(t('close.btn'), t('close.confirm', { day: day.value })))) return;
                 try { await SM.command('/api/days/close', SM.newKey(), undefined, { day: day.value }); SM.toast(t('close.done')); load(); } catch (e) { SM.fail(e); }
               }) }) : null]);
-        SM.put(box, closeCard, h('div', { class: 'grid cols-2', 'data-guide': 'rep.figures' },
+        const dayNote = h('p', { class: 'muted', text: t('rep.business_day_note', { hour: r.day_start_hour }) });
+        SM.put(box, dayNote, closeCard, h('div', { class: 'grid cols-2', 'data-guide': 'rep.figures' },
           h('div', { class: 'card' }, h('h3', { text: t('rep.sales') }), h('dl', { class: 'kv' },
             kv(t('rep.sales_total'), SM.money(r.sales_total)), kv(t('rep.discounts'), SM.money(r.discounts)), kv(t('rep.returns'), SM.money(r.returns)),
             kv(t('rep.net_sales'), SM.money(r.net_sales), t('rep.net_sales_hint')),

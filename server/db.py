@@ -10,7 +10,7 @@ import sqlite3
 import threading
 
 from . import schema
-from .core import Conflict, ShopError, now_iso, today
+from .core import Conflict, ShopError, add_days, business_day_at, now, now_iso, today
 
 DB_NAME = "shop.db"
 
@@ -99,6 +99,37 @@ class Store:
     def all(self, sql, args=()):
         return [dict(r) for r in self.db.execute(sql, args).fetchall()]
 
+    def day_start_hour(self):
+        row = self.db.execute("SELECT value FROM settings WHERE key='day_start_hour'").fetchone()
+        return json.loads(row[0]) if row else 4
+
+    def current_business_day(self):
+        """Today's business day for reading (never refuses, unlike posting)."""
+        try:
+            return self.business_day_for(None)
+        except ShopError:
+            return today()
+
+    def business_day_for(self, user_id=None):
+        """The business day a posting belongs to (gap row 15):
+        1. the person's open shift: the day the shift was opened on (a sale at 01:30 in a
+           shift opened at 18:00 is that evening's);
+        2. otherwise the shop's day-start hour (default 4 a.m.);
+        3. a closed day takes nothing more: work after the close starts the next day; a
+           clock set back BEFORE the closed day is refused, never posted into the past."""
+        closed = self.db.execute("SELECT MAX(day) FROM day_closes").fetchone()[0]
+        if closed is not None and today() < closed:          # the clock is behind a closed day: refuse, for everyone
+            raise ShopError("day_closed", {"day": closed})
+        if user_id is not None:
+            row = self.db.execute("SELECT COALESCE(business_day, substr(opened_at,1,10)) FROM shifts WHERE user_id=? AND closed_at IS NULL",
+                                  (user_id,)).fetchone()
+            if row:
+                return row[0]
+        day = business_day_at(now(), self.day_start_hour())
+        if closed is not None and day <= closed:
+            day = add_days(closed, 1)
+        return day
+
     def scalar(self, sql, args=()):
         row = self.db.execute(sql, args).fetchone()
         return row[0] if row else None
@@ -154,13 +185,10 @@ class Store:
                     result = json.loads(old[1])
                     result["replayed"] = True
                     return result
-                # a closed day takes no new posting (a clock set back cannot reopen it); a replay above still answers
-                closed = self.db.execute("SELECT MAX(day) FROM day_closes").fetchone()[0]
-                if closed is not None and today() <= closed:
-                    raise ShopError("day_closed", {"day": closed})
+                day = self.business_day_for(actor["id"])
                 cur = self.db.execute(
-                    "INSERT INTO ops(kind,key,fingerprint,user_id,workstation,at) VALUES(?,?,?,?,?,?)",
-                    (kind, key, fingerprint, actor["id"], actor.get("workstation"), now_iso()))
+                    "INSERT INTO ops(kind,key,fingerprint,user_id,workstation,at,business_day) VALUES(?,?,?,?,?,?,?)",
+                    (kind, key, fingerprint, actor["id"], actor.get("workstation"), now_iso(), day))
                 op_id = cur.lastrowid
                 result = work(op_id)
                 result["op"] = op_id

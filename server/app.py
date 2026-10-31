@@ -157,7 +157,7 @@ class App:
     def state(self, actor, q, body):
         s = self.shop.settings()
         return {"version": VERSION, "mode": self.store.mode, "setup_needed": not self.auth.has_users(),
-                "user": actor, "shop_name": s["shop_name"], "instance": s.get("instance_id"), "lan": self.lan,
+                "user": actor, "shop_name": s["shop_name"], "business_day": self.store.current_business_day(), "instance": s.get("instance_id"), "lan": self.lan,
                 "training_login": {"users": [u for u, _, _ in training.TRAINING_USERS], "password": training.TRAINING_PASSWORD}
                 if self.store.mode == "training" else None}
 

@@ -222,8 +222,9 @@ class OpenRows(ShopFixture, unittest.TestCase):
         shift = self.store.scalar("SELECT id FROM shifts")
         self.shop.close_shift(self.manager, key(), self.shop.shift_expected(shift))
         closed = self.shop.close_day(self.owner, key(), "2026-10-30")
-        self.assertEqual(self.code(self.shop.receive, self.owner, key(), {"lines": [{"product_id": p, "qty": 1, "line_cost": 1,
-                                                                                      "location_id": self.shelf}]}), "day_closed")
+        # work after the close belongs to the NEXT business day; the closed day takes nothing (gap row 15)
+        late = self.shop.receive(self.owner, key(), {"lines": [{"product_id": p, "qty": 1, "line_cost": 1, "location_id": self.shelf}]})
+        self.assertEqual(self.store.scalar("SELECT business_day FROM ops WHERE id=?", (late["op"],)), "2026-10-31")
         self.advance(1)
         status = self.shop.day_status(self.owner, "2026-10-30")
         self.assertTrue(status["snapshot_ok"])
@@ -231,8 +232,8 @@ class OpenRows(ShopFixture, unittest.TestCase):
         self.open_shift(self.cash1, 5000)
         entry = self.store.scalar("SELECT id FROM customer_entries WHERE kind='payment'")
         # a correction of a closed day's money needs close_day, whoever may otherwise post it
-        sale_at = self.store.scalar("SELECT at FROM sales")
-        self.assertRaises(Forbidden, self.store.tx, lambda: self.shop._note_correction(1, sale_at, "x", "y", "z", self.cash1, True))
+        sale_op = self.store.scalar("SELECT op_id FROM sales")
+        self.assertRaises(Forbidden, self.store.tx, lambda: self.shop._note_correction(1, sale_op, "x", "y", "z", self.cash1, True))
         self.open_shift(self.manager, 5000)
         self.shop.reverse_customer_payment(self.manager, key(), entry, "wrong customer")   # manager holds close_day
         status = self.shop.day_status(self.owner, "2026-10-30")
