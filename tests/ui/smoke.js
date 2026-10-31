@@ -66,13 +66,26 @@ const out = process.argv[3] || '.';
   await page.fill('input[type=password]', 'training-only');
   await page.click('button[type=submit]');
   await page.waitForSelector('.sidebar');
-  for (const v of ['today', 'reports', 'stock', 'prepare', 'receive', 'count', 'catalog', 'scanner', 'settings', 'help', 'returns', 'cash']) {
+  for (const v of ['today', 'reports', 'parties', 'stock', 'prepare', 'receive', 'count', 'catalog', 'scanner', 'settings', 'help', 'returns', 'cash']) {
     await page.goto(base + '/#' + v);
     await page.waitForTimeout(600);
     const txt = await page.textContent('#view');
-    if (/err\.|undefined|NaN|null/.test(txt)) errors.push(v + ': suspicious text ' + (txt.match(/.{0,30}(err\.|undefined|NaN|null).{0,30}/) || [''])[0]);
-    if (['today', 'prepare', 'scanner', 'reports'].includes(v)) await page.screenshot({ path: out + '/' + v + '-ar.png', fullPage: true });
+    const rawKey = txt.match(/\b(?:nav|party|scn|safe|recall|refund|pay|stock|ret|rep|cash|cat|recv|prep|lots|count|set|lbl|help|pending|entry|scan|receipt|state|kind|role|waste|origin)\.[a-z_0-9.]+/);
+    if (rawKey) errors.push(v + ': untranslated key ' + rawKey[0]);
+    if (/err\.|undefined|NaN|null|\[object/.test(txt)) errors.push(v + ': suspicious text ' + (txt.match(/.{0,30}(err\.|undefined|NaN|null).{0,30}/) || [''])[0]);
+    if (['today', 'prepare', 'scanner', 'reports', 'parties', 'cash'].includes(v)) await page.screenshot({ path: out + '/' + v + '-ar.png', fullPage: true });
   }
+  // the same screens in English + night: every key has an English text
+  await page.evaluate(() => { localStorage.setItem('sm.theme', '"night"'); localStorage.setItem('sm.lang', '"en"'); });
+  for (const v of ['today', 'reports', 'parties', 'stock', 'prepare', 'receive', 'count', 'catalog', 'scanner', 'settings', 'help', 'returns', 'cash']) {
+    await page.goto(base + '/#' + v); await page.reload(); await page.waitForTimeout(500);
+    const txt = await page.textContent('#view');
+    if (/[\u0600-\u06FF]{3,}/.test(txt.replace(/سوبر ماركت التدريب|[\u0600-\u06FF ()١-٩]+تدريب[^a-z]*/g, '')) && ['help', 'scanner'].includes(v))   // other screens show shop data (names) in Arabic
+      errors.push(v + ': Arabic text in English mode');
+    if (/undefined|NaN|\[object/.test(txt)) errors.push(v + ' (en): suspicious text');
+  }
+  await page.screenshot({ path: out + '/cash-en-night.png', fullPage: true });
+  await page.evaluate(() => { localStorage.setItem('sm.theme', '"daylight"'); localStorage.setItem('sm.lang', '"ar"'); });
   console.log(JSON.stringify({ status, qtyHasThree: /3/.test(qtyText), cartPreview: qtyText.slice(0, 200), cleared, receiptHasTraining: /تدريب/.test(receipt), overflow, errors }, null, 1));
   await browser.close();
 })().catch(e => { console.error(e); process.exit(1); });

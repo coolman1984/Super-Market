@@ -141,12 +141,15 @@ class Store:
         with self.lock:
             self.db.execute("BEGIN IMMEDIATE")
             try:
-                old = self.db.execute("SELECT o.fingerprint, r.result FROM ops o JOIN op_results r "
-                                      "ON r.op_id=o.id WHERE o.kind=? AND o.key=?",
+                old = self.db.execute("SELECT o.fingerprint, r.result, o.user_id, o.workstation FROM ops o "
+                                      "JOIN op_results r ON r.op_id=o.id WHERE o.kind=? AND o.key=?",
                                       (kind, key)).fetchone()
                 if old:
                     if old[0] != fingerprint:
                         raise Conflict("request_key_reused")
+                    # a replay answers only the user and till that created the operation
+                    if old[2] != actor["id"] or old[3] != actor.get("workstation"):
+                        raise Conflict("request_key_other_user")
                     self.db.execute("COMMIT")
                     result = json.loads(old[1])
                     result["replayed"] = True

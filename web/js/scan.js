@@ -67,26 +67,48 @@ SM.scanner = {
     }, true);
   },
 
-  /* Serial / TCP scanners through the shop server. */
+  /* Serial / TCP scanners through the shop server. The server binds each
+     device to one till; this window claims the till's lease (audit R09), and
+     follows the server's epoch so a restart never freezes reading (R13). */
+  window_id: null,
+  epoch: null,
   async startEvents() {
-    if (this.polling || !['serial', 'tcp'].includes(this.profile.connection) || !SM.can('scanner_setup')) return;
+    if (this.polling || !['serial', 'tcp'].includes(this.profile.connection)) return;
     this.polling = true;
-    try { const first = await SM.api('GET', '/api/scanner/events?after=0&wait=0'); this.lastEvent = first.last; } catch (e) { this.polling = false; return; }
-    while (this.polling && SM.state.user) {
+    const session = SM.state.session;
+    this.window_id = this.window_id || SM.newKey();
+    try {
+      const c = await SM.api('POST', '/api/scanner/claim', { window: this.window_id });
+      this.epoch = c.epoch; this.lastEvent = c.last;
+    } catch (e) { this.polling = false; return; }
+    while (this.polling && SM.state.user && session === SM.state.session) {
       try {
-        const r = await SM.api('GET', '/api/scanner/events?wait=15&after=' + this.lastEvent + (this.profile.device_id ? '&device=' + encodeURIComponent(this.profile.device_id) : ''));
+        const r = await SM.api('GET', '/api/scanner/events?wait=15&window=' + this.window_id + '&after=' + this.lastEvent +
+          '&epoch=' + encodeURIComponent(this.epoch || ''));
+        if (session !== SM.state.session) break;            // a reply for a user who has left
         SM.state.devices = r.devices;
+        if (r.restarted) SM.toast(SM.t('scan.server_restarted'), 'bad');
+        if (r.missed) SM.toast(SM.t('scan.missed', { n: r.missed }), 'bad');
+        this.epoch = r.epoch;
         for (const ev of r.events) {
-          if (ev.id <= this.lastEvent) continue;      // same event delivered twice -> once
+          if (ev.id <= this.lastEvent && !r.restarted) continue;   // same event twice -> once
           this.lastEvent = ev.id;
           this.deliver(ev.text, 'device');
         }
-        if (!r.events.length) this.lastEvent = Math.max(this.lastEvent, r.last);
+        if (!r.events.length) this.lastEvent = r.last;
       } catch (e) {
+        if (e.code === 'scanner_taken_by_other_window') {
+          this.polling = false;
+          SM.toast(SM.t('scan.taken_elsewhere'), 'bad');
+          break;
+        }
         await new Promise(r => setTimeout(r, 3000));
       }
     }
+    this.polling = false;
   },
+  /* "Use the scanner here": take the lease back for this window. */
+  async takeOver() { this.polling = false; await new Promise(r => setTimeout(r, 50)); this.startEvents(); },
   stop() { this.polling = false; },
 
   /* Feedback: text always; sound only if the cashier enabled it. */

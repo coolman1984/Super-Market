@@ -3,7 +3,7 @@
    textContent, so scanned or typed values can never become markup. */
 'use strict';
 
-const SM = window.SM = { state: { user: null, mode: 'shop', settings: {}, lang: 'ar' } };
+const SM = window.SM = { state: { user: null, mode: 'shop', settings: {}, lang: 'ar', session: 0 }, draftResets: [] };
 
 /* ---------- DOM ---------- */
 function h(tag, attrs, ...children) {
@@ -17,7 +17,7 @@ function h(tag, attrs, ...children) {
     else if (k === 'value') el.value = v;
     else el.setAttribute(k, v === true ? '' : v);
   }
-  for (const c of children.flat()) {
+  for (const c of children.flat(Infinity)) {   // nested [dt, dd] pairs stay elements (audit R16)
     if (c === null || c === undefined || c === false) continue;
     el.append(c instanceof Node ? c : document.createTextNode(String(c)));
   }
@@ -128,15 +128,38 @@ SM.api = async function (method, path, body) {
 };
 /* A command keeps its key across retries: a lost reply never sells twice.
    The caller keeps `key` for the whole attempt (including approval retries). */
+/* Audit S03: an operation whose answer was lost keeps its key until the
+   server's answer is known - across closed dialogs, double clicks and page
+   reloads. It is stored per user + till + mode, without any password. */
+SM.pendingSlot = () => 'pending.' + (SM.state.user ? SM.state.user.id : 0) + '.' + SM.workstation() + '.' + SM.state.mode;
+SM.pendingOps = () => SM.prefs.get(SM.pendingSlot(), []);
+function savePending(list) { SM.prefs.set(SM.pendingSlot(), list); }
 SM.command = async function (path, key, payload, extra, tries = 3) {
   const body = Object.assign({ key, payload }, extra || {});
+  const safeExtra = Object.assign({}, extra || {}); delete safeExtra.approval;
+  savePending(SM.pendingOps().filter(p => p.key !== key).concat([{ path, key, payload, extra: safeExtra, at: Date.now() }]));
   for (let i = 0; ; i++) {
-    try { return await SM.api('POST', path, body); }
-    catch (e) {
+    try {
+      const r = await SM.api('POST', path, body);
+      savePending(SM.pendingOps().filter(p => p.key !== key));
+      return r;
+    } catch (e) {
       if (e.code === 'network' && i < tries - 1) { await new Promise(r => setTimeout(r, 600 * (i + 1))); continue; }
+      if (e.code !== 'network' && e.status !== 0 && e.status < 500) savePending(SM.pendingOps().filter(p => p.key !== key));
+      if (e.code === 'network') e.unknownResult = true;   // saved or not: unknown until resent with this key
       throw e;
     }
   }
+};
+/* Resend every unknown operation with its own key: the server answers with the
+   stored result if it was saved, or performs it once if it was not. */
+SM.resolvePending = async function () {
+  const out = [];
+  for (const p of SM.pendingOps()) {
+    try { out.push({ op: p, result: await SM.command(p.path, p.key, p.payload, p.extra, 1) }); }
+    catch (e) { out.push({ op: p, error: e }); }
+  }
+  return out;
 };
 /* Run a command; when the server asks for a manager, ask, then resend with the same key. */
 SM.commandWithApproval = async function (path, key, payload) {
@@ -272,3 +295,16 @@ SM.applyPrefs = () => {
 };
 /* replaceChildren that skips null/false placeholders used for optional parts. */
 SM.put = (el, ...kids) => el.replaceChildren(...kids.flat(Infinity).filter(c => c !== null && c !== undefined && c !== false));
+/* Audit S03: a button that runs a command owns ONE key for its form; double
+   clicks are ignored while a request is in flight, and a retry after a lost
+   answer re-sends the same key (the server returns the saved result). */
+SM.guard = function (fn) {
+  let busy = false;
+  return async function (ev) {
+    if (busy) return;
+    busy = true;
+    const btn = ev && ev.currentTarget;
+    if (btn) btn.disabled = true;
+    try { await fn(ev); } finally { busy = false; if (btn && btn.isConnected) btn.disabled = false; }
+  };
+};

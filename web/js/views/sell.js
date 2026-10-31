@@ -3,7 +3,11 @@
 
 (function () {
   const { h, t, icon } = SM;
-  const cart = { lines: [], invoiceDiscount: 0, customer: null };
+  /* The cart belongs to one user, till and mode (audit R17); logout empties it. */
+  const cart = { lines: [], invoiceDiscount: 0, customer: null, owner: null, key: null, unknown: false };
+  function resetCart() { Object.assign(cart, { lines: [], invoiceDiscount: 0, customer: null, key: null, unknown: false }); }
+  const ownerOf = () => [SM.state.user && SM.state.user.id, SM.workstation(), SM.state.mode].join('|');
+  SM.draftResets.push(() => { resetCart(); cart.owner = null; });
   let shift = null;
 
   function lineAmount(l) {
@@ -18,8 +22,12 @@
   }
 
   async function addScan(raw, view) {
+    if (cart.unknown) { SM.toast(t('pending.sale_unknown'), 'bad'); return; }
+    const session = SM.state.session, owner = cart.owner;
     let r;
     try { r = await SM.api('POST', '/api/scan', { raw }); } catch (e) { SM.fail(e); SM.scanner.beep(false); return; }
+    if (session !== SM.state.session || owner !== cart.owner) return;   // answer for a previous user/session
+    cart.key = null;                                                     // the cart changed: a new sale
     view.lastScan(r, raw);
     if (!r.ok) { SM.scanner.beep(false); return; }
     if (r.pack) {
@@ -69,8 +77,8 @@
       const rows = await SM.api('GET', '/api/products?q=' + encodeURIComponent(q.value)).catch(() => []);
       SM.put(list, ...rows.filter(r => ['grocery', 'raw_meat', 'prepared'].includes(r.kind)).map(r => h('button', { class: 'pick', onclick: async () => {
         d.close();
-        if (r.measure === 'g') { const g = await askWeight(r); if (g) { cart.lines.push({ product: r, qty: g, manualWeight: true }); view.render(); } }
-        else { addProduct(r, 1, null); view.render(); }
+        if (r.measure === 'g') { const g = await askWeight(r); if (g) { cart.key = null; cart.lines.push({ product: r, qty: g, manualWeight: true }); view.render(); } }
+        else { cart.key = null; addProduct(r, 1, null); view.render(); }
       } }, h('b', { text: SM.name(r) }), h('span', { class: 'muted', text: r.code }), SM.num(r.price === null ? '—' : SM.money(r.price)),
         h('span', { class: 'muted' }, t('sell.available'), ' ', SM.qty(r.available, r.measure)))));
     };
@@ -79,11 +87,25 @@
     run();
   }
 
-  function payDialog(view) {
-    const tot = totals();
+  function cartPayload() {
+    return {
+      lines: cart.lines.map(l => l.pack ? { pack_code: l.pack.code, scanned: l.scanned } : { product_id: l.product.id, qty: l.qty, scanned: l.scanned || null, line_discount: l.discount || 0 }),
+      invoice_discount: cart.invoiceDiscount, customer_id: cart.customer || undefined,
+    };
+  }
+
+  /* The total shown at payment comes from the server (audit R14); a change
+     after that shows old and new total and needs the cashier's OK. */
+  async function payDialog(view) {
     if (!cart.lines.length) return;
-    if (tot.unknown) { SM.toast(t('err.no_price', {}), 'bad'); return; }
-    const key = SM.newKey();              // one key for this payment attempt
+    if (cart.unknown) { return verifyUnknown(view); }
+    let quote;
+    try { quote = await SM.api('POST', '/api/quote', { payload: cartPayload() }); } catch (e) { SM.fail(e); return; }
+    const estimate = totals();
+    const tot = { total: quote.total };
+    // the key belongs to this cart until its answer is known (audit S03)
+    cart.key = cart.key || SM.newKey();
+    const key = cart.key;
     const cash = h('input', { class: 'input big', inputmode: 'decimal', autocomplete: 'off', maxlength: '12', 'aria-label': t('pay.cash_received') });
     const changeOut = h('div', { class: 'pay-change' });
     const others = [];
@@ -108,6 +130,12 @@
       }
       amount.focus();
     };
+    const totalBox = h('div', { class: 'pay-total' });
+    function showTotal(note) {
+      SM.put(totalBox, t('sell.total'), ' ', SM.num(SM.moneyText(tot.total)), ' ', h('span', { class: 'badge ok', text: t('pay.server_price') }),
+        note ? h('div', { class: 'badge warn', text: note }) : null);
+    }
+    showTotal(estimate.total !== quote.total ? t('pay.price_updated', { old: SM.money(estimate.total), now: SM.money(quote.total) }) : null);
     function update() {
       let nonCash = 0, bad = false;
       for (const o of others) { const v = SM.parseMoney(o.amount.value || '0'); if (v === null) bad = true; else nonCash += v; }
@@ -138,56 +166,86 @@
       const v = update();
       if (!v || busy) return;
       busy = true; payBtn.disabled = true; payBtn.textContent = t('pay.saving');
-      const payload = {
-        lines: cart.lines.map(l => l.pack ? { pack_code: l.pack.code, scanned: l.scanned } : { product_id: l.product.id, qty: l.qty, scanned: l.scanned || null, line_discount: l.discount || 0 }),
-        invoice_discount: cart.invoiceDiscount, customer_id: cart.customer || undefined,
+      const payload = Object.assign(cartPayload(), {
         payments: others.map(o => ({ method: o.method, amount: SM.parseMoney(o.amount.value || '0'), reference: o.ref.value || undefined })).filter(p => p.amount > 0),
-        cash_tendered: v.due > 0 ? v.got : 0,
-      };
+        cash_tendered: v.due > 0 ? v.got : 0, expected_total: tot.total,
+      });
       try {
         const sale = await SM.commandWithApproval('/api/sales', key, payload);
         d.close();
-        cart.lines = []; cart.invoiceDiscount = 0; cart.customer = null;
+        resetCart();
         view.render();
         receiptDialog(sale);
       } catch (e) {
-        SM.fail(e);
         busy = false; payBtn.disabled = false; payBtn.textContent = t('pay.confirm');
+        if (e.code === 'price_changed') {
+          // nothing was saved; show the new total and let the cashier redo the cash
+          const old = tot.total;
+          tot.total = e.detail.total;
+          showTotal(t('pay.price_changed', { old: SM.money(old), now: SM.money(tot.total) }));
+          cash.value = ''; update();
+          return;
+        }
+        if (e.unknownResult) {
+          cart.unknown = true;               // the sale may be saved: same key until we know
+          d.close(); view.render();
+          SM.toast(t('pending.sale_unknown'), 'bad');
+          return;
+        }
+        SM.fail(e);
       }
     };
     const d = SM.dialog({ title: t('pay.title'), wide: true,
-      body: [h('div', { class: 'pay-total' }, t('sell.total'), ' ', SM.num(SM.moneyText(tot.total))),
-        SM.field(t('pay.cash_received'), cash, t('pay.cash_help')), quick, h('h3', { text: t('pay.other') }), methods, otherBox, changeOut],
+      body: [totalBox, SM.field(t('pay.cash_received'), cash, t('pay.cash_help')), quick, h('h3', { text: t('pay.other') }), methods, otherBox, changeOut],
       actions: [h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => d.close() }), payBtn] });
     update();
   }
 
+  /* Ask the server with the SAME key whether the last sale was saved. */
+  async function verifyUnknown(view) {
+    const op = SM.pendingOps().find(p => p.key === cart.key);
+    if (!op) { cart.unknown = false; view.render(); return; }
+    try {
+      const sale = await SM.command(op.path, op.key, op.payload, op.extra, 1);
+      resetCart(); view.render(); receiptDialog(sale);
+    } catch (e) {
+      if (e.unknownResult) { SM.toast(t('pending.still_unknown'), 'bad'); return; }
+      cart.unknown = false; cart.key = null; view.render(); SM.fail(e);   // definite answer: not saved
+    }
+  }
+
   function receiptDialog(sale) {
-    const paper = SM.receipt(sale);
-    const d = SM.dialog({ title: t('receipt.title', { no: sale.no }),
-      body: [h('div', { class: 'change-big' }, t('pay.change'), ' ', SM.num(SM.moneyText(sale.change))), paper],
-      actions: [h('button', { class: 'btn', onclick: () => SM.printReceipt(sale) }, icon('print'), t('receipt.print')),
+    const model = sale.receipt || sale;
+    const paper = SM.receipt(model);
+    const d = SM.dialog({ title: t('receipt.title', { no: model.no }),
+      body: [h('div', { class: 'change-big' }, t('pay.change'), ' ', SM.num(SM.moneyText(model.change))), paper],
+      actions: [h('button', { class: 'btn', onclick: () => SM.printReceipt(model) }, icon('print'), t('receipt.print')),
         h('button', { class: 'btn primary', text: t('sell.new'), onclick: () => d.close(), autofocus: true })] });
   }
 
-  SM.receipt = function (sale) {
-    const s = SM.state;
+  /* One receipt for first print and reprint, from the server model (audit R18):
+     the SAVED sale time, effective payment states, discounts and training mark. */
+  SM.receipt = function (r) {
+    const lang = SM.state.lang;
     const L = (a, b) => h('div', { class: 'rc-line' }, h('span', { text: a }), SM.num(b));
-    return h('div', { class: 'receipt' + (s.mode === 'training' ? ' training' : '') },
-      s.mode === 'training' ? h('div', { class: 'rc-train', text: t('receipt.training') }) : null,
-      h('div', { class: 'rc-shop', text: s.settings.shop_name || t('app.name') }),
+    const at = r.at ? new Date(r.at).toLocaleString(lang === 'ar' ? 'ar-EG-u-nu-latn' : 'en-GB', { timeZone: 'Africa/Cairo' }) : '—';
+    return h('div', { class: 'receipt' + (r.training ? ' training' : '') },
+      r.training ? h('div', { class: 'rc-train', text: t('receipt.training') }) : null,
+      r.reprint ? h('div', { class: 'rc-train', text: t('receipt.reprint') }) : null,
+      h('div', { class: 'rc-shop', text: r.shop_name || t('app.name') }),
       h('div', { class: 'rc-kind', text: t('receipt.not_tax') }),
-      L(t('receipt.no'), sale.no), L(t('receipt.date'), new Date().toLocaleString(s.lang === 'ar' ? 'ar-EG' : 'en-GB')),
+      L(t('receipt.no'), r.no), L(t('receipt.date'), at), r.cashier ? L(t('receipt.cashier'), r.cashier) : null,
       h('hr'),
-      sale.lines.map(l => h('div', { class: 'rc-item' }, h('div', { text: s.lang === 'ar' ? l.name_ar : l.name_en }),
+      (r.lines || []).map(l => h('div', { class: 'rc-item' }, h('div', { text: lang === 'ar' ? l.name_ar : l.name_en }),
         L(SM.qty(l.qty, l.measure) + ' × ' + SM.money(l.unit_price), SM.money(l.gross)),
         l.discount ? L(t('receipt.discount'), '-' + SM.money(l.discount)) : null)),
       h('hr'),
-      L(t('sell.total'), SM.money(sale.total)),
-      sale.payments.map(p => L(t('pay.m.' + p.method) + (p.state === 'pending' ? ' (' + t('state.pending') + ')' : ''), SM.money(p.amount))),
-      sale.cash_due ? L(t('pay.m.cash'), SM.money(sale.tendered)) : null,
-      sale.change ? L(t('pay.change'), SM.money(sale.change)) : null,
-      h('div', { class: 'rc-foot', text: s.settings.receipt_footer || '' }));
+      r.discount ? L(t('receipt.discount'), '-' + SM.money(r.discount)) : null,
+      L(t('sell.total'), SM.money(r.total)),
+      (r.payments || []).map(p => L(t('pay.m.' + p.method) + (p.state !== 'settled' ? ' (' + t('state.' + p.state) + ')' : ''), SM.money(p.amount))),
+      r.cash_tendered ? L(t('pay.cash_received'), SM.money(r.cash_tendered)) : null,
+      r.change ? L(t('pay.change'), SM.money(r.change)) : null,
+      h('div', { class: 'rc-foot', text: r.footer || '' }));
   };
   SM.printReceipt = function (sale) {
     let area = document.getElementById('print');
@@ -200,6 +258,7 @@
   SM.views.sell = {
     icon: 'cart', perm: 'sell',
     async mount(root) {
+      if (cart.owner !== ownerOf()) { resetCart(); cart.owner = ownerOf(); }
       try { shift = await SM.api('GET', '/api/shift'); } catch (e) { shift = null; }
       const scanInput = SM.scanner.field({});
       const status = h('div', { class: 'scan-status', role: 'status', 'aria-live': 'polite' });
@@ -220,20 +279,22 @@
               l.pack ? h('div', { class: 'muted ltr', text: t('sell.pack') + ' ' + l.pack.code }) : null,
               l.manualWeight ? h('div', { class: 'badge warn', text: t('sell.manual_weight') }) : null) },
             { label: t('sell.qty'), render: l => h('div', { class: 'row qty-cell' },
-              !l.pack && l.product.measure !== 'g' ? h('button', { class: 'icon-btn', 'aria-label': t('less'), onclick: () => { l.qty > 1 ? l.qty-- : cart.lines.splice(cart.lines.indexOf(l), 1); view.render(); } }, icon('minus')) : null,
+              !l.pack && l.product.measure !== 'g' ? h('button', { class: 'icon-btn', 'aria-label': t('less'), onclick: () => { cart.key = null; l.qty > 1 ? l.qty-- : cart.key = null; cart.lines.splice(cart.lines.indexOf(l), 1); view.render(); } }, icon('minus')) : null,
               SM.num(SM.qty(l.qty, l.product.measure)),
-              !l.pack && l.product.measure !== 'g' ? h('button', { class: 'icon-btn', 'aria-label': t('more'), onclick: () => { l.qty++; view.render(); } }, icon('plus')) : null) },
+              !l.pack && l.product.measure !== 'g' ? h('button', { class: 'icon-btn', 'aria-label': t('more'), onclick: () => { cart.key = null; l.qty++; view.render(); } }, icon('plus')) : null) },
             { label: t('sell.price'), num: true, render: l => SM.num(l.pack ? SM.money(l.pack.price) : SM.money(l.product.price) + (l.product.measure === 'g' ? ' / ' + t('unit.kg') : '')) },
             { label: t('sell.amount'), num: true, render: l => SM.num(SM.money(lineAmount(l))) },
-            { label: '', render: l => h('button', { class: 'icon-btn', 'aria-label': t('remove'), onclick: () => { cart.lines.splice(cart.lines.indexOf(l), 1); view.render(); } }, icon('trash')) },
+            { label: '', render: l => h('button', { class: 'icon-btn', 'aria-label': t('remove'), onclick: () => { cart.key = null; cart.lines.splice(cart.lines.indexOf(l), 1); view.render(); } }, icon('trash')) },
           ], cart.lines) : SM.empty(t('sell.empty'), t('sell.empty_hint')));
-          SM.put(side, 
+          SM.put(side,
+            cart.unknown ? h('div', { class: 'tip warn-tip', role: 'alert' }, h('div', {}, h('b', { text: t('pending.sale_unknown') }),
+              h('button', { class: 'btn primary sm block', text: t('pending.check'), onclick: () => verifyUnknown(view) }))) : null,
             h('div', { class: 'tot-row' }, h('span', { text: t('sell.items') }), SM.num(String(cart.lines.length))),
             cart.invoiceDiscount ? h('div', { class: 'tot-row' }, h('span', { text: t('sell.discount') }), SM.num('-' + SM.money(cart.invoiceDiscount))) : null,
             h('div', { class: 'tot-big' }, h('span', { text: t('sell.total') }), SM.num(SM.moneyText(tot.total))),
-            h('button', { class: 'btn primary lg block', disabled: !cart.lines.length || !shift, onclick: () => payDialog(view) }, t('sell.pay'), h('span', { class: 'kbd', text: 'F9' })),
+            h('button', { class: 'btn primary lg block', disabled: !cart.lines.length || !shift || cart.unknown, onclick: () => payDialog(view) }, t('sell.pay'), h('span', { class: 'kbd', text: 'F9' })),
             h('button', { class: 'btn ghost block', disabled: !cart.lines.length, onclick: () => discountDialog(view) }, t('sell.discount_btn')),
-            h('button', { class: 'btn ghost block', disabled: !cart.lines.length, onclick: async () => { if (await SM.confirm(t('sell.clear'), t('sell.clear_q'))) { cart.lines = []; cart.invoiceDiscount = 0; view.render(); } } }, t('sell.clear')));
+            h('button', { class: 'btn ghost block', disabled: !cart.lines.length, onclick: async () => { if (await SM.confirm(t('sell.clear'), t('sell.clear_q'))) { cart.key = null; cart.lines = []; cart.invoiceDiscount = 0; view.render(); } } }, t('sell.clear')));
           scanInput.focus();
         },
       };
@@ -266,7 +327,7 @@
         h('button', { class: 'btn primary', text: t('save'), onclick: () => {
           const v = input.value ? SM.parseMoney(input.value) : 0;
           if (v === null || v > totals().gross) { SM.toast(t('err.bad_amount'), 'bad'); return; }
-          cart.invoiceDiscount = v; d.close(); view.render();
+          cart.key = null; cart.invoiceDiscount = v; d.close(); view.render();
         } })] });
   }
 })();

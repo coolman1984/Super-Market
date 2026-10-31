@@ -71,7 +71,11 @@ class Api(unittest.TestCase):
         self.login("c", "cashier-pass")
         self.assertEqual(self.call("POST", "/api/shift/open", {"key": key(), "opening_float": 10000})[0], 200)
         k = key()
-        sale = {"key": k, "payload": {"lines": [{"product_id": prod["id"], "qty": 2}], "cash_tendered": 5000}}
+        cart = {"lines": [{"product_id": prod["id"], "qty": 2}]}
+        status, err = self.call("POST", "/api/sales", {"key": k, "payload": dict(cart, cash_tendered=5000)})
+        self.assertEqual((status, err["error"]), (400, "quote_required"))       # R14: no silent pricing
+        quote = self.call("POST", "/api/quote", {"payload": cart})[1]
+        sale = {"key": k, "payload": dict(cart, cash_tendered=5000, expected_total=quote["total"])}
         status, first = self.call("POST", "/api/sales", sale)
         self.assertEqual((status, first["change"]), (200, 3000))
         self.assertNotIn("cost", first)
@@ -82,11 +86,14 @@ class Api(unittest.TestCase):
             self.assertEqual(self.call("GET", path)[0], 403, path)
         stock = self.call("GET", "/api/stock")[1]
         self.assertNotIn("cost", stock[0])
-        status, err = self.call("POST", "/api/sales", {"key": key(), "payload": {"lines": [{"product_id": 999, "qty": 1}]}})
+        status, err = self.call("POST", "/api/sales", {"key": key(), "payload": {"lines": [{"product_id": 999, "qty": 1}], "expected_total": 0}})
         self.assertEqual((status, err["error"]), (400, "unknown_product"))
         status, err = self.call("POST", "/api/sales", {"key": key(), "payload": "junk"})
         self.assertEqual(status, 400)
         self.assertNotIn("Traceback", json.dumps(err))
+        # R18: reprint keeps the saved sale time and says it is a reprint
+        reprint = self.call("GET", "/api/sales/%d/receipt" % first["sale"])[1]
+        self.assertEqual((reprint["at"], reprint["reprint"]), (first["receipt"]["at"], True))
         # static files cannot escape the web folder
         self.assertEqual(self.call("GET", "/../server/app.py")[0], 404)
         self.call("POST", "/api/logout", {})
@@ -105,6 +112,20 @@ class Api(unittest.TestCase):
         self.assertEqual(conn.getresponse().status, 400)
         conn.close()
         self.assertEqual(self.call("GET", "/api/products?limit=abc")[0], 401)
+
+    def test_r09_scanner_events_reach_only_the_bound_till_and_its_active_window(self):
+        self.call("POST", "/api/setup", {"username": "boss", "name": "Boss", "password": "long-enough-1"})
+        hub = self.httpd.app.hub
+        hub.bindings = {"dev-1": "till-1"}
+        self.login("boss", "long-enough-1")                               # logs in as workstation till-1
+        claim = self.call("POST", "/api/scanner/claim", {"window": "w1"})[1]
+        hub.push("dev-1", "6221234567890")
+        hub.push("dev-2", "999")                                         # a device of no / another till
+        r = self.call("GET", "/api/scanner/events?wait=0&window=w1&after=0&epoch=" + claim["epoch"])[1]
+        self.assertEqual([e["text"] for e in r["events"]], ["6221234567890"])
+        self.call("POST", "/api/scanner/claim", {"window": "w2"})       # the same till opens a second window
+        status, err = self.call("GET", "/api/scanner/events?wait=0&window=w1&after=0")
+        self.assertEqual((status, err["error"]), (409, "scanner_taken_by_other_window"))
 
     def test_login_lockout(self):
         self.call("POST", "/api/setup", {"username": "boss", "name": "Boss", "password": "long-enough-1"})

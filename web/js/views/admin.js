@@ -169,20 +169,23 @@
         const bits = SM.select([{ value: 8, label: '8' }, { value: 7, label: '7' }], existing.bits || 8);
         const stop = SM.select([{ value: 1, label: '1' }, { value: 2, label: '2' }], existing.stop || 1);
         const suffix = SM.select(['CR', 'LF', 'CRLF', 'TAB', 'ETX', 'EOT'].map(s => ({ value: s, label: s })), existing.suffix || 'CR');
+        const till = h('input', { class: 'input ltr', value: existing.workstation || SM.workstation() });
         const live = h('div', { class: 'scan-result' });
-        const statusBox = h('div', {}, ports.devices.map(d => h('div', {}, h('b', { class: 'ltr', text: d.id }), ' ', SM.badge(d.status === 'connected' ? 'available' : 'held'), ' ', t('scn.st.' + d.status), d.error ? h('div', { class: 'muted ltr', text: d.error }) : null)));
+        const statusBox = h('div', {}, ports.devices.map(d => h('div', {}, h('b', { class: 'ltr', text: d.id }), ' ', SM.badge(d.status === 'connected' ? 'available' : 'held'), ' ', t('scn.st.' + d.status),
+          d.workstation ? h('span', { class: 'muted' }, ' — ', t('scn.bound_to'), ' ', h('code', { class: 'ltr', text: d.workstation })) : null, d.error ? h('div', { class: 'muted ltr', text: d.error }) : null)));
         const save = h('button', { class: 'btn primary', text: t('scn.save_device'), disabled: !SM.can('settings'), onclick: async () => {
-          const dev = { id: id.value, type, suffix: suffix.value, enabled: true };
+          const dev = { id: id.value, type, suffix: suffix.value, enabled: true, workstation: till.value.trim() };
           if (type === 'serial') Object.assign(dev, { port: port.value, baud: parseInt(baud.value, 10), parity: parity.value, bits: parseInt(bits.value, 10), stop: parseInt(stop.value, 10) });
           else Object.assign(dev, { host: host.value, port: parseInt(port.value, 10) });
           const others = (settings.scanner_devices || []).filter(d => d.id !== dev.id);
           try { await SM.api('POST', '/api/scanner/devices', { devices: [...others, dev] }); await saveProfile({ device_id: dev.id }); SM.go('scanner'); } catch (e) { SM.fail(e); }
         } });
         let stopLive = false;
-        (async () => {
-          let after = (await SM.api('GET', '/api/scanner/events?wait=0').catch(() => ({ last: 0 }))).last;
+        (async () => {   // diagnostics: read-only view (admin), never consumes the till's scans
+          if (!SM.can('settings')) return;
+          let after = (await SM.api('GET', '/api/scanner/events?diag=1&wait=0').catch(() => ({ last: 0 }))).last;
           while (!stopLive && SM.state.view === 'scanner') {
-            const r = await SM.api('GET', '/api/scanner/events?wait=10&after=' + after).catch(() => null);
+            const r = await SM.api('GET', '/api/scanner/events?diag=1&wait=10&after=' + after).catch(() => null);
             if (!r) break;
             after = r.last;
             for (const e of r.events) { live.prepend(h('div', {}, h('b', { class: 'ltr', text: e.device }), ' ', h('code', { class: 'ltr', text: e.seen }))); showInspect(e.text); }
@@ -194,7 +197,7 @@
           h('div', { class: 'grid cols-3' }, SM.field(t('scn.device_id'), id), type === 'tcp' ? SM.field(t('scn.host'), host, t('scn.host_help')) : null,
             SM.field(type === 'serial' ? t('scn.port') : t('scn.tcp_port'), port, type === 'serial' ? t('scn.port_help', { list: ports.serial.join(', ') || t('none') }) : null),
             type === 'serial' ? [SM.field(t('scn.baud'), baud), SM.field(t('scn.parity'), parity), SM.field(t('scn.bits'), bits), SM.field(t('scn.stop'), stop)] : null,
-            SM.field(t('scn.suffix'), suffix)),
+            SM.field(t('scn.suffix'), suffix), SM.field(t('scn.till'), till, t('scn.till_help'))),
           SM.can('settings') ? save : h('p', { class: 'muted', text: t('scn.need_manager') }),
           h('h3', { text: t('scn.status') }), statusBox, h('h3', { text: t('scn.live') }), live, resultBox];
       }

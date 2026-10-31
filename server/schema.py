@@ -280,3 +280,61 @@ def m001(conn):
 
 MIGRATIONS = [(1, "core shop schema", m001)]
 SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+# ---------------------------------------------------------------- migration 2
+# Independent audit 30 Oct 2026 (docs/INDEPENDENT_AUDIT_20261030.md).
+# Adds tables/columns only; no posted row is changed except the one-time
+# backfill of the new packs.location_id from each pack's production entry.
+M002 = r"""
+CREATE TABLE refund_allocations(
+  return_id INTEGER NOT NULL REFERENCES returns(id),
+  method TEXT NOT NULL CHECK(method IN ('cash','card','wallet','transfer','credit_cancel','store_credit')),
+  amount INTEGER NOT NULL CHECK(typeof(amount)='integer' AND amount>0),
+  PRIMARY KEY(return_id, method));
+CREATE TABLE credit_allocations(
+  entry_id INTEGER NOT NULL REFERENCES customer_entries(id), sale_id INTEGER NOT NULL REFERENCES sales(id),
+  amount INTEGER NOT NULL CHECK(typeof(amount)='integer' AND amount<>0), PRIMARY KEY(entry_id, sale_id));
+CREATE TABLE safe_entries(
+  id INTEGER PRIMARY KEY, op_id INTEGER NOT NULL REFERENCES ops(id),
+  kind TEXT NOT NULL CHECK(kind IN ('drop','supplier_pay','deposit','withdrawal')),
+  amount INTEGER NOT NULL CHECK(typeof(amount)='integer' AND amount<>0), note TEXT, at TEXT NOT NULL);
+CREATE TABLE recall_lifts(
+  recall_id INTEGER PRIMARY KEY REFERENCES recalls(id), op_id INTEGER NOT NULL REFERENCES ops(id),
+  reason TEXT NOT NULL, user_id INTEGER NOT NULL, at TEXT NOT NULL);
+CREATE TABLE recipe_alternatives(
+  version_id INTEGER NOT NULL REFERENCES recipe_versions(id),
+  component_product_id INTEGER NOT NULL REFERENCES products(id),
+  product_id INTEGER NOT NULL REFERENCES products(id), PRIMARY KEY(version_id, product_id));
+ALTER TABLE packs ADD COLUMN location_id INTEGER REFERENCES locations(id);
+ALTER TABLE packs ADD COLUMN removed_op INTEGER REFERENCES ops(id);
+UPDATE packs SET location_id=(SELECT e.location_id FROM stock_entries e
+  WHERE e.lot_id=packs.lot_id AND e.kind='production_out' ORDER BY e.id LIMIT 1);
+CREATE TRIGGER packs_removed_once BEFORE UPDATE OF removed_op ON packs
+WHEN OLD.removed_op IS NOT NULL BEGIN SELECT RAISE(ABORT,'posted_is_immutable'); END;
+CREATE TRIGGER barcode_packaging_same_product BEFORE INSERT ON barcodes
+WHEN NEW.packaging_id IS NOT NULL AND
+  (SELECT product_id FROM packagings WHERE id=NEW.packaging_id) IS NOT NEW.product_id
+BEGIN SELECT RAISE(ABORT,'packaging_other_product'); END;
+CREATE VIEW payment_states AS
+  SELECT p.*, CASE WHEN c.outcome='confirmed' THEN 'settled' WHEN c.outcome='rejected' THEN 'rejected'
+    ELSE p.state END AS eff_state
+  FROM payments p LEFT JOIN payment_confirmations c ON c.payment_id=p.id;
+CREATE INDEX credit_alloc_sale ON credit_allocations(sale_id);
+CREATE INDEX packs_lot ON packs(lot_id, status);
+"""
+
+
+def m002(conn):
+    import secrets
+    run_script(conn, M002)
+    for table in ("refund_allocations", "credit_allocations", "safe_entries", "recall_lifts", "recipe_alternatives"):
+        for action in ("UPDATE", "DELETE"):
+            conn.execute(f"CREATE TRIGGER {table}_no_{action.lower()} BEFORE {action} ON {table} "
+                         f"BEGIN SELECT RAISE(ABORT,'posted_is_immutable'); END")
+    # public identity of this data folder (launcher checks it); random, not a path
+    conn.execute("INSERT OR IGNORE INTO settings VALUES('instance_id', ?)", ('"%s"' % secrets.token_hex(8),))
+
+
+MIGRATIONS.append((2, "audit fixes: refunds, credit allocation, safe, recall lifts, packs", m002))
+SCHEMA_VERSION = MIGRATIONS[-1][0]

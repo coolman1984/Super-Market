@@ -127,7 +127,8 @@ class SerialAndTcp(unittest.TestCase):
         server.listen(2)
         host, port_no = server.getsockname()
         hub = ScannerHub()
-        hub.configure([{"id": "tcp1", "type": "tcp", "host": host, "port": port_no, "suffix": "CRLF"}])
+        hub.configure([{"id": "tcp1", "type": "tcp", "host": host, "port": port_no, "suffix": "CRLF",
+                        "workstation": "till-1"}])
         conn, _ = server.accept()
         conn.sendall(b"ABC\r\nABC\r\n")
         events, last = hub.since(0, wait=2)

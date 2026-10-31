@@ -266,12 +266,10 @@ class Grocery(ShopFixture, unittest.TestCase):
         sale = self.shop.sell(self.manager, key(), {"lines": [{"product_id": pid, "qty": 1}], "customer_id": cust,
                                                    "payments": [{"method": "credit", "amount": 3000}]})
         line = self.shop.sale_detail(self.manager, sale["sale"])["lines"][0]
-        with self.assertRaises(ShopError) as err:
-            self.shop.return_sale(self.manager, key(), {"sale_id": sale["sale"], "reason": "quality", "method": "cash",
+        # audit R02: an unpaid on-account sale is cancelled from the debt; no cash leaves the drawer
+        r = self.shop.return_sale(self.manager, key(), {"sale_id": sale["sale"], "reason": "quality", "method": "cash",
                                                         "lines": [{"sale_line_id": line["id"], "qty": 1}]})
-        self.assertEqual(err.exception.code, "refund_exceeds_paid_by_method")
-        self.shop.return_sale(self.manager, key(), {"sale_id": sale["sale"], "reason": "quality", "method": "credit_note",
-                                                    "lines": [{"sale_line_id": line["id"], "qty": 1}]})
+        self.assertEqual(r["refunds"], [{"method": "credit_cancel", "amount": 3000}])
         self.assertEqual(self.shop.customer_balance(cust), 0)
         wallet = self.shop.sell(self.manager, key(), {"lines": [{"product_id": pid, "qty": 1}],
                                                      "payments": [{"method": "wallet", "amount": 3000}]})
@@ -439,9 +437,10 @@ class Food(ShopFixture, unittest.TestCase):
         meat, marinade, tray, tagine, version, lots = self.tagine_setup()
         result = self.shop.produce(self.butcher, key(), {
             "kind": "recipe", "recipe_version_id": version,
-            "inputs": [{"lot_id": lots[meat], "location_id": self.prep, "qty": 1000},
-                       {"lot_id": lots[marinade], "location_id": self.prep, "qty": 250}],
-            "outputs": [{"product_id": tagine, "qty": 1250, "location_id": self.fridge}]})
+            "inputs": [{"lot_id": lots[meat], "location_id": self.prep, "qty": 800},
+                       {"lot_id": lots[marinade], "location_id": self.prep, "qty": 200},
+                       {"lot_id": lots[tray], "location_id": self.prep, "qty": 2}],   # audit R04: every component, per unit
+            "outputs": [{"product_id": tagine, "qty": 1000, "location_id": self.fridge}]})
         self.open_shift()
         sale = self.shop.sell(self.cash1, key(), {"lines": [{"product_id": tagine, "qty": 500}]})
         recall = self.shop.recall(self.manager, key(), lots[meat], "supplier notice")

@@ -22,7 +22,7 @@ PERMISSIONS = {
     "produce", "cutting", "recipes", "count", "count_approve", "waste", "transfer",
     "release_hold", "recall", "catalog", "prices", "users", "settings",
     "see_cost", "reports", "export", "backup", "confirm_payments", "credit_sale",
-    "scanner_setup", "approve_variance",
+    "scanner_setup", "approve_variance", "safe",
 }
 
 ROLES = {
@@ -32,7 +32,7 @@ ROLES = {
     "receiver": {"receive", "transfer", "count", "scanner_setup"},
     "butcher": {"produce", "cutting", "transfer", "waste", "count", "scanner_setup"},
     "counter": {"count", "scanner_setup"},
-    "accountant": {"reports", "export", "see_cost", "confirm_payments", "supplier_pay"},
+    "accountant": {"reports", "export", "see_cost", "confirm_payments", "supplier_pay", "safe"},
     "viewer": {"reports"},
 }
 
