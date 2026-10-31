@@ -24,7 +24,7 @@ const freshBase = process.argv[3] || 'http://127.0.0.1:8798';
   await fresh.click('#login-forgot'); await fresh.waitForSelector('.dialog');
   const txt = await fresh.locator('.dialog').innerText();
   res.forgot_staff_owner_wrong = await fresh.locator('.dialog h4').count() === 3 && await fresh.locator('.dialog ol li').count() === 4 && /30/.test(txt);
-  await fresh.waitForTimeout(500); await fresh.screenshot({ path: (process.argv[4] || '/tmp') + '/forgot-ar.png' });
+  await fresh.screenshot({ path: (process.argv[4] || '/tmp') + '/forgot-ar.png' });
   await fresh.click('#forgot-ok');
   // 3. the owner: add-staff form brings a ready temporary password, reset shows one too, roles are explained
   const ctx = await browser.newContext({ viewport: { width: 1366, height: 900 } });
@@ -38,7 +38,10 @@ const freshBase = process.argv[3] || 'http://127.0.0.1:8798';
   const ready = await page.locator('[data-guide="set.password"]').inputValue();
   res.ready_temp_password = ready.length >= 8 && await page.locator('[data-guide="set.password"]').getAttribute('type') === 'text';
   await page.fill('[data-guide="set.username"]', 'helper1'); await page.selectOption('[data-guide="set.role"]', 'cashier');
-  await page.click('[data-guide="set.add_user"]'); await page.waitForTimeout(900);
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/users') && r.request().method() === 'POST'),
+    page.click('[data-guide="set.add_user"]'),
+  ]);
   let users = await page.evaluate(() => SM.api('GET', '/api/users'));
   res.added_must_change = users.find(u => u.username === 'helper1').must_change === 1;
   // reset: dialog with a ready password and one Save button (no browser prompt)
@@ -47,7 +50,11 @@ const freshBase = process.argv[3] || 'http://127.0.0.1:8798';
   await page.waitForSelector('[data-guide="set.temp_pw"]');
   const temp = await page.locator('[data-guide="set.temp_pw"]').inputValue();
   res.reset_ready = temp.length >= 8 && !prompted;
-  await page.click('#reset-save'); await page.waitForTimeout(900);
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/password') && r.request().method() === 'POST'),
+    page.click('#reset-save'),
+  ]);
+  await page.waitForSelector('[data-guide="set.temp_pw"]', { state: 'detached' });
   res.reset_saved = !(await page.locator('[data-guide="set.temp_pw"]').count());
   const login = await (await browser.newContext()).newPage();
   await login.goto(trainingBase); await login.waitForSelector('input[autocomplete=username]');
@@ -57,7 +64,8 @@ const freshBase = process.argv[3] || 'http://127.0.0.1:8798';
   await page.goto(trainingBase + '/#help'); await page.waitForSelector('[data-guide="help.account"]');
   res.account_card = await page.locator('#help-account button').count() === 3;
   await page.click('#help-forgot'); await page.waitForSelector('.dialog h4'); await page.click('#forgot-ok');
-  await page.click('#help-lock'); await page.waitForTimeout(700);
+  await page.click('#help-lock');
+  await page.waitForSelector('.auth-card');
   res.help_lock_works = await page.locator('.auth-card').count() === 1 && !(await page.locator('.sidebar').count());
   // 5. the new lessons exist for the owner's course and target real things
   const cat = await (await page.request.get(trainingBase + '/guide/catalogue.json')).json();

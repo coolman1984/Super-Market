@@ -1,6 +1,7 @@
 // Owner flows through the real UI on a fresh TRAINING server (after smoke.js):
 // return part of TR-000001, cut beef with a loss, make tagines with packs.
 const { chromium } = require('playwright');
+const { scanCode } = require('./wait');
 const base = process.argv[2] || 'http://127.0.0.1:8799';
 const out = process.argv[3] || '.';
 (async () => {
@@ -14,8 +15,16 @@ const out = process.argv[3] || '.';
   await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
   // manager needs an open shift for a cash refund
   await page.goto(base + '/#cash'); await page.waitForSelector('.input.big');
-  if (await page.locator('#view .narrow').count()) { await page.fill('.input.big', '100'); await page.click('button.btn.primary.lg'); await page.waitForTimeout(800); }
-  await page.goto(base + '/#returns'); await page.waitForSelector('.input');
+  if (await page.locator('#view .narrow').count()) {
+    await page.fill('.input.big', '100');
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/api/shift') && r.request().method() === 'POST'),
+      page.click('button.btn.primary.lg'),
+    ]);
+    await page.waitForSelector('.scan-input');
+  }
+  await page.goto(base + '/#returns');
+  await page.waitForSelector('#view .field input');
   await page.fill('#view .field input', 'TR-000001'); await page.press('#view .field input', 'Enter');
   await page.waitForSelector('#view .tbl');
   await page.fill('#view .tbl tbody tr:first-child input.input', '2');
@@ -46,10 +55,10 @@ const out = process.argv[3] || '.';
   // tagines: recipe for 2 packs of 500 g
   await page.goto(base + '/#prepare'); await page.reload(); await page.waitForSelector('.seg');
   await page.click('.seg button:nth-child(2)');
-  await page.waitForTimeout(300);
+  await page.waitForSelector('#view .card select');
   const ps = page.locator('#view .card').first().locator('select');
   await ps.selectOption((await ps.locator('option', { hasText: 'طاجن' }).first().getAttribute('value')));
-  await page.waitForTimeout(800);
+  await page.waitForFunction(() => document.querySelectorAll('#view .card input').length >= 3);
   const ins = page.locator('#view .card').nth(1);
   const inSel = ins.locator('select');
   for (let i = 0; i < await inSel.count(); i++) await inSel.nth(i).selectOption({ index: 1 });
@@ -76,7 +85,7 @@ const out = process.argv[3] || '.';
   };
   await login('cashier');
   await page.goto(base + '/#sell'); await page.waitForSelector('.scan-input');
-  await page.fill('.scan-input', '6220000000013'); await page.press('.scan-input', 'Enter'); await page.waitForTimeout(400);
+  await scanCode(page, '6220000000013');
   const cashierCart = await page.textContent('.cart');
   await page.click('.side-foot .logout-btn'); await page.waitForSelector('input[type=password]');
   await page.fill('input[autocomplete=username]', 'manager'); await page.fill('input[type=password]', 'training-only');
@@ -85,7 +94,7 @@ const out = process.argv[3] || '.';
   const managerCart = await page.textContent('.cart');
   // ---- audit S03: the sale is saved but the answer is lost ----
   const before = (await page.evaluate(() => SM.api('GET', '/api/reports/day'))).sales_count;
-  await page.fill('.scan-input', '6220000000013'); await page.press('.scan-input', 'Enter'); await page.waitForTimeout(400);
+  await scanCode(page, '6220000000013');
   let cut_replies = 0;
   await page.route('**/api/sales', async (route) => {
     if (cut_replies < 3) { cut_replies++; await route.fetch(); await route.abort('connectionreset'); } else await route.continue();

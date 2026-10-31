@@ -28,8 +28,8 @@ def sources():
     return "\n".join(f.read_text(encoding="utf-8") for f in files)
 
 
-BANNED_AR = ["الجارد", "جارد", "حد الآجل", "سطح المكتب", "يا عم", "يا باشا", "يسطا", "ياسطى", "يا معلم", "بتاع إيه", "اخرس", "غبي", "حمار",
-             "اللي", "دلوقتي", "مفيش", "مينفعش", "بتاعتك", "عشان", "تاني", "بكام", "اتحصّل", "ماتحفظش", "مبقاش", "تلاقي", "لازم", "بيك"]
+# Insults and confusing labels stay out. Everyday Egyptian is the product language (owner decision).
+BANNED_AR = ["الجارد", "جارد", "سطح المكتب", "يا عم", "يا باشا", "يسطا", "ياسطى", "يا معلم", "بتاع إيه", "اخرس", "غبي", "حمار"]
 
 
 @unittest.skipUnless(NODE, "node is needed to read the browser dictionaries")
@@ -70,26 +70,36 @@ class Language(unittest.TestCase):
         self.maxDiff = None
         self.assertEqual(bad, [])
 
-    def test_formal_arabic_terms_and_no_colloquial_words(self):
-        # Current owner direction: clear formal Arabic throughout product text.
-        banned = BANNED_AR
+    def test_ultra_simple_egyptian_not_formal(self):
+        # Owner decision: the shop reads ultra-simple Egyptian, not formal Arabic.
+        guide_doc = (ROOT / "docs" / "LANGUAGE_GUIDE.md").read_text(encoding="utf-8")
+        self.assertIn("مصرية بسيطة جدًا", guide_doc.splitlines()[2])
+        self.assertNotIn("فصحى رسمية", guide_doc)
         hits = []
         for k, v in self.ar.items():
-            for w in banned:
+            for w in BANNED_AR:
                 if re.search(r"(?<![\u0621-\u064A])" + re.escape(w.strip()) + r"(?![\u0621-\u064A])", v):
                     hits.append((k, w, v))
+            for w in ("يُرجى", "يرجى", "نظرًا", "بموجب", "تجدر الإشارة"):
+                if w in v:
+                    hits.append((k, w, v))
         self.assertEqual(hits, [])
-        for term in ("أمين الصندوق", "مسؤول الجرد", "رصيد بداية الوردية", "إغلاق الوردية", "الحد الائتماني", "الوزن الصافي", "حجز للفحص", "استدعاء"):
+        for term in ("الكاشير", "أمين الجرد", "فلوس أول الوردية", "قفل الوردية", "حد الآجل"):
             self.assertTrue(any(term in v for v in self.ar.values()), term)
+        self.assertEqual(self.ar["role.cashier"], "الكاشير")
+        self.assertNotIn("أمين الصندوق", self.ar["role.cashier"])
 
-    def test_guide_and_current_user_docs_use_formal_arabic(self):
+    def test_in_app_guide_uses_simple_egyptian(self):
         guide = json.loads((ROOT / 'web/guide/ar.json').read_text(encoding='utf-8'))
-        texts = list(guide.values()) + [(ROOT / 'docs' / p).read_text(encoding='utf-8') for p in
-            ('USER_GUIDE.md', 'CLOUD_SYNC.md', 'SUPPORT_GUIDE.md', 'WINDOWS.md')]
-        banned = ('اللي', 'دلوقتي', 'مفيش', 'مينفعش', 'بتاعتك', 'عشان', 'تاني', 'بكام', 'تلاقي', 'ماتحفظش')
-        for text in texts:
-            for word in banned:
-                self.assertIsNone(re.search(r'(?<![\u0621-\u064A])' + word + r'(?![\u0621-\u064A])', text), word)
+        blob = "\n".join(guide.values())
+        self.assertIn("الكاشير", blob)
+        self.assertNotIn("أمين الصندوق", blob)
+        for word in ("اخرس", "يُرجى", "نظرًا", "بموجب"):
+            self.assertNotIn(word, blob)
+        for name in ('USER_GUIDE.md', 'CLOUD_SYNC.md', 'SUPPORT_GUIDE.md', 'WINDOWS.md'):
+            text = (ROOT / 'docs' / name).read_text(encoding='utf-8')
+            for word in ("اخرس", "يا باشا", "غبي"):
+                self.assertIsNone(re.search(r'(?<![\u0621-\u064A])' + word + r'(?![\u0621-\u064A])', text), (name, word))
 
     def test_no_text_tells_the_user_to_invent_a_loss(self):
         phrases_ar = ["حتى يتوازن", "حتى تتوازن", "ليتوازن الوزن", "اكتب الفاقد حتى", "سجّل فاقدًا ليتوازن", "اخترع"]

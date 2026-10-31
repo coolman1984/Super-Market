@@ -33,8 +33,7 @@
     if (SM.can('prices')) acts.push(h('button', { class: 'btn', text: t('cat.change_price'), onclick: async () => {
       const v = await SM.ask(t('cat.new_price_q') + (full.measure === 'g' ? ' (' + t('cat.per_kg') + ')' : ''), { inputmode: 'decimal', title: t('cat.change_price') });
       if (v === null) return;
-      const price = SM.parseMoney(v); if (price === null || price < 0) return SM.toast(t('err.bad_amount'), 'bad');
-      if (price === 0 && !(await SM.confirm(t('cat.zero_price_title'), t('cat.zero_price_q')))) return;
+      const price = SM.parseMoney(v); if (price === null || price <= 0) return SM.toast(t('err.bad_price'), 'bad');
       try { await SM.command('/api/prices', SM.newKey(), undefined, { product_id: full.id, price }); SM.toast(t('saved')); d.close(); } catch (e) { SM.fail(e); }
     } }));
     if (SM.can('catalog')) acts.push(h('button', { class: 'btn', text: t('cat.add_barcode'), onclick: () => barcodeDialog(full, () => d.close()) }));
@@ -120,8 +119,7 @@
       actions: [h('button', { class: 'btn primary', text: t('save'), onclick: async () => {
         const weighed = ['raw_meat', 'prepared', 'ingredient'].includes(f.kind.value);
         const price = f.price.value.trim() ? SM.parseMoney(f.price.value) : undefined;
-        if (price === null || (price !== undefined && price < 0)) { SM.toast(t('err.bad_amount'), 'bad'); f.price.focus(); return; }
-        if (price === 0 && !(await SM.confirm(t('cat.zero_price_title'), t('cat.zero_price_q')))) return;
+        if (price === null || (price !== undefined && price <= 0)) { SM.toast(t('err.bad_price'), 'bad'); f.price.focus(); return; }
         const body = { code: f.code.value, name_ar: f.name_ar.value, name_en: f.name_en.value || f.name_ar.value, kind: f.kind.value,
           measure: weighed ? 'g' : 'unit', needs_expiry: f.needs_expiry.checked, allergens: f.allergens.value,
           price, barcodes: f.barcode.value ? [f.barcode.value.trim()] : [] };
@@ -202,7 +200,7 @@
           }
         });
         const prefix = h('input', { class: 'input mono', maxlength: '1', value: profile.prefix || '' });
-        const suffix = SM.select([{ value: 'CR', label: 'Enter' }, { value: 'TAB', label: 'Tab' }], profile.suffix);
+        const suffix = SM.select(['CR', 'TAB'].map(s => ({ value: s, label: t('scn.suffix.' + s) })), profile.suffix);
         const fix = h('input', { type: 'checkbox', checked: profile.layout_fix === 'arabic101' });
         const aim = h('input', { type: 'checkbox', checked: !!profile.aim_ids });
         const beep = h('input', { type: 'checkbox', checked: !!profile.beep });
@@ -223,7 +221,7 @@
         const parity = SM.select(['none', 'even', 'odd'].map(p => ({ value: p, label: t('scn.parity.' + p) })), existing.parity || 'none');
         const bits = SM.select([{ value: 8, label: '8' }, { value: 7, label: '7' }], existing.bits || 8);
         const stop = SM.select([{ value: 1, label: '1' }, { value: 2, label: '2' }], existing.stop || 1);
-        const suffix = SM.select(['CR', 'LF', 'CRLF', 'TAB', 'ETX', 'EOT'].map(s => ({ value: s, label: s })), existing.suffix || 'CR');
+        const suffix = SM.select(['CR', 'LF', 'CRLF', 'TAB', 'ETX', 'EOT'].map(s => ({ value: s, label: t('scn.suffix.' + s) })), existing.suffix || 'CR');
         const till = h('input', { class: 'input ltr', value: existing.workstation || SM.workstation() });
         const live = h('div', { class: 'scan-result' });
         const statusBox = h('div', {}, ports.devices.map(d => h('div', {}, h('b', { class: 'ltr', text: d.id }), ' ', SM.badge(d.status === 'connected' ? 'available' : 'held'), ' ', t('scn.st.' + d.status),
