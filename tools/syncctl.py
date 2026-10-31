@@ -5,6 +5,9 @@
     python tools/syncctl.py admin pairing    --url URL --store STORE_ID --role shop|mobile
     python tools/syncctl.py admin devices    --url URL --store STORE_ID
     python tools/syncctl.py admin revoke     --url URL --store STORE_ID --device DEVICE_ID
+    python tools/syncctl.py admin recovery   --url URL --store STORE_ID                  (read out a shop's recovery code)
+    python tools/syncctl.py admin status     --url URL --store STORE_ID --state pending|active|suspended
+    python tools/syncctl.py admin revoke-build --url URL --build v0.1.0-pilot             (cut off one release's build token)
   On the shop PC:
     python tools/syncctl.py join    --url URL --store STORE_ID --code CODE [--data shop-data]
     python tools/syncctl.py status  [--data shop-data]
@@ -48,6 +51,12 @@ def run_admin(args):
         return out
     if args.what == "devices":
         return cloudsync.admin_call(args.url, key, "GET", "/admin/stores/" + args.store)
+    if args.what == "recovery":
+        return cloudsync.admin_call(args.url, key, "POST", "/admin/recovery", {"store_id": args.store})
+    if args.what == "status":
+        return cloudsync.admin_call(args.url, key, "POST", "/admin/stores/status", {"store_id": args.store, "status": args.state})
+    if args.what == "revoke-build":
+        return cloudsync.admin_call(args.url, key, "POST", "/admin/builds/revoke", {"build_id": args.build})
     return cloudsync.admin_call(args.url, key, "POST", "/admin/revoke", {"store_id": args.store, "device_id": args.device})
 
 
@@ -100,12 +109,14 @@ def main(argv=None):
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("admin")
-    a.add_argument("what", choices=["new-store", "pairing", "devices", "revoke"])
+    a.add_argument("what", choices=["new-store", "pairing", "devices", "revoke", "recovery", "status", "revoke-build"])
     a.add_argument("--url", default=cloudsync.BUILT_IN_URL)
     a.add_argument("--name")
     a.add_argument("--store")
     a.add_argument("--role", choices=["shop", "mobile"], default="mobile")
     a.add_argument("--device")
+    a.add_argument("--state", choices=["pending", "active", "suspended"])
+    a.add_argument("--build")
     a.add_argument("--key-file")
     for name in ("join", "restore"):
         j = sub.add_parser(name)
