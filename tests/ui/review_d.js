@@ -84,6 +84,7 @@ const out = process.argv[3] || '.';
   await owner.click('.dialog footer .btn.primary'); await owner.waitForSelector('#confirm-yes');
   await owner.keyboard.press('Escape'); await owner.waitForTimeout(300);
   res.zero_price_cancel_keeps_the_form = await owner.locator('#overlay .dialog [data-guide="cat.name_ar"]').inputValue().catch(() => '') === 'صنف بسعر صفر';
+  await owner.keyboard.press('Escape'); await owner.waitForTimeout(300);           // the form itself is closed by a second Escape
   await owner.evaluate(() => SM.go('scanner')); await owner.waitForSelector('#scale-sticker');
   await owner.fill('#scale-sticker', '2100123012503'); await owner.fill('#scale-printed', '1.250');
   await owner.click('#scale-detect'); await owner.waitForTimeout(600);
