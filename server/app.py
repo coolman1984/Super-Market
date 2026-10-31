@@ -35,6 +35,8 @@ from .version import VERSION
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 MAX_BODY = 1_000_000
+LAN_IDLE_LOCK_S = 15 * 60    # a till on the shop network that nobody touches for this long locks itself (M1)
+POLL_PATHS = {"/api/scanner/events"}      # background polling: does not count as someone using the till
 SOCKET_TIMEOUT = 15          # seconds a client may stay silent (headers or body) before the connection is dropped (M4)
 BODY_DEADLINE = 15           # seconds for the whole request body, so a trickle of bytes cannot hold a thread
 MAX_CONNECTIONS = 64         # simultaneous connections; the next ones get 503 instead of an endless thread pile
@@ -51,6 +53,8 @@ class App:
         self.store = Store(data_folder, mode)
         self.shop = Shop(self.store)
         self.auth = Auth(self.store)
+        if lan:
+            self.auth.idle_lock_s = LAN_IDLE_LOCK_S
         self.hub = ScannerHub()
         self.backup_folder = pathlib.Path(backup_folder or pathlib.Path(data_folder).parent / ("backups-" + mode))
         if mode == "training":
@@ -168,9 +172,18 @@ class App:
         s = self.shop.settings()
         return {"version": VERSION, "mode": self.store.mode, "setup_needed": not self.auth.has_users(),
                 "user": actor, "shop_name": s["shop_name"], "business_day": self.store.current_business_day(), "instance": s.get("instance_id"), "lan": self.lan,
+                "lan_addresses": self._lan_addresses() if self.lan and actor else None,
                 "clock_behind": ({"closed": self.store.clock_behind(), "today": today()} if self.store.clock_behind() else None),
                 "training_login": {"users": [u for u, _, _ in training.TRAINING_USERS], "password": training.TRAINING_PASSWORD}
                 if self.store.mode == "training" else None}
+
+    port = None
+    _lan_cache = None
+
+    def _lan_addresses(self):
+        if self._lan_cache is None:
+            self._lan_cache = lan_addresses(self.port or 8765)
+        return self._lan_cache
 
     stop_key = None
     cloud = None      # server.cloud.Cloud, set by the launcher of the real shop
@@ -463,6 +476,35 @@ def _csv(value):
     return '"' + text.replace('"', '""') + '"' if any(c in text for c in ',"\r\n') else text
 
 
+def own_names():
+    """Names under which the other tills may reach THIS PC: its computer name (also with .local). A DNS-rebinding
+    page cannot use them: its Host header carries the attacker's own name (review M2)."""
+    import socket
+    host = socket.gethostname().lower()
+    names = {host, host + ".local"}
+    try:
+        names.add(socket.getfqdn().lower())
+    except OSError:
+        pass
+    return names
+
+
+def lan_addresses(port):
+    """What to type on another till: the computer name and the private IP addresses of this PC."""
+    import socket
+    out = []
+    host = socket.gethostname()
+    out.append("http://%s:%d/" % (host, port))
+    try:
+        for info in socket.getaddrinfo(host, None, socket.AF_INET):
+            ip = info[4][0]
+            if ipaddress.ip_address(ip).is_private and not ipaddress.ip_address(ip).is_loopback:
+                out.append("http://%s:%d/" % (ip, port))
+    except OSError:
+        pass
+    return list(dict.fromkeys(out))
+
+
 def make_handler(app, allowed_lan):
     class Handler(BaseHTTPRequestHandler):
         server_version = "SuperMarket"
@@ -509,7 +551,7 @@ def make_handler(app, allowed_lan):
             """DNS-rebinding guard: only literal local/private addresses or
             localhost on our own port may be used as Host."""
             host = self.headers.get("Host", "")
-            m = re.fullmatch(r"(?:\[([0-9a-fA-F:]+)\]|([0-9.]+|localhost))(?::(\d{1,5}))?", host)
+            m = re.fullmatch(r"(?:\[([0-9a-fA-F:]+)\]|([0-9.]+|localhost|[A-Za-z0-9][A-Za-z0-9.-]{0,62}))(?::(\d{1,5}))?", host)
             if not m or (m.group(3) and int(m.group(3)) != self.server.server_address[1]):
                 return False
             name = m.group(1) or m.group(2)
@@ -518,7 +560,7 @@ def make_handler(app, allowed_lan):
             try:
                 ip = ipaddress.ip_address(name)
             except ValueError:
-                return False
+                return allowed_lan and name.lower() in own_names()     # M2: this PC's own computer name, not any name
             return ip.is_loopback or (allowed_lan and ip.is_private)
 
         def _token(self):
@@ -564,7 +606,7 @@ def make_handler(app, allowed_lan):
                     continue
                 try:
                     with app.store.lock:
-                        actor = app.auth.session(token)
+                        actor = app.auth.session(token, touch=parts.path not in POLL_PATHS)
                     if needs_auth and not actor and parts.path != "/api/state":
                         raise ShopError("login_required", status=401)
                     # a locked till and a password that must be changed stop everything else on the server
@@ -666,6 +708,7 @@ def serve(data_folder, mode="shop", host="127.0.0.1", port=8765, lan=False):
     httpd = BoundedServer((bind, port), make_handler(app, lan))
     httpd.daemon_threads = True
     httpd.app = app
+    app.port = httpd.server_address[1]
     return httpd
 
 

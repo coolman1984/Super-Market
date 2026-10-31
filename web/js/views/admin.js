@@ -305,10 +305,17 @@
         parts.push(await labelCard());
       }
       if (SM.can('users')) parts.push(await usersCard());
+      if (SM.state.lanAddresses) parts.push(lanCard());
       if (SM.can('backup')) parts.push(await backupCard(), await cloudCard());
       SM.put(root, ...parts);
     },
   };
+
+  /* Review M1/M2: how another till reaches this PC, and the honest warning about plain HTTP. */
+  function lanCard() {
+    return h('div', { class: 'card', id: 'lan-card' }, h('h3', { text: t('set.lan') }), h('p', { class: 'muted', text: t('set.lan_help') }),
+      h('ul', {}, SM.state.lanAddresses.map(a => h('li', { class: 'ltr', text: a }))), h('p', { class: 'warn', text: t('set.lan_warn') }));
+  }
 
   async function labelCard() {
     const list = await SM.api('GET', '/api/label-templates').catch(() => []);

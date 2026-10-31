@@ -403,3 +403,69 @@ class ApprovalLock(ShopFixture, unittest.TestCase):
     def test_the_lock_row_is_not_shown_in_settings(self):
         self.fail(self.cash1, 1)
         self.assertFalse([k for k in self.shop.settings() if k.startswith("_")])
+
+
+class LanSafety(ShopFixture, unittest.TestCase):
+    """M1, M2 - other tills reach the PC by its computer name; an idle till locks; strangers' names are refused."""
+
+    def start(self, lan):
+        import tempfile
+        import threading
+        from server.app import serve
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        httpd = serve(tmp.name, "shop", port=0, lan=lan)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(lambda: (httpd.shutdown(), httpd.server_close(), httpd.app.store.close()))
+        self.httpd, self.port = httpd, httpd.server_address[1]
+        return httpd
+
+    def get(self, host, path="/api/state"):
+        import http.client
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        c.request("GET", path, headers={"Host": host})
+        r = c.getresponse()
+        r.read()
+        c.close()
+        return r.status
+
+    def test_m2_computer_name_works_in_lan_mode_only_and_only_its_own(self):
+        import socket
+        name = socket.gethostname()
+        self.start(lan=True)
+        self.assertEqual(self.get("%s:%d" % (name, self.port)), 200)
+        self.assertEqual(self.get("%s.local:%d" % (name.lower(), self.port)), 200)
+        self.assertEqual(self.get("evil.example.com:%d" % self.port), 421)       # a rebinding page's own name is refused
+        self.assertEqual(self.get("%s:%d" % (name, self.port + 1)), 421)         # wrong port
+        self.assertEqual(self.get("localhost:%d" % self.port), 200)
+
+    def test_m2_without_lan_the_computer_name_is_refused_and_the_state_lists_addresses_only_in_lan(self):
+        import socket
+        self.start(lan=False)
+        self.assertEqual(self.get("%s:%d" % (socket.gethostname(), self.port)), 421)
+        from server import app as appmod
+        addresses = appmod.lan_addresses(8765)
+        self.assertTrue(addresses[0].startswith("http://" + socket.gethostname()) and addresses[0].endswith(":8765/"))
+
+    def test_m1_an_idle_till_locks_itself_in_lan_mode_but_polling_does_not_keep_it_alive(self):
+        httpd = self.start(lan=True)
+        auth = httpd.app.auth
+        self.assertEqual(auth.idle_lock_s, 900)
+        clock = [1000.0]
+        auth.idle_clock = lambda: clock[0]
+        self.store = httpd.app.store
+        self.shop = httpd.app.shop
+        ids = self.store.tx(lambda: auth.create_user("boss", "Boss", "owner", PASSWORD))
+        token, _ = auth.login("boss", PASSWORD, "till-1", client="127.0.0.1")
+        self.assertFalse(auth.session(token)["locked"])
+        clock[0] += 600
+        self.assertFalse(auth.session(token, touch=False)["locked"])             # a background poll after 10 minutes
+        clock[0] += 400                                                          # 1000 s since the last real use
+        self.assertTrue(auth.session(token, touch=False)["locked"])
+        auth.unlock_screen(auth.session(token), token, PASSWORD, client="127.0.0.1")
+        self.assertFalse(auth.session(token)["locked"])                          # unlocked with the password
+        self.assertEqual(ids, 1)
+
+    def test_m1_the_shop_pc_alone_never_idle_locks(self):
+        httpd = self.start(lan=False)
+        self.assertIsNone(httpd.app.auth.idle_lock_s)

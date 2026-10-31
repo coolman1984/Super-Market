@@ -119,11 +119,11 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 
 ## 4. MEDIUM
 
-### [ ] M1 — LAN mode is plain HTTP (passwords and session cookie visible on Wi-Fi)
+### [x] M1 — LAN mode is plain HTTP (passwords and session cookie visible on Wi-Fi)
 - **Where:** `server/app.py` (`serve(... lan=True)`), cookie set at `:562` has no `Secure` (can't over HTTP).
 - **Fix:** document and enforce "wired/isolated LAN only"; show a warning in the LAN-start window; optionally offer HTTPS with a locally generated self-signed cert + install-time trust. Add idle-session timeout for tills (verify the server-side screen lock covers it).
 
-### [ ] M2 — LAN access by computer name rejected
+### [x] M2 — LAN access by computer name rejected
 - **Where:** `app.py` Host allow-list (probe: `Host: shop-pc:8799` → 421 `bad_host`).
 - **Impact:** tills must use the numeric IP; breaks when DHCP changes.
 - **Fix:** allow the PC's own hostname + `<hostname>.local` and private-range IPs in LAN mode; show the correct address in the startup message; recommend a fixed IP.

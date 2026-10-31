@@ -120,6 +120,7 @@ class Auth:
     def __init__(self, store):
         self.store = store
         self.guard = LoginGuard()
+        self._seen = {}     # token hash -> monotonic time of the last real request (idle lock, LAN only)
 
     def has_users(self):
         return bool(self.store.scalar("SELECT COUNT(*) FROM users"))
@@ -187,17 +188,31 @@ class Auth:
         self.store.tx(lambda: self.store.db.execute("DELETE FROM sessions WHERE token_hash=?",
                                                     (token_hash(token),)))
 
-    def session(self, token):
+    idle_lock_s = None       # set by the server in LAN mode: a till left alone this long locks (review M1)
+    idle_clock = staticmethod(__import__("time").monotonic)
+
+    def session(self, token, touch=True):
+        """touch=False for background polling (scanner long-poll), which must not keep a till 'in use'."""
         if not token:
             return None
+        th = token_hash(token)
         row = self.store.one("""SELECT u.*, s.workstation, s.expires_at, s.locked FROM sessions s
-            JOIN users u ON u.id=s.user_id WHERE s.token_hash=?""", (token_hash(token),))
+            JOIN users u ON u.id=s.user_id WHERE s.token_hash=?""", (th,))
         if not row or not row["active"] or row["expires_at"] < now_iso():
             return None
+        locked = bool(row["locked"])
+        if self.idle_lock_s:
+            moment = self.idle_clock()
+            seen = self._seen.get(th)
+            if not locked and seen is not None and moment - seen > self.idle_lock_s:
+                self.store.tx(lambda: self.store.db.execute("UPDATE sessions SET locked=1 WHERE token_hash=?", (th,)))
+                locked = True
+            if touch or seen is None:
+                self._seen[th] = moment
         actor = self.public(row)
         actor["workstation"] = row["workstation"]
         actor["must_change"] = bool(row["must_change"])
-        actor["locked"] = bool(row["locked"])
+        actor["locked"] = locked
         return actor
 
     # ---- accounts (gap row 5). A changed or reset password ends the other sessions;

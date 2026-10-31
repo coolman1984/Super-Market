@@ -19,7 +19,7 @@
     SM.applyPrefs();
     let state;
     try { state = await SM.api('GET', '/api/state'); } catch (e) { SM.put(document.body, h('p', { class: 'empty', text: t('err.server_down') })); return; }
-    SM.state.mode = state.mode; SM.state.instance = state.instance; SM.state.businessDay = state.business_day; SM.state.version = state.version; SM.state.trainingLogin = state.training_login;
+    SM.state.mode = state.mode; SM.state.instance = state.instance; SM.state.businessDay = state.business_day; SM.state.version = state.version; SM.state.trainingLogin = state.training_login; SM.state.lanAddresses = state.lan_addresses;
     document.title = (state.shop_name || t('app.name')) + (state.mode === 'training' ? ' — ' + t('mode.training') : '');
     if (state.clock_behind) return clockScreen(state);
     if (state.setup_needed) return setupScreen(state);
