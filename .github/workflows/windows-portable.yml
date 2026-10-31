@@ -70,9 +70,10 @@ jobs:
           Stop-Process -Id $p.Id
           & "$($app.FullName)\python\python.exe" -c "import sys; sys.path.insert(0, r'$($app.FullName)'); from server.scanner import list_serial_ports; print('serial ports:', list_serial_ports())"
       - uses: actions/upload-artifact@v4
+        continue-on-error: true   # a full artifact quota (billing) must not hide the real test result
         with:
           name: SuperMarket-win64
           path: |
             dist/SuperMarket-*-win64.zip
             dist/SuperMarket-*-win64.zip.sha256
-          retention-days: 30
+          retention-days: 7
