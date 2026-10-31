@@ -287,7 +287,7 @@
  "problem.counting.see": "The count does not open, or approval stops.",
  "problem.counting.why": "An open sheet returns from the start button. A large difference needs confirmation.",
  "problem.counting.do.1": "Press [[count.open]]. The open sheet comes back with what you typed.",
- "problem.counting.do.2": "If the difference is large, confirm the number or count again.",
+ "problem.counting.do.2": "If the difference is large, confirm the number or count again. If a repeat is refused, wait and type the count once.",
  "problem.counting.still": "The manager sees every difference before approval.",
  "problem.items.see": "Adding an item or an offer is refused.",
  "problem.items.why": "The code or barcode is used, or another offer covers the same period.",

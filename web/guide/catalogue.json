@@ -1965,6 +1965,7 @@
    ],
    "errors": [
     "err.count_jump_unconfirmed",
+    "err.count_recheck",
     "err.count_not_open",
     "err.unknown_count"
    ],

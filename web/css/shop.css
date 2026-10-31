@@ -68,6 +68,8 @@ svg.ean { width: 100%; height: 3.2rem; fill: #000; background: #fff; }
 .count-row { display: flex; justify-content: space-between; gap: 1rem; align-items: center; padding: .6rem .9rem; border: 1px solid var(--line-2); border-radius: var(--r-1); background: var(--surface); flex-wrap: wrap; }
 .count-row .input { width: 9rem; direction: ltr; text-align: end; }
 tr.count-open { cursor: pointer; }
+.count-resume { width: 100%; justify-content: center; }
+.dialog > footer { flex-wrap: wrap; }
 tr.count-open td:first-child { border-inline-start: 3px solid var(--signal); }
 .count-diff { display: flex; flex-wrap: wrap; gap: .45rem 1.1rem; align-items: center; padding: .65rem .8rem; border: 1px solid var(--line-2); border-radius: var(--r-1); background: var(--surface); }
 .count-diff b { flex: 1 1 10rem; }

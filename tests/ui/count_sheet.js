@@ -36,10 +36,11 @@ const out = process.argv[3] || '.';
   await rice().blur();
   await page.waitForSelector('#confirm-no');
   check('far_title', (await page.locator('#ask-layer h2').innerText()) === 'الرقم بعيد');
-  check('far_asks_to_recount', (await page.locator('#ask-layer .body').innerText()).includes('أعد العد'));
-  check('recount_is_focused', await page.evaluate(() => document.activeElement && document.activeElement.id === 'confirm-no'));
+  check('far_names_the_item', (await page.locator('#ask-layer .body').innerText()).includes('أرز'));
+  check('recount_is_primary', (await page.locator('#confirm-yes').innerText()) === 'أعد العد');
+  check('recount_is_focused', await page.evaluate(() => document.activeElement && document.activeElement.id === 'confirm-yes'));
   await page.screenshot({ path: out + '/count-far-warning.png' });
-  await page.click('#confirm-no');
+  await page.click('#confirm-yes');
   await page.waitForTimeout(200);
   check('recount_clears_the_number', (await rice().inputValue()) === '');
   check('recount_does_not_save', await page.evaluate(async () => {
@@ -51,8 +52,8 @@ const out = process.argv[3] || '.';
 
   await rice().fill('300');
   await rice().blur();
-  await page.waitForSelector('#confirm-yes');
-  await page.click('#confirm-yes');
+  await page.waitForSelector('#confirm-no');
+  await page.click('#confirm-no');
   await page.waitForSelector('.count-row .badge.ok');
   check('keep_saves_300', (await rice().inputValue()) === '300');
 
@@ -64,7 +65,7 @@ const out = process.argv[3] || '.';
   const back = page.locator('button', { hasText: 'القائمة' });
   await back.click();
   await page.waitForSelector('.count-resume');
-  check('row_is_marked', (await page.locator('.count-resume').innerText()) === 'أكمل الجرد');
+  check('row_is_marked', (await page.locator('.count-resume').innerText()).includes('افتح ورقة'));
   check('open_row_marked', await page.locator('tr.count-open').count() > 0);
   await page.screenshot({ path: out + '/count-resume-list.png' });
   await page.click('[data-guide="count.open"]');

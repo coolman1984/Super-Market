@@ -7,6 +7,8 @@ import hashlib
 import json
 import pathlib
 import re
+import threading
+import time
 
 from . import backup
 from . import barcode as bc
@@ -58,9 +60,16 @@ def normalize_phone(value):
 
 
 class Shop:
+    # A blind counter may learn "far" only a few times per line. More answers
+    # let them binary-search the balance (19 probes used to recover it exactly).
+    COUNT_RECHECK_MAX = 3
+    COUNT_RECHECK_WINDOW = 600
+
     def __init__(self, store):
         self.store = store
         self.auth = Auth(store)
+        self._count_checks = {}
+        self._count_check_lock = threading.Lock()
 
     # =============== settings & master data ===============
     def settings(self):
@@ -2830,11 +2839,45 @@ class Shop:
             diff = row["counted"] - expected
             if not diff:
                 continue
+            tier, rank = self._count_rank(row["lot_id"], count["location_id"], expected, row["counted"])
             rows.append({"lot_id": row["lot_id"], "lot_no": row["lot_no"], "name_ar": row["name_ar"], "name_en": row["name_en"],
                          "measure": row["measure"], "system": expected, "counted": row["counted"], "diff": diff,
-                         "big": self.count_is_far(expected, row["counted"]), "wide": self.count_is_wide(expected, row["counted"])})
-        rows.sort(key=lambda r: (-abs(r["diff"]), r["name_ar"]))
+                         "big": self.count_is_far(expected, row["counted"]), "wide": self.count_is_wide(expected, row["counted"]),
+                         "_tier": tier, "_rank": rank})
+        # money first (|difference| × unit cost). A zero cost falls back to the percent, so
+        # 180 pieces of a priced item outrank 0.25 kg of a cheap one.
+        rows.sort(key=lambda r: (-r["_tier"], -r["_rank"], r["name_ar"]))
+        for r in rows:
+            r.pop("_tier")
+            r.pop("_rank")
         return rows
+
+    def _count_rank(self, lot_id, location_id, expected, counted):
+        """(1, piastres) when the line has a cost, else (0, permille)."""
+        diff = abs(counted - expected)
+        qty, cost = self._balance(lot_id, location_id)
+        if qty > 0 and cost > 0:
+            money = cost * diff // qty
+            if money > 0:
+                return 1, money
+        if expected > 0:
+            return 0, diff * 1000 // expected
+        return 0, 1000 if counted else 0
+
+    def _count_far_budget(self, user_id, count_id, lot_id):
+        """False once this person has already been told far/near enough times on this line."""
+        now_t = time.monotonic()
+        key = (user_id, count_id, lot_id)
+        with self._count_check_lock:
+            stamps = [t for t in self._count_checks.get(key, []) if now_t - t < self.COUNT_RECHECK_WINDOW]
+            if len(stamps) >= self.COUNT_RECHECK_MAX:
+                self._count_checks[key] = stamps
+                return False
+            stamps.append(now_t)
+            self._count_checks[key] = stamps
+            if len(self._count_checks) > 4000:
+                self._count_checks = {k: v for k, v in self._count_checks.items() if v and now_t - v[-1] < self.COUNT_RECHECK_WINDOW}
+            return True
 
     def count_review(self, actor, count_id):
         """Differences for the approver, before anything is posted. A counter stays blind."""
@@ -2862,12 +2905,19 @@ class Shop:
             expected = self.store.scalar("""SELECT COALESCE(SUM(qty),0) FROM stock_entries
                 WHERE lot_id=? AND location_id=? AND id<=?""", (lot, count["location_id"], seen))
             far = self.count_is_far(expected, qty)
-            # no balance in the answer: the counter must not learn the recorded quantity
-            if far and not confirm_far:
+            # Confirming a number already warned about saves it and says nothing new.
+            # A blind counter is told "far" only a few times per line, and never "near":
+            # the saved/far bit is enough to binary-search the balance if it is unlimited.
+            if not confirm_far and far:
+                if not self.can_see_qty(actor) and not self._count_far_budget(actor["id"], count["id"], lot):
+                    raise ShopError("count_recheck", status=429)
                 return {"ok": False, "saved": False, "far": True}
+            if not confirm_far and not self.can_see_qty(actor):
+                if not self._count_far_budget(actor["id"], count["id"], lot):
+                    raise ShopError("count_recheck", status=429)
             self.store.db.execute("INSERT INTO count_lines(count_id,lot_id,counted,seen_entry,user_id,at) VALUES(?,?,?,?,?,?)",
                                   (count_id, lot, qty, seen, actor["id"], now_iso()))
-            return {"ok": True, "saved": True, "far": far}
+            return {"ok": True, "saved": True}
         return self.store.tx(work)
 
     def approve_count(self, actor, key, count_id, owner_reason=None, confirm_jump=False):

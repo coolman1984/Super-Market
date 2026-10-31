@@ -558,14 +558,15 @@
       if (still) { await sheet(still.id); return; }
       const table = list.length ? SM.table([
         { label: '#', key: 'id' }, { label: t('count.location'), render: r => SM.name(r) }, { label: t('stock.state'), render: r => SM.badge(r.status) },
-        { label: t('count.opened'), render: r => h('span', { class: 'ltr', text: r.opened_at.slice(0, 16) }) },
-        { label: '', render: r => r.status === 'open' ? h('button', { type: 'button', class: 'btn sm count-resume', text: t('count.resume') }) : null }],
+        { label: t('count.opened'), render: r => h('span', { class: 'ltr', text: r.opened_at.slice(0, 16) }) }],
         list, r => { if (r.status === 'open') sheet(r.id); }) : null;
       if (table) table.querySelectorAll('tbody tr').forEach((tr, i) => {
-        if (list[i].status === 'open') { tr.classList.add('count-open'); tr.title = t('count.resume'); }
+        if (list[i].status === 'open') { tr.classList.add('count-open'); tr.title = t('count.resume', { place: SM.name(list[i]) }); }
         else { tr.classList.remove('clickable'); tr.tabIndex = -1; tr.onclick = null; tr.onkeydown = null; }
       });
-      SM.put(root, h('div', { class: 'card' }, h('p', { class: 'tip', text: t('count.blind_tip') }), h('div', { class: 'row wrap' }, SM.field(t('count.location'), loc), open)), table);
+      const resumes = list.filter(r => r.status === 'open').map(r =>
+        h('button', { type: 'button', class: 'btn count-resume', text: t('count.resume', { place: SM.name(r) }), onclick: () => sheet(r.id) }));
+      SM.put(root, h('div', { class: 'card' }, h('p', { class: 'tip', text: t('count.blind_tip') }), h('div', { class: 'row wrap' }, SM.field(t('count.location'), loc), open)), resumes, table);
       async function sheet(id) {
         countStore(COUNT_SHEET, String(id));
         let draft = {};
@@ -585,7 +586,7 @@
           const input = h('input', { class: 'input', inputmode: 'decimal', 'data-guide': 'count.qty', value: draftText != null && draftText !== savedText ? draftText : savedText });
           const saved = h('span', {});
           const row = { lot: l, input, saved, el: null };
-          input.addEventListener('input', () => { draft[String(l.lot_id)] = input.value; saveDraft(); });
+          input.addEventListener('input', () => { draft[String(l.lot_id)] = input.value; saveDraft(); });   // typing stays here; the server is asked only when the field is left
           input.addEventListener('change', () => { commit(row, true).catch(e => SM.fail(e)); });
           row.el = h('div', { class: 'count-row' }, h('div', {}, h('b', { text: SM.name(l) }), h('div', { class: 'muted' }, l.expires ? t('count.expires', { date: l.expires }) : null, h('small', { class: 'muted ltr lot-no', text: ' ' + l.lot_no }))),   // report L9: what the counter reads first is the date, not the batch number
             h('div', { class: 'row' }, input, h('span', { class: 'muted', text: l.measure === 'g' ? t('unit.kg') : t('unit.pc') }), saved));
@@ -602,8 +603,8 @@
             let r = await SM.api('POST', '/api/counts/' + id + '/line', body);
             if (r.far && !r.saved) {
               if (!ask) return;
-              const keep = await SM.confirm(t('count.far_title'), t('count.far_q'), { yes: t('count.far_keep'), no: t('count.far_recount'), focus: 'no', large: true });
-              if (!keep) {
+              const recount = await SM.confirm(t('count.far_title'), t('count.far_q', { name: SM.name(row.lot) }), { yes: t('count.far_recount'), no: t('count.far_keep'), large: true });
+              if (recount) {
                 row.input.value = row.lot.counted === null ? '' : formatCount(row.lot, row.lot.counted);
                 delete draft[String(row.lot.lot_id)]; saveDraft(); SM.put(row.saved); return;
               }
