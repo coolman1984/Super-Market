@@ -43,10 +43,10 @@
     async mount(root) {
       const s = await SM.api('GET', '/api/shift').catch(() => null);
       if (!s) {
-        const fl = h('input', { class: 'input big', inputmode: 'decimal', placeholder: '0' });
+        const fl = h('input', { class: 'input big', inputmode: 'decimal', placeholder: '0', 'data-guide': 'cash.float' });
         const key = SM.newKey();
         SM.put(root, h('div', { class: 'card narrow' }, h('h3', { text: t('cash.open_title') }), h('p', { class: 'muted', text: t('cash.open_help') }),
-          SM.field(t('cash.float'), fl), h('div', { class: 'form-actions' }, h('button', { class: 'btn primary lg', text: t('cash.open'), onclick: async () => {
+          SM.field(t('cash.float'), fl), h('div', { class: 'form-actions' }, h('button', { class: 'btn primary lg', 'data-guide': 'cash.open', text: t('cash.open'), onclick: async () => {
             const v = fl.value ? SM.parseMoney(fl.value) : 0;
             if (v === null) return SM.toast(t('err.bad_amount'), 'bad');
             try { await SM.command('/api/shift/open', key, undefined, { opening_float: v }); SM.toast(t('cash.opened')); SM.go('sell'); } catch (e) { SM.fail(e); }
@@ -77,12 +77,12 @@
             try { await SM.command('/api/customers/pay', payKey, undefined, { customer_id: parseInt(c.value, 10), amount: v }); SM.toast(t('saved')); SM.go('cash'); } catch (e) { SM.fail(e); }
           }) }));
       }
-      const counted = h('input', { class: 'input big', inputmode: 'decimal' });
+      const counted = h('input', { class: 'input big', inputmode: 'decimal', 'data-guide': 'cash.counted' });
       const note = h('input', { class: 'input', maxlength: '200' });
       const closeKey = SM.newKey();
       const close = h('div', { class: 'card' }, h('h3', { text: t('cash.close_title') }), h('p', { class: 'tip', text: t('cash.blind_tip') }),
         SM.field(t('cash.counted'), counted), SM.field(t('cash.close_note'), note),
-        h('button', { class: 'btn primary lg', text: t('cash.close'), onclick: async () => {
+        h('button', { class: 'btn primary lg', 'data-guide': 'cash.close', text: t('cash.close'), onclick: async () => {
           const v = SM.parseMoney(counted.value); if (v === null) return SM.toast(t('err.bad_amount'), 'bad');
           if (!(await SM.confirm(t('cash.close'), t('cash.close_q', { amount: SM.money(v) })))) return;
           try {
@@ -138,15 +138,16 @@
   SM.views.returns = {
     icon: 'undo', perm: 'refund',
     mount(root) {
-      const no = h('input', { class: 'input', placeholder: 'S-000001', autocomplete: 'off' });
+      const no = h('input', { class: 'input', placeholder: 'S-000001', autocomplete: 'off', 'data-guide': 'ret.find' });
       const box = h('div');
       const find = async () => {
         let sale;
         try { sale = await SM.api('GET', '/api/sales/' + encodeURIComponent(no.value.trim())); } catch (e) { return SM.fail(e); }
         const key = SM.newKey();
-        const qtys = sale.lines.map(l => h('input', { class: 'input', inputmode: 'decimal', placeholder: '0' }));
+        const qtys = sale.lines.map(l => h('input', { class: 'input', inputmode: 'decimal', placeholder: '0', 'data-guide': 'ret.qty' }));
         const restock = sale.lines.map(() => h('input', { type: 'checkbox' }));
         const reason = SM.select(['quality', 'change_of_mind', 'wrong_item', 'other'].map(r => ({ value: r, label: t('ret.r.' + r) })));
+        reason.setAttribute('data-guide', 'ret.reason');
         const method = SM.select(['original', 'cash', 'credit_note'].map(r => ({ value: r, label: t('ret.m.' + r) })));
         SM.put(box, h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('ret.sale', { no: sale.no }) }), h('span', { class: 'ltr muted', text: sale.at.slice(0, 16) })),
           SM.table([{ label: t('sell.item'), render: l => h('span', {}, SM.name(l), l.promo_discount ? h('span', { class: 'badge', title: t('ret.promo_note'), text: t('receipt.promo') }) : null) }, { label: t('ret.sold'), render: l => SM.num(SM.qty(l.qty, l.measure)) },
@@ -155,7 +156,7 @@
             { label: t('ret.restock'), render: l => l.kind === 'grocery' ? h('label', { class: 'row' }, restock[sale.lines.indexOf(l)], t('ret.restock_ok')) : h('span', { class: 'badge warn', text: t('ret.quarantine_always') }) }], sale.lines),
           sale.lines.some(l => l.promo_discount) ? h('p', { class: 'tip', text: t('ret.promo_note') }) : null,
           h('div', { class: 'grid cols-2' }, SM.field(t('ret.reason'), reason, t('ret.reason_help')), SM.field(t('ret.method'), method)),
-          h('div', { class: 'form-actions' }, h('button', { class: 'btn primary', text: t('ret.post'), onclick: async () => {
+          h('div', { class: 'form-actions' }, h('button', { class: 'btn primary', 'data-guide': 'ret.post', text: t('ret.post'), onclick: async () => {
             const lines = [];
             for (const [i, l] of sale.lines.entries()) {
               if (!qtys[i].value) continue;
@@ -175,7 +176,7 @@
           } }))));
       };
       no.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); find(); } });
-      SM.put(root, h('div', { class: 'card' }, h('p', { class: 'tip', text: t('ret.tip') }), h('div', { class: 'row wrap' }, SM.field(t('ret.find'), no), h('button', { class: 'btn', text: t('ret.search'), onclick: find }))), box);
+      SM.put(root, h('div', { class: 'card' }, h('p', { class: 'tip', text: t('ret.tip') }), h('div', { class: 'row wrap' }, SM.field(t('ret.find'), no), h('button', { class: 'btn', 'data-guide': 'ret.search', text: t('ret.search'), onclick: find }))), box);
       no.focus();
     },
   };
@@ -184,7 +185,7 @@
   SM.views.reports = {
     icon: 'chart', perm: 'reports',
     async mount(root) {
-      const day = h('input', { class: 'input', type: 'date', value: SM.today() });
+      const day = h('input', { class: 'input', type: 'date', value: SM.today(), 'data-guide': 'rep.day' });
       const box = h('div');
       const load = async () => {
         const r = await SM.api('GET', '/api/reports/day?day=' + day.value).catch(e => { SM.fail(e); return null; });
@@ -201,11 +202,11 @@
             closed.corrections.length ? h('ul', { class: 'help-list' }, closed.corrections.map(c => h('li', {}, t('close.kind.' + c.kind), ' — ', h('span', { class: 'ltr', text: c.ref + ' — ' + c.at.slice(0, 16) }), ' — ', c.reason)))
               : h('p', { class: 'muted', text: t('none') })]
             : [h('p', { class: 'muted', text: t('close.help') }),
-              SM.can('close_day') ? h('button', { class: 'btn', text: t('close.btn'), onclick: SM.guard(async () => {
+              SM.can('close_day') ? h('button', { class: 'btn', 'data-guide': 'close.btn', text: t('close.btn'), onclick: SM.guard(async () => {
                 if (!(await SM.confirm(t('close.btn'), t('close.confirm', { day: day.value })))) return;
                 try { await SM.command('/api/days/close', SM.newKey(), undefined, { day: day.value }); SM.toast(t('close.done')); load(); } catch (e) { SM.fail(e); }
               }) }) : null]);
-        SM.put(box, closeCard, h('div', { class: 'grid cols-2' },
+        SM.put(box, closeCard, h('div', { class: 'grid cols-2', 'data-guide': 'rep.figures' },
           h('div', { class: 'card' }, h('h3', { text: t('rep.sales') }), h('dl', { class: 'kv' },
             kv(t('rep.sales_total'), SM.money(r.sales_total)), kv(t('rep.discounts'), SM.money(r.discounts)), kv(t('rep.returns'), SM.money(r.returns)),
             kv(t('rep.net_sales'), SM.money(r.net_sales), t('rep.net_sales_hint')),

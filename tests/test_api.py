@@ -69,6 +69,9 @@ class Api(unittest.TestCase):
         # CSRF: POST without the custom header is refused
         self.assertEqual(self.call("POST", "/api/shift/open", {"key": key(), "opening_float": 0}, header=False)[0], 403)
         self.login("c", "cashier-pass")
+        # a password typed by the owner is replaced by the employee's own before any work
+        self.assertEqual(self.call("POST", "/api/shift/open", {"key": key(), "opening_float": 10000})[1]["error"], "must_change_password")
+        self.assertEqual(self.call("POST", "/api/account/password", {"old": "cashier-pass", "new": "my-own-pass-1"})[0], 200)
         self.assertEqual(self.call("POST", "/api/shift/open", {"key": key(), "opening_float": 10000})[0], 200)
         k = key()
         cart = {"lines": [{"product_id": prod["id"], "qty": 2}]}

@@ -71,13 +71,13 @@
         h('button', { class: 'btn', text: t('adj.rebate'), onclick: () => adjustDialog('rebate', s, receipts, () => { d.close(); after(); }) })));
     }
     if (SM.can('supplier_pay')) {
-      const amount = h('input', { class: 'input', inputmode: 'decimal' });
+      const amount = h('input', { class: 'input', inputmode: 'decimal', 'data-guide': 'party.amount' });
       const note = h('input', { class: 'input', maxlength: '200' });
       const source = SM.select([{ value: 'safe', label: t('party.from_safe') }, { value: 'drawer', label: t('party.from_drawer') }], SM.can('shift') ? 'drawer' : 'safe');
       const key = SM.newKey();
       parts.push(h('div', { class: 'card' }, h('h3', { text: t('party.pay_supplier') }), h('p', { class: 'muted', text: t('party.source_help') }),
         h('div', { class: 'grid cols-3' }, SM.field(t('cash.amount'), amount), SM.field(t('party.source'), source), SM.field(t('cash.note'), note)),
-        h('button', { class: 'btn primary', text: t('party.pay'), onclick: SM.guard(async () => {
+        h('button', { class: 'btn primary', 'data-guide': 'party.pay', text: t('party.pay'), onclick: SM.guard(async () => {
           const v = SM.parseMoney(amount.value); if (!v) return SM.toast(t('err.bad_amount'), 'bad');
           try { await SM.command('/api/suppliers/pay', key, undefined, { supplier_id: s.id, amount: v, note: note.value || undefined, source: source.value });
             SM.toast(t('saved')); d.close(); after(); } catch (e) { SM.fail(e); }
@@ -152,7 +152,7 @@
       const load = () => SM.go('parties');
       if (SM.can('receive') || SM.can('supplier_pay')) {
         const sup = await SM.api('GET', '/api/parties?kind=supplier').catch(() => []);
-        parts.push(h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('party.suppliers') }),
+        parts.push(h('div', { class: 'card', 'data-guide': 'parties.suppliers' }, h('header', {}, h('h3', { text: t('party.suppliers') }),
           SM.can('receive') ? h('button', { class: 'btn sm', onclick: () => addDialog('supplier', load) }, icon('plus', 'sm'), t('add')) : null),
           sup.length ? SM.table([{ label: t('cat.name'), key: 'name' }, { label: t('party.phone'), render: r => h('span', { class: 'ltr', text: r.phone || '' }) },
             { label: t('party.we_owe'), num: true, render: r => SM.num(SM.money(r.balance)) }], sup, r => supplierDrawer(r, load)) : SM.empty(t('party.none'))));

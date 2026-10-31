@@ -28,6 +28,9 @@ def sources():
     return "\n".join(f.read_text(encoding="utf-8") for f in files)
 
 
+BANNED_AR = ["الجارد", "جارد", "حد الآجل", "سطح المكتب", "يا عم", "يا باشا", "يسطا", "ياسطى", "يا معلم", "بتاع إيه", "اخرس", "غبي", "حمار"]
+
+
 @unittest.skipUnless(NODE, "node is needed to read the browser dictionaries")
 class Language(unittest.TestCase):
     @classmethod
@@ -67,8 +70,9 @@ class Language(unittest.TestCase):
         self.assertEqual(bad, [])
 
     def test_formal_arabic_terms_and_no_colloquial_words(self):
-        banned = ["اقفل", "الفكة", "فكة", "الكاشير", "كاشير", "جارد", "الجارد", "عايز", "دلوقتي", "كده", "إزاي", "مفيش", "اللي ", "برضه", "هالك",
-                  "حد الآجل", "سطح المكتب"]
+        # owner direction 31 Oct 2026: respectful Egyptian Arabic is welcome ("ابدأ ورديتك", "في الدرج كام؟");
+        # what stays out is the disrespectful, the street slang and the ambiguous (docs/LANGUAGE_GUIDE.md)
+        banned = BANNED_AR
         hits = []
         for k, v in self.ar.items():
             for w in banned:
@@ -157,7 +161,7 @@ console.log(JSON.stringify(out));""" % (str(WEB), str(WEB), json.dumps(self.role
 
     def test_server_launcher_and_training_texts_use_the_same_terms(self):
         root = WEB.parent.parent
-        banned = ["اقفل", "الفكة", "كاشير", "الجارد", "جارد", "حد الآجل", "دلوقتي", "كده", "إزاي", "مفيش", "برضه", "سطح المكتب"]
+        banned = BANNED_AR
         files = [root / "launcher.py"] + sorted((root / "server").glob("*.py"))
         hits = [(f.name, w) for f in files for w in banned if re.search(r"(?<![\u0621-\u064A])" + w + r"(?![\u0621-\u064A])", f.read_text(encoding="utf-8"))]
         self.assertEqual(hits, [])

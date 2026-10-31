@@ -12,7 +12,7 @@ const out = process.argv[3] || '.';
   const res = {};
   await page.goto(base); await page.reload();
   await page.waitForSelector('.sidebar, input[type=password]');
-  if (await page.locator('.side-foot .icon-btn').count()) await page.click('.side-foot .icon-btn');
+  if (await page.locator('.side-foot .logout-btn').count()) await page.click('.side-foot .logout-btn');
   await page.waitForSelector('input[type=password]');
   await page.fill('input[autocomplete=username]', 'owner'); await page.fill('input[type=password]', 'training-only');
   await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');

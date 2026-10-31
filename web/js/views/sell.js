@@ -5,7 +5,7 @@
   const { h, t, icon } = SM;
   /* The cart belongs to one user, till and mode (audit R17); logout empties it. */
   const cart = { lines: [], invoiceDiscount: 0, customer: null, owner: null, key: null, unknown: false };
-  function resetCart() { Object.assign(cart, { lines: [], invoiceDiscount: 0, customer: null, key: null, unknown: false, restoring: false }); }
+  function resetCart() { Object.assign(cart, { lines: [], invoiceDiscount: 0, customer: null, key: null, unknown: false, restoring: false, restoreFailed: false }); }
   /* the shop's own identity first: a draft never crosses to another shop folder on the same browser */
   const ownerOf = () => [SM.state.instance || '-', SM.state.user && SM.state.user.id, SM.workstation(), SM.state.mode].join('|');
   const HELD_MAX = 10;
@@ -18,17 +18,27 @@
     if (!cart.owner || cart.owner !== ownerOf() || cart.restoring) return;   // never overwrite a draft not yet read back
     if (!cart.lines.length && !cart.unknown) { SM.prefs.set(draftKey(), null); return; }
     SM.prefs.set(draftKey(), { at: new Date().toISOString(), invoiceDiscount: cart.invoiceDiscount, customer: cart.customer,
-      key: cart.unknown ? cart.key : null,
+      key: cart.key || null,          // set before the payment request leaves (review: a reload mid-payment never sells twice)
       lines: cart.lines.map(l => ({ id: l.product.id, qty: l.qty, pack: l.pack ? l.pack.code : null, scanned: l.scanned || null,
         manualWeight: !!l.manualWeight, discount: l.discount || 0 })) });
   }
   async function restoreDraft(view) {
+    if (cart.restoreRunning) return;          // one read-back at a time: a double click never adds the lines twice
+    cart.restoreRunning = true;
+    try { await restoreDraftOnce(view); } finally { cart.restoreRunning = false; if (cart.owner === ownerOf()) view.render(); }
+  }
+  async function restoreDraftOnce(view) {
     const d = SM.prefs.get(draftKey(), null);
-    if (!d || cart.lines.length) { cart.restoring = false; return; }
+    if (!d || (cart.lines.length && !cart.restoreFailed)) { cart.restoring = false; return; }   // after a failed read, new lines are kept beside it
     const session = SM.state.session, owner = cart.owner;
-    const lines = await restoreLines(d.lines, session, owner);
+    let lines;
+    try { lines = await restoreLines(d.lines, session, owner, true); }
+    catch (e) {   // no connection: the saved draft stays untouched until it can be read back
+      if (session === SM.state.session && owner === cart.owner) { cart.restoreFailed = true; view.render(); }
+      return;
+    }
     if (lines === null) return;
-    cart.restoring = false;
+    cart.restoring = false; cart.restoreFailed = false;
     cart.lines.push(...lines);
     cart.invoiceDiscount = d.invoiceDiscount || 0; cart.customer = d.customer || null;
     if (d.key && SM.pendingOps().some(p => p.key === d.key)) { cart.key = d.key; cart.unknown = true; }   // the lost answer is checked first
@@ -36,17 +46,20 @@
     if (lines.length) SM.toast(t('sell.draft_restored', { n: lines.length }));
   }
   /* Re-read every saved line from the server; a pack that sold meanwhile or a missing product is reported, not added. */
-  async function restoreLines(saved, session, owner) {
+  async function restoreLines(saved, session, owner, strict) {
     const out = [];
+    // strict: a network or server failure throws (keep the draft); a clear answer (sold pack, gone product) is reported
+    const read = (promise) => promise.catch(e => { if (strict && (e.code === 'network' || e.status === 0 || e.status >= 500)) throw e; return null; });
     for (const l of saved || []) {
       if (l.pack) {
-        const r = await SM.api('POST', '/api/scan', { raw: l.pack }).catch(() => null);
+        const r = await read(SM.api('POST', '/api/scan', { raw: l.pack }));
         if (session !== SM.state.session || owner !== cart.owner) return null;
         if (r && r.ok && r.pack) out.push({ product: r.product, qty: r.pack.net_g, pack: r.pack, scanned: l.scanned });
         else SM.toast(t('err.' + (r ? r.error : 'network')), 'bad');
       } else {
-        const p = await SM.api('GET', '/api/products/' + l.id).catch(() => null);
+        const p = await read(SM.api('GET', '/api/products/' + l.id));
         if (session !== SM.state.session || owner !== cart.owner) return null;
+        if (!p) SM.toast(t('sell.draft_line_gone'), 'bad');
         if (p) out.push({ product: p, qty: l.qty, scanned: l.scanned, manualWeight: l.manualWeight, discount: l.discount || 0 });
       }
     }
@@ -100,7 +113,7 @@
 
   function askWeight(product) {
     return new Promise((resolve) => {
-      const input = h('input', { class: 'input big', inputmode: 'decimal', autocomplete: 'off' });
+      const input = h('input', { class: 'input big', inputmode: 'decimal', autocomplete: 'off', 'data-guide': 'sell.weight' });
       let done = false;
       const ok = () => {
         const g = SM.parseKg(input.value);
@@ -117,7 +130,16 @@
   /* Held sales: kept in this browser per user + till + mode. Holding reserves nothing:
      on resume every line is re-resolved by the server (price, expiry, pack status). */
   const heldKey = () => 'held.' + ownerOf();
-  const held = () => SM.prefs.get(heldKey(), []);
+  const held = () => {
+    // held sales saved before the shop identity joined the key: moved once into this shop's slot
+    const old = 'held.' + [SM.state.user && SM.state.user.id, SM.workstation(), SM.state.mode].join('|');
+    const before = SM.prefs.get(old, null);
+    if (before && before.length) {
+      SM.prefs.set(heldKey(), SM.prefs.get(heldKey(), []).concat(before));
+      try { localStorage.removeItem('sm.' + old); } catch (e) { /* private mode */ }
+    }
+    return SM.prefs.get(heldKey(), []);
+  };
   function holdCart(view) {
     if (!cart.lines.length || cart.unknown) return;
     // never drop an older held sale to make room: the cashier decides which one goes
@@ -145,7 +167,7 @@
   }
 
   async function search(view) {
-    const q = h('input', { class: 'input', placeholder: t('sell.search_ph'), autocomplete: 'off' });
+    const q = h('input', { class: 'input', placeholder: t('sell.search_ph'), autocomplete: 'off', 'data-guide': 'sell.search_box' });
     const list = h('div', { class: 'pick-list' });
     let timer;
     const run = async () => {
@@ -180,8 +202,9 @@
     const tot = { total: quote.total, hash: quote.quote_hash };
     // the key belongs to this cart until its answer is known (audit S03)
     cart.key = cart.key || SM.newKey();
+    saveDraft();                       // the draft knows this key before any request is sent
     const key = cart.key;
-    const cash = h('input', { class: 'input big', inputmode: 'decimal', autocomplete: 'off', maxlength: '12', 'aria-label': t('pay.cash_received') });
+    const cash = h('input', { class: 'input big', inputmode: 'decimal', autocomplete: 'off', maxlength: '12', 'aria-label': t('pay.cash_received'), 'data-guide': 'pay.cash' });
     const changeOut = h('div', { class: 'pay-change' });
     const others = [];
     const otherBox = h('div', { class: 'stack' });
@@ -237,7 +260,7 @@
     const quick = h('div', { class: 'row wrap' }, h('button', { class: 'btn sm', text: t('pay.exact'), onclick: () => { cash.value = SM.money(tot.total).replace(/,/g, ''); update(); } }),
       [5000, 10000, 20000, 50000].map(v => h('button', { class: 'btn sm', onclick: () => { cash.value = String(v / 100); update(); } }, SM.money(v))));
     const methods = h('div', { class: 'row wrap' }, ['card', 'wallet', 'transfer', 'credit'].map(m => h('button', { class: 'btn sm ghost', onclick: () => addOther(m) }, icon('plus', 'sm'), t('pay.m.' + m))));
-    const payBtn = h('button', { class: 'btn primary lg', text: t('pay.confirm') });
+    const payBtn = h('button', { class: 'btn primary lg', 'data-guide': 'pay.confirm', text: t('pay.confirm') });
     let busy = false;
     payBtn.onclick = async () => {
       const v = update();
@@ -340,6 +363,7 @@
       if (fresh) { resetCart(); cart.owner = ownerOf(); cart.restoring = true; }
       try { shift = await SM.api('GET', '/api/shift'); } catch (e) { shift = null; }
       const scanInput = SM.scanner.field({});
+      scanInput.setAttribute('data-guide', 'sell.scan');
       const status = h('div', { class: 'scan-status', role: 'status', 'aria-live': 'polite' });
       const cartBox = h('div', { class: 'cart' });
       const side = h('aside', { class: 'pay-panel card' });
@@ -361,21 +385,23 @@
             { label: t('sell.qty'), render: l => h('div', { class: 'row qty-cell' },
               !l.pack && l.product.measure !== 'g' ? h('button', { class: 'icon-btn', 'aria-label': t('less'), disabled: l.qty <= 1, onclick: () => { if (l.qty <= 1) return; cart.key = null; l.qty--; view.render(); } }, icon('minus')) : null,
               SM.num(SM.qty(l.qty, l.product.measure)),
-              !l.pack && l.product.measure !== 'g' ? h('button', { class: 'icon-btn', 'aria-label': t('more'), onclick: () => { cart.key = null; l.qty++; view.render(); } }, icon('plus')) : null) },
+              !l.pack && l.product.measure !== 'g' ? h('button', { class: 'icon-btn', 'data-guide': 'sell.more', 'aria-label': t('more'), onclick: () => { cart.key = null; l.qty++; view.render(); } }, icon('plus')) : null) },
             { label: t('sell.price'), num: true, render: l => SM.num(l.pack ? SM.money(l.pack.price) : SM.money(l.product.price) + (l.product.measure === 'g' ? ' / ' + t('unit.kg') : '')) },
             { label: t('sell.amount'), num: true, render: l => SM.num(SM.money(lineAmount(l))) },
             { label: '', render: l => h('button', { class: 'icon-btn', 'aria-label': t('remove'), onclick: () => { cart.key = null; cart.lines.splice(cart.lines.indexOf(l), 1); view.render(); } }, icon('trash')) },
           ], cart.lines) : SM.empty(t('sell.empty'), t('sell.empty_hint')));
           SM.put(side,
+            cart.restoreFailed ? h('div', { class: 'tip warn-tip', role: 'alert' }, h('div', {}, h('b', { text: t('sell.draft_offline') }),
+              h('button', { class: 'btn primary sm block', text: t('sell.draft_retry'), disabled: !!cart.restoreRunning, onclick: () => restoreDraft(view) }))) : null,
             cart.unknown ? h('div', { class: 'tip warn-tip', role: 'alert' }, h('div', {}, h('b', { text: t('pending.sale_unknown') }),
               h('button', { class: 'btn primary sm block', text: t('pending.check'), onclick: () => verifyUnknown(view) }))) : null,
             h('div', { class: 'tot-row' }, h('span', { text: t('sell.items') }), SM.num(String(cart.lines.length))),
             cart.invoiceDiscount ? h('div', { class: 'tot-row' }, h('span', { text: t('sell.discount') }), SM.num('-' + SM.money(cart.invoiceDiscount))) : null,
             h('div', { class: 'tot-big' }, h('span', { text: t('sell.total') }), SM.num(SM.moneyText(tot.total))),
-            h('button', { class: 'btn primary lg block', disabled: !cart.lines.length || !shift || cart.unknown, onclick: () => payDialog(view) }, t('sell.pay'), h('span', { class: 'kbd', text: 'F9' })),
+            h('button', { class: 'btn primary lg block', 'data-guide': 'sell.pay', disabled: !cart.lines.length || !shift || cart.unknown, onclick: () => payDialog(view) }, t('sell.pay'), h('span', { class: 'kbd', text: 'F9' })),
             h('button', { class: 'btn ghost block', disabled: !cart.lines.length, onclick: () => discountDialog(view) }, t('sell.discount_btn')),
-            h('button', { class: 'btn ghost block', disabled: !cart.lines.length || cart.unknown, onclick: () => holdCart(view) }, t('sell.hold')),
-            held().length ? h('button', { class: 'btn ghost block', disabled: cart.unknown, onclick: () => resumeDialog(view) }, t('sell.resume') + ' (' + held().length + ')') : null,
+            h('button', { class: 'btn ghost block', 'data-guide': 'sell.hold', disabled: !cart.lines.length || cart.unknown, onclick: () => holdCart(view) }, t('sell.hold')),
+            held().length ? h('button', { class: 'btn ghost block', 'data-guide': 'sell.resume', disabled: cart.unknown, onclick: () => resumeDialog(view) }, t('sell.resume') + ' (' + held().length + ')') : null,
             h('button', { class: 'btn ghost block', disabled: !cart.lines.length, onclick: async () => { if (await SM.confirm(t('sell.clear'), t('sell.clear_q'))) { cart.key = null; cart.lines = []; cart.invoiceDiscount = 0; view.render(); } } }, t('sell.clear')));
           scanInput.focus();
         },
@@ -387,11 +413,11 @@
         h('div', { class: 'sell-grid' },
           h('section', { class: 'sell-main' },
             h('div', { class: 'scan-bar card' }, icon('scan', 'lg'), scanInput,
-              h('button', { class: 'btn', onclick: () => search(view) }, icon('search'), t('sell.search'), h('span', { class: 'kbd', text: 'F4' }))),
+              h('button', { class: 'btn', 'data-guide': 'sell.search', onclick: () => search(view) }, icon('search'), t('sell.search'), h('span', { class: 'kbd', text: 'F4' }))),
             status, cartBox),
           side));
       view.render();
-      if (fresh) restoreDraft(view);
+      if (fresh || cart.restoring) restoreDraft(view);   // a read-back cut short by a second start-up is done again
       this.keys = (e) => {
         if (SM.state.dialogOpen) return;
         if (e.key === 'F9') { e.preventDefault(); if (cart.lines.length && shift) payDialog(view); }

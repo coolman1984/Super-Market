@@ -70,8 +70,11 @@
       const shift = SM.can('shift') ? await SM.api('GET', '/api/shift').catch(() => null) : null;
       const ctx = { shiftOpen: !!(shift && shift.shift && !shift.shift.closed_at) };
       const intro = h('div', { class: 'tip' }, icon('school'), h('div', { text: SM.state.mode === 'training' ? t('help.in_training') : t('help.training') }));
+      // the guided lessons (same engine as the Yousef app): my course, with the coach on the real buttons
+      const coach = h('div', { class: 'card row wrap' }, icon('school'), h('div', { class: 'grow' }, h('b', { text: t('help.guide_title') }), h('div', { class: 'muted', text: t('help.guide_sub') })),
+        h('button', { class: 'btn primary', 'data-guide': 'help.open_guide', onclick: () => SM.guide && SM.guide.open('today') }, t('help.guide_open')));
       const training = SM.state.mode === 'training' ? await trainingCard() : null;
-      SM.put(root, intro, training, ...TOPICS.map(v => block(v, ctx)));
+      SM.put(root, intro, coach, training, ...TOPICS.map(v => block(v, ctx)));
     },
   };
 })();

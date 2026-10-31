@@ -1,0 +1,1864 @@
+{
+ "product": "super-market",
+ "format": 1,
+ "languages": [
+  "ar",
+  "en"
+ ],
+ "defaultLang": "ar",
+ "uiLanguages": [
+  "ar",
+  "en"
+ ],
+ "pages": [
+  "today",
+  "sell",
+  "returns",
+  "cash",
+  "receive",
+  "stock",
+  "prepare",
+  "count",
+  "reports",
+  "parties",
+  "catalog",
+  "scanner",
+  "settings",
+  "help"
+ ],
+ "unguided": [
+  "help"
+ ],
+ "states": [
+  "shift.opened",
+  "sale.first",
+  "return.first",
+  "shift.closed",
+  "receipt.first",
+  "cutting.first",
+  "tagine.first",
+  "count.first",
+  "product.added",
+  "user.added",
+  "backup.made",
+  "password.changed",
+  "day.closed",
+  "supplier.paid"
+ ],
+ "checklist": [
+  "open-shift",
+  "first-sale",
+  "receive-goods"
+ ],
+ "targets": {
+  "cash.float": {
+   "page": "cash",
+   "sel": "[data-guide=\"cash.float\"]"
+  },
+  "cash.open": {
+   "page": "cash",
+   "sel": "[data-guide=\"cash.open\"]"
+  },
+  "cash.counted": {
+   "page": "cash",
+   "sel": "[data-guide=\"cash.counted\"]"
+  },
+  "cash.close": {
+   "page": "cash",
+   "sel": "[data-guide=\"cash.close\"]"
+  },
+  "sell.scan": {
+   "page": "sell",
+   "sel": "[data-guide=\"sell.scan\"]"
+  },
+  "sell.more": {
+   "page": "sell",
+   "sel": "[data-guide=\"sell.more\"]"
+  },
+  "sell.pay": {
+   "page": "sell",
+   "sel": "[data-guide=\"sell.pay\"]"
+  },
+  "sell.hold": {
+   "page": "sell",
+   "sel": "[data-guide=\"sell.hold\"]"
+  },
+  "sell.resume": {
+   "page": "sell",
+   "sel": "[data-guide=\"sell.resume\"]"
+  },
+  "sell.search": {
+   "page": "sell",
+   "sel": "[data-guide=\"sell.search\"]"
+  },
+  "sell.search_box": {
+   "page": "sell",
+   "sel": "[data-guide=\"sell.search_box\"]"
+  },
+  "sell.weight": {
+   "page": "sell",
+   "sel": "[data-guide=\"sell.weight\"]"
+  },
+  "pay.cash": {
+   "page": "sell",
+   "sel": "[data-guide=\"pay.cash\"]"
+  },
+  "pay.confirm": {
+   "page": "sell",
+   "sel": "[data-guide=\"pay.confirm\"]"
+  },
+  "ret.find": {
+   "page": "returns",
+   "sel": "[data-guide=\"ret.find\"]"
+  },
+  "ret.search": {
+   "page": "returns",
+   "sel": "[data-guide=\"ret.search\"]"
+  },
+  "ret.qty": {
+   "page": "returns",
+   "sel": "[data-guide=\"ret.qty\"]"
+  },
+  "ret.reason": {
+   "page": "returns",
+   "sel": "[data-guide=\"ret.reason\"]"
+  },
+  "ret.post": {
+   "page": "returns",
+   "sel": "[data-guide=\"ret.post\"]"
+  },
+  "recv.supplier": {
+   "page": "receive",
+   "sel": "[data-guide=\"recv.supplier\"]"
+  },
+  "recv.invoice": {
+   "page": "receive",
+   "sel": "[data-guide=\"recv.invoice\"]"
+  },
+  "recv.add": {
+   "page": "receive",
+   "sel": "[data-guide=\"recv.add\"]"
+  },
+  "recv.pick": {
+   "page": "receive",
+   "sel": "[data-guide=\"recv.pick\"]"
+  },
+  "recv.qty": {
+   "page": "receive",
+   "sel": "[data-guide=\"recv.qty\"]"
+  },
+  "recv.cost": {
+   "page": "receive",
+   "sel": "[data-guide=\"recv.cost\"]"
+  },
+  "recv.expires": {
+   "page": "receive",
+   "sel": "[data-guide=\"recv.expires\"]"
+  },
+  "recv.post": {
+   "page": "receive",
+   "sel": "[data-guide=\"recv.post\"]"
+  },
+  "prep.mode.cutting": {
+   "page": "prepare",
+   "sel": "[data-guide=\"prep.mode.cutting\"]"
+  },
+  "prep.mode.recipe": {
+   "page": "prepare",
+   "sel": "[data-guide=\"prep.mode.recipe\"]"
+  },
+  "prep.lot": {
+   "page": "prepare",
+   "sel": "[data-guide=\"prep.lot\"]"
+  },
+  "prep.in_qty": {
+   "page": "prepare",
+   "sel": "[data-guide=\"prep.in_qty\"]"
+  },
+  "prep.out": {
+   "page": "prepare",
+   "sel": "[data-guide=\"prep.out\"]"
+  },
+  "prep.out_qty": {
+   "page": "prepare",
+   "sel": "[data-guide=\"prep.out_qty\"]"
+  },
+  "prep.add_output": {
+   "page": "prepare",
+   "sel": "[data-guide=\"prep.add_output\"]"
+  },
+  "prep.loss": {
+   "page": "prepare",
+   "sel": "[data-guide=\"prep.loss\"]"
+  },
+  "prep.balance": {
+   "page": "prepare",
+   "sel": "[data-guide=\"prep.balance\"]"
+  },
+  "prep.recipe": {
+   "page": "prepare",
+   "sel": "[data-guide=\"prep.recipe\"]"
+  },
+  "prep.packs": {
+   "page": "prepare",
+   "sel": "[data-guide=\"prep.packs\"]"
+  },
+  "prep.post": {
+   "page": "prepare",
+   "sel": "[data-guide=\"prep.post\"]"
+  },
+  "count.location": {
+   "page": "count",
+   "sel": "[data-guide=\"count.location\"]"
+  },
+  "count.open": {
+   "page": "count",
+   "sel": "[data-guide=\"count.open\"]"
+  },
+  "count.qty": {
+   "page": "count",
+   "sel": "[data-guide=\"count.qty\"]"
+  },
+  "count.approve": {
+   "page": "count",
+   "sel": "[data-guide=\"count.approve\"]"
+  },
+  "rep.day": {
+   "page": "reports",
+   "sel": "[data-guide=\"rep.day\"]"
+  },
+  "rep.figures": {
+   "page": "reports",
+   "sel": "[data-guide=\"rep.figures\"]"
+  },
+  "close.btn": {
+   "page": "reports",
+   "sel": "[data-guide=\"close.btn\"]"
+  },
+  "cat.add": {
+   "page": "catalog",
+   "sel": "[data-guide=\"cat.add\"]"
+  },
+  "cat.code": {
+   "page": "catalog",
+   "sel": "[data-guide=\"cat.code\"]"
+  },
+  "cat.name_ar": {
+   "page": "catalog",
+   "sel": "[data-guide=\"cat.name_ar\"]"
+  },
+  "cat.price": {
+   "page": "catalog",
+   "sel": "[data-guide=\"cat.price\"]"
+  },
+  "cat.barcode": {
+   "page": "catalog",
+   "sel": "[data-guide=\"cat.barcode\"]"
+  },
+  "parties.suppliers": {
+   "page": "parties",
+   "sel": "[data-guide=\"parties.suppliers\"]"
+  },
+  "party.amount": {
+   "page": "parties",
+   "sel": "[data-guide=\"party.amount\"]"
+  },
+  "party.pay": {
+   "page": "parties",
+   "sel": "[data-guide=\"party.pay\"]"
+  },
+  "set.username": {
+   "page": "settings",
+   "sel": "[data-guide=\"set.username\"]"
+  },
+  "set.password": {
+   "page": "settings",
+   "sel": "[data-guide=\"set.password\"]"
+  },
+  "set.role": {
+   "page": "settings",
+   "sel": "[data-guide=\"set.role\"]"
+  },
+  "set.add_user": {
+   "page": "settings",
+   "sel": "[data-guide=\"set.add_user\"]"
+  },
+  "set.backup_now": {
+   "page": "settings",
+   "sel": "[data-guide=\"set.backup_now\"]"
+  },
+  "shell.lock": {
+   "page": "today",
+   "sel": "[data-guide=\"shell.lock\"]"
+  },
+  "shell.password": {
+   "page": "today",
+   "sel": "[data-guide=\"shell.password\"]"
+  },
+  "account.old": {
+   "page": "today",
+   "sel": "[data-guide=\"account.old\"]"
+  },
+  "account.new": {
+   "page": "today",
+   "sel": "[data-guide=\"account.new\"]"
+  },
+  "sell.receipt": {
+   "page": "sell",
+   "sel": ".dialog .receipt"
+  },
+  "recv.pick_ok": {
+   "page": "receive",
+   "sel": ".dialog footer .btn.primary"
+  },
+  "cat.save": {
+   "page": "catalog",
+   "sel": ".dialog footer .btn.primary"
+  },
+  "parties.supplier_row": {
+   "page": "parties",
+   "sel": "[data-guide=\"parties.suppliers\"] tbody tr"
+  },
+  "today.next": {
+   "page": "today",
+   "sel": "#view ol.steps"
+  },
+  "shell.nav": {
+   "page": "today",
+   "sel": ".sidebar .nav"
+  },
+  "shell.help": {
+   "page": "today",
+   "sel": ".topbar .btn.ghost"
+  },
+  "account.save": {
+   "page": "today",
+   "sel": ".dialog button[type=\"submit\"]"
+  }
+ },
+ "guides": [
+  {
+   "id": "first-look",
+   "cat": "start",
+   "perm": "*",
+   "minutes": 2,
+   "requires": [],
+   "steps": [
+    {
+     "k": "go",
+     "page": "today",
+     "until": {
+      "route": "today"
+     }
+    },
+    {
+     "k": "check",
+     "target": "shell.nav"
+    },
+    {
+     "k": "check",
+     "target": "today.next"
+    },
+    {
+     "k": "check",
+     "target": "shell.help"
+    },
+    {
+     "k": "done"
+    }
+   ]
+  },
+  {
+   "id": "open-shift",
+   "cat": "daily",
+   "perm": "shift",
+   "minutes": 2,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "cash",
+     "until": {
+      "route": "cash"
+     }
+    },
+    {
+     "k": "type",
+     "target": "cash.float",
+     "until": {
+      "filled": "cash.float"
+     }
+    },
+    {
+     "k": "click",
+     "target": "cash.open",
+     "until": {
+      "route": "sell"
+     }
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "shift.opened"
+   }
+  },
+  {
+   "id": "first-sale",
+   "cat": "daily",
+   "perm": "sell",
+   "minutes": 4,
+   "requires": [
+    "open-shift"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "sell",
+     "until": {
+      "route": "sell"
+     }
+    },
+    {
+     "k": "type",
+     "target": "sell.scan",
+     "until": {
+      "target": "sell.more"
+     }
+    },
+    {
+     "k": "click",
+     "target": "sell.more"
+    },
+    {
+     "k": "click",
+     "target": "sell.pay",
+     "until": {
+      "target": "pay.cash"
+     }
+    },
+    {
+     "k": "type",
+     "target": "pay.cash",
+     "until": {
+      "filled": "pay.cash"
+     }
+    },
+    {
+     "k": "click",
+     "target": "pay.confirm",
+     "until": {
+      "target": "sell.receipt"
+     }
+    },
+    {
+     "k": "check",
+     "target": "sell.receipt"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "sale.first"
+   }
+  },
+  {
+   "id": "weighed-sale",
+   "cat": "daily",
+   "perm": "sell",
+   "minutes": 3,
+   "requires": [
+    "first-sale"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "sell",
+     "until": {
+      "route": "sell"
+     }
+    },
+    {
+     "k": "click",
+     "target": "sell.search",
+     "until": {
+      "target": "sell.search_box"
+     }
+    },
+    {
+     "k": "type",
+     "target": "sell.search_box",
+     "until": {
+      "filled": "sell.search_box"
+     }
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "type",
+     "target": "sell.weight",
+     "until": {
+      "filled": "sell.weight"
+     }
+    },
+    {
+     "k": "check",
+     "target": "sell.pay"
+    },
+    {
+     "k": "done"
+    }
+   ]
+  },
+  {
+   "id": "hold-sale",
+   "cat": "daily",
+   "perm": "sell",
+   "minutes": 2,
+   "requires": [
+    "first-sale"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "sell",
+     "until": {
+      "route": "sell"
+     }
+    },
+    {
+     "k": "type",
+     "target": "sell.scan",
+     "until": {
+      "target": "sell.hold"
+     }
+    },
+    {
+     "k": "click",
+     "target": "sell.hold",
+     "until": {
+      "target": "sell.resume"
+     }
+    },
+    {
+     "k": "click",
+     "target": "sell.resume"
+    },
+    {
+     "k": "done"
+    }
+   ]
+  },
+  {
+   "id": "return-item",
+   "cat": "daily",
+   "perm": "refund",
+   "minutes": 3,
+   "requires": [
+    "first-sale"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "returns",
+     "until": {
+      "route": "returns"
+     }
+    },
+    {
+     "k": "type",
+     "target": "ret.find",
+     "until": {
+      "filled": "ret.find"
+     }
+    },
+    {
+     "k": "click",
+     "target": "ret.search",
+     "until": {
+      "target": "ret.qty"
+     }
+    },
+    {
+     "k": "type",
+     "target": "ret.qty",
+     "until": {
+      "filled": "ret.qty"
+     }
+    },
+    {
+     "k": "choose",
+     "target": "ret.reason",
+     "until": {
+      "filled": "ret.reason"
+     }
+    },
+    {
+     "k": "click",
+     "target": "ret.post"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "return.first"
+   }
+  },
+  {
+   "id": "close-shift",
+   "cat": "daily",
+   "perm": "shift",
+   "minutes": 3,
+   "requires": [
+    "open-shift"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "cash",
+     "until": {
+      "route": "cash"
+     }
+    },
+    {
+     "k": "type",
+     "target": "cash.counted",
+     "until": {
+      "filled": "cash.counted"
+     }
+    },
+    {
+     "k": "click",
+     "target": "cash.close"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "shift.closed"
+   }
+  },
+  {
+   "id": "receive-goods",
+   "cat": "goods",
+   "perm": "receive",
+   "minutes": 5,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "receive",
+     "until": {
+      "route": "receive"
+     }
+    },
+    {
+     "k": "choose",
+     "target": "recv.supplier",
+     "until": {
+      "filled": "recv.supplier"
+     }
+    },
+    {
+     "k": "type",
+     "target": "recv.invoice",
+     "until": {
+      "filled": "recv.invoice"
+     }
+    },
+    {
+     "k": "click",
+     "target": "recv.add",
+     "until": {
+      "target": "recv.pick"
+     }
+    },
+    {
+     "k": "choose",
+     "target": "recv.pick",
+     "until": {
+      "filled": "recv.pick"
+     }
+    },
+    {
+     "k": "click",
+     "target": "recv.pick_ok",
+     "until": {
+      "target": "recv.qty"
+     }
+    },
+    {
+     "k": "type",
+     "target": "recv.qty",
+     "until": {
+      "filled": "recv.qty"
+     }
+    },
+    {
+     "k": "type",
+     "target": "recv.cost",
+     "until": {
+      "filled": "recv.cost"
+     }
+    },
+    {
+     "k": "type",
+     "target": "recv.expires",
+     "until": {
+      "filled": "recv.expires"
+     }
+    },
+    {
+     "k": "click",
+     "target": "recv.post"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "receipt.first"
+   }
+  },
+  {
+   "id": "cut-meat",
+   "cat": "goods",
+   "perm": "cutting",
+   "minutes": 5,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "prepare",
+     "until": {
+      "route": "prepare"
+     }
+    },
+    {
+     "k": "click",
+     "target": "prep.mode.cutting"
+    },
+    {
+     "k": "choose",
+     "target": "prep.lot",
+     "until": {
+      "filled": "prep.lot"
+     }
+    },
+    {
+     "k": "type",
+     "target": "prep.in_qty",
+     "until": {
+      "filled": "prep.in_qty"
+     }
+    },
+    {
+     "k": "choose",
+     "target": "prep.out",
+     "until": {
+      "filled": "prep.out"
+     }
+    },
+    {
+     "k": "type",
+     "target": "prep.out_qty",
+     "until": {
+      "filled": "prep.out_qty"
+     }
+    },
+    {
+     "k": "click",
+     "target": "prep.add_output"
+    },
+    {
+     "k": "type",
+     "target": "prep.loss",
+     "until": {
+      "filled": "prep.loss"
+     }
+    },
+    {
+     "k": "check",
+     "target": "prep.balance"
+    },
+    {
+     "k": "click",
+     "target": "prep.post"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "cutting.first"
+   }
+  },
+  {
+   "id": "make-tagine",
+   "cat": "goods",
+   "perm": "produce",
+   "minutes": 4,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "prepare",
+     "until": {
+      "route": "prepare"
+     }
+    },
+    {
+     "k": "click",
+     "target": "prep.mode.recipe"
+    },
+    {
+     "k": "choose",
+     "target": "prep.recipe",
+     "until": {
+      "filled": "prep.recipe"
+     }
+    },
+    {
+     "k": "type",
+     "target": "prep.in_qty",
+     "until": {
+      "filled": "prep.in_qty"
+     }
+    },
+    {
+     "k": "type",
+     "target": "prep.packs",
+     "until": {
+      "filled": "prep.packs"
+     }
+    },
+    {
+     "k": "click",
+     "target": "prep.post"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "tagine.first"
+   }
+  },
+  {
+   "id": "count-stock",
+   "cat": "goods",
+   "perm": "count",
+   "minutes": 4,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "count",
+     "until": {
+      "route": "count"
+     }
+    },
+    {
+     "k": "choose",
+     "target": "count.location",
+     "until": {
+      "filled": "count.location"
+     }
+    },
+    {
+     "k": "click",
+     "target": "count.open",
+     "until": {
+      "target": "count.qty"
+     }
+    },
+    {
+     "k": "type",
+     "target": "count.qty",
+     "until": {
+      "filled": "count.qty"
+     }
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "count.first"
+   }
+  },
+  {
+   "id": "day-report",
+   "cat": "office",
+   "perm": "reports",
+   "minutes": 3,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "reports",
+     "until": {
+      "route": "reports"
+     }
+    },
+    {
+     "k": "type",
+     "target": "rep.day",
+     "until": {
+      "filled": "rep.day"
+     }
+    },
+    {
+     "k": "check",
+     "target": "rep.figures"
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "done"
+    }
+   ]
+  },
+  {
+   "id": "close-day",
+   "cat": "office",
+   "perm": "close_day",
+   "minutes": 2,
+   "requires": [
+    "day-report"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "reports",
+     "until": {
+      "route": "reports"
+     }
+    },
+    {
+     "k": "click",
+     "target": "close.btn"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "day.closed"
+   }
+  },
+  {
+   "id": "add-product",
+   "cat": "office",
+   "perm": "catalog",
+   "minutes": 4,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "catalog",
+     "until": {
+      "route": "catalog"
+     }
+    },
+    {
+     "k": "click",
+     "target": "cat.add",
+     "until": {
+      "target": "cat.code"
+     }
+    },
+    {
+     "k": "type",
+     "target": "cat.code",
+     "until": {
+      "filled": "cat.code"
+     }
+    },
+    {
+     "k": "type",
+     "target": "cat.name_ar",
+     "until": {
+      "filled": "cat.name_ar"
+     }
+    },
+    {
+     "k": "type",
+     "target": "cat.price",
+     "until": {
+      "filled": "cat.price"
+     }
+    },
+    {
+     "k": "type",
+     "target": "cat.barcode",
+     "until": {
+      "filled": "cat.barcode"
+     }
+    },
+    {
+     "k": "click",
+     "target": "cat.save"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "product.added"
+   }
+  },
+  {
+   "id": "pay-supplier",
+   "cat": "office",
+   "perm": "supplier_pay",
+   "minutes": 3,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "parties",
+     "until": {
+      "route": "parties"
+     }
+    },
+    {
+     "k": "click",
+     "target": "parties.supplier_row",
+     "until": {
+      "target": "party.amount"
+     }
+    },
+    {
+     "k": "type",
+     "target": "party.amount",
+     "until": {
+      "filled": "party.amount"
+     }
+    },
+    {
+     "k": "click",
+     "target": "party.pay"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "supplier.paid"
+   }
+  },
+  {
+   "id": "add-user",
+   "cat": "admin",
+   "perm": "users",
+   "minutes": 3,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "settings",
+     "until": {
+      "route": "settings"
+     }
+    },
+    {
+     "k": "type",
+     "target": "set.username",
+     "until": {
+      "filled": "set.username"
+     }
+    },
+    {
+     "k": "type",
+     "target": "set.password",
+     "until": {
+      "filled": "set.password"
+     }
+    },
+    {
+     "k": "choose",
+     "target": "set.role",
+     "until": {
+      "filled": "set.role"
+     }
+    },
+    {
+     "k": "click",
+     "target": "set.add_user"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "user.added"
+   }
+  },
+  {
+   "id": "backup-now",
+   "cat": "admin",
+   "perm": "backup",
+   "minutes": 2,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "go",
+     "page": "settings",
+     "until": {
+      "route": "settings"
+     }
+    },
+    {
+     "k": "click",
+     "target": "set.backup_now"
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "backup.made"
+   }
+  },
+  {
+   "id": "change-password",
+   "cat": "start",
+   "perm": "*",
+   "minutes": 2,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "click",
+     "target": "shell.password",
+     "until": {
+      "target": "account.old"
+     }
+    },
+    {
+     "k": "type",
+     "target": "account.old",
+     "until": {
+      "filled": "account.old"
+     }
+    },
+    {
+     "k": "type",
+     "target": "account.new",
+     "until": {
+      "filled": "account.new"
+     }
+    },
+    {
+     "k": "click",
+     "target": "account.save"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "password.changed"
+   }
+  },
+  {
+   "id": "lock-screen",
+   "cat": "start",
+   "perm": "*",
+   "minutes": 1,
+   "requires": [
+    "first-look"
+   ],
+   "steps": [
+    {
+     "k": "click",
+     "target": "shell.lock"
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "done"
+    }
+   ]
+  }
+ ],
+ "roles": [
+  {
+   "id": "owner",
+   "profiles": [
+    "owner"
+   ],
+   "path": [
+    "first-look",
+    "change-password",
+    "add-product",
+    "receive-goods",
+    "open-shift",
+    "first-sale",
+    "return-item",
+    "close-shift",
+    "day-report",
+    "close-day",
+    "add-user",
+    "backup-now"
+   ]
+  },
+  {
+   "id": "manager",
+   "profiles": [
+    "manager"
+   ],
+   "path": [
+    "first-look",
+    "receive-goods",
+    "open-shift",
+    "first-sale",
+    "return-item",
+    "close-shift",
+    "count-stock",
+    "day-report",
+    "close-day"
+   ]
+  },
+  {
+   "id": "cashier",
+   "profiles": [
+    "cashier"
+   ],
+   "path": [
+    "first-look",
+    "change-password",
+    "open-shift",
+    "first-sale",
+    "weighed-sale",
+    "hold-sale",
+    "return-item",
+    "lock-screen",
+    "close-shift"
+   ]
+  },
+  {
+   "id": "receiver",
+   "profiles": [
+    "receiver"
+   ],
+   "path": [
+    "first-look",
+    "change-password",
+    "receive-goods",
+    "count-stock"
+   ]
+  },
+  {
+   "id": "butcher",
+   "profiles": [
+    "butcher"
+   ],
+   "path": [
+    "first-look",
+    "change-password",
+    "cut-meat",
+    "make-tagine",
+    "count-stock"
+   ]
+  },
+  {
+   "id": "counter",
+   "profiles": [
+    "counter"
+   ],
+   "path": [
+    "first-look",
+    "change-password",
+    "count-stock"
+   ]
+  },
+  {
+   "id": "accountant",
+   "profiles": [
+    "accountant"
+   ],
+   "path": [
+    "first-look",
+    "change-password",
+    "day-report",
+    "pay-supplier"
+   ]
+  },
+  {
+   "id": "viewer",
+   "profiles": [
+    "viewer"
+   ],
+   "path": [
+    "first-look",
+    "day-report"
+   ]
+  }
+ ],
+ "problems": [
+  {
+   "id": "sign-in",
+   "cat": "settings",
+   "page": "settings",
+   "roles": [
+    "owner",
+    "manager",
+    "cashier",
+    "receiver",
+    "butcher",
+    "counter",
+    "accountant",
+    "viewer"
+   ],
+   "errors": [
+    "err.account_locked",
+    "err.bad_login",
+    "err.login_required",
+    "err.must_change_password",
+    "err.screen_locked",
+    "err.same_password",
+    "err.weak_password",
+    "err.setup_only_on_shop_pc",
+    "err.already_set_up",
+    "err.bad_workstation"
+   ],
+   "guide": "change-password"
+  },
+  {
+   "id": "staff-accounts",
+   "cat": "settings",
+   "page": "settings",
+   "roles": [
+    "owner"
+   ],
+   "errors": [
+    "err.username_taken",
+    "err.bad_username",
+    "err.bad_role",
+    "err.bad_name",
+    "err.cannot_stop_self",
+    "err.last_owner",
+    "err.unknown_user",
+    "err.unknown_owner"
+   ],
+   "guide": "add-user"
+  },
+  {
+   "id": "needs-approval",
+   "cat": "sell",
+   "page": "sell",
+   "roles": [
+    "owner",
+    "manager",
+    "cashier",
+    "receiver",
+    "butcher",
+    "counter"
+   ],
+   "errors": [
+    "err.approval_required",
+    "err.approval_attempts_exceeded",
+    "err.approver_lacks_permission",
+    "err.bad_approval",
+    "err.forbidden",
+    "err.approver_counted"
+   ]
+  },
+  {
+   "id": "shift-and-drawer",
+   "cat": "cash",
+   "page": "cash",
+   "roles": [
+    "owner",
+    "manager",
+    "cashier"
+   ],
+   "errors": [
+    "err.no_open_shift",
+    "err.shift_already_open",
+    "err.drawer_insufficient",
+    "err.cash_short",
+    "err.change_without_cash",
+    "err.bad_cash_kind",
+    "err.safe_insufficient",
+    "err.shift_open_on_day"
+   ],
+   "guide": "open-shift"
+  },
+  {
+   "id": "scanning",
+   "cat": "scanner",
+   "page": "scanner",
+   "roles": [
+    "owner",
+    "manager",
+    "cashier",
+    "receiver",
+    "butcher",
+    "counter",
+    "accountant",
+    "viewer"
+   ],
+   "errors": [
+    "err.bad_barcode",
+    "err.bad_check_digit",
+    "err.gs1_bad_date",
+    "err.gs1_bad_length",
+    "err.gs1_bad_number",
+    "err.gs1_unknown_ai",
+    "err.scan_control_char",
+    "err.scan_empty",
+    "err.scan_not_text",
+    "err.scan_too_long",
+    "err.scanner_taken_by_other_window",
+    "err.bad_devices",
+    "err.device_must_be_local",
+    "err.layout_mismatch",
+    "err.bad_profile",
+    "err.bad_template",
+    "err.template_overlaps_pack_prefix",
+    "err.bad_window"
+   ]
+  },
+  {
+   "id": "sale-price",
+   "cat": "sell",
+   "page": "sell",
+   "roles": [
+    "owner",
+    "manager",
+    "cashier"
+   ],
+   "errors": [
+    "err.price_changed",
+    "err.quote_required",
+    "err.no_price",
+    "err.not_for_sale",
+    "err.discount_exceeds_price",
+    "err.too_many_lines",
+    "err.lines_required",
+    "err.bad_line",
+    "err.bad_quantity",
+    "err.unknown_product"
+   ],
+   "guide": "first-sale"
+  },
+  {
+   "id": "stock-for-sale",
+   "cat": "sell",
+   "page": "sell",
+   "roles": [
+    "owner",
+    "manager",
+    "cashier",
+    "receiver",
+    "butcher"
+   ],
+   "errors": [
+    "err.insufficient_stock",
+    "err.lot_expired",
+    "err.lot_held",
+    "err.lot_recalled",
+    "err.lot_under_recall",
+    "err.lot_expiry_missing",
+    "err.scanned_label_expired",
+    "err.scanned_label_other_product",
+    "err.scanned_lot_not_in_stock",
+    "err.stock_reserved_by_packs",
+    "err.quarantine_not_sellable"
+   ]
+  },
+  {
+   "id": "labelled-packs",
+   "cat": "sell",
+   "page": "sell",
+   "roles": [
+    "owner",
+    "manager",
+    "cashier",
+    "butcher"
+   ],
+   "errors": [
+    "err.pack_already_sold",
+    "err.pack_not_available",
+    "err.unknown_pack",
+    "err.pack_returns_whole",
+    "err.barcode_reserved_for_packs",
+    "err.pack_prefix_in_use",
+    "err.packs_do_not_match_output",
+    "err.packs_need_single_output",
+    "err.unpack_pack_not_in_inputs",
+    "err.count_affects_packs"
+   ],
+   "guide": "make-tagine"
+  },
+  {
+   "id": "payments",
+   "cat": "sell",
+   "page": "sell",
+   "roles": [
+    "owner",
+    "manager",
+    "cashier",
+    "accountant"
+   ],
+   "errors": [
+    "err.bad_payment",
+    "err.payment_exceeds_total",
+    "err.credit_needs_customer",
+    "err.credit_limit",
+    "err.payment_not_pending",
+    "err.payment_already_decided",
+    "err.sale_has_unconfirmed_payment",
+    "err.payment_exceeds_debt",
+    "err.unknown_customer",
+    "err.bad_reference",
+    "err.reference_required"
+   ],
+   "guide": "first-sale"
+  },
+  {
+   "id": "returns",
+   "cat": "returns",
+   "page": "returns",
+   "roles": [
+    "owner",
+    "manager",
+    "cashier",
+    "accountant"
+   ],
+   "errors": [
+    "err.return_exceeds_sold",
+    "err.refund_exceeds_paid_by_method",
+    "err.unknown_sale",
+    "err.exceeds_original",
+    "err.collection_already_refunded",
+    "err.already_reversed",
+    "err.not_a_payment"
+   ],
+   "guide": "return-item"
+  },
+  {
+   "id": "customer-accounts",
+   "cat": "parties",
+   "page": "parties",
+   "roles": [
+    "owner",
+    "manager",
+    "accountant"
+   ],
+   "errors": [
+    "err.account_needs_review",
+    "err.collections_unallocated",
+    "err.allocation_too_large",
+    "err.review_already_resolved"
+   ]
+  },
+  {
+   "id": "receiving",
+   "cat": "receive",
+   "page": "receive",
+   "roles": [
+    "owner",
+    "manager",
+    "receiver",
+    "butcher",
+    "counter",
+    "accountant"
+   ],
+   "errors": [
+    "err.expiry_required",
+    "err.already_expired",
+    "err.duplicate_supplier_invoice",
+    "err.exceeds_invoice",
+    "err.product_not_on_invoice",
+    "err.supplier_invoice_closed",
+    "err.invoice_other_supplier",
+    "err.unknown_supplier_invoice",
+    "err.gift_has_no_cost",
+    "err.bad_line_kind",
+    "err.rejected_exceeds_qty",
+    "err.nothing_accepted",
+    "err.discount_exceeds_cost",
+    "err.tare_exceeds_gross",
+    "err.gross_only_for_weighed",
+    "err.fractional_quantity",
+    "err.unknown_packaging",
+    "err.packaging_retired",
+    "err.packaging_other_product",
+    "err.supplier_required",
+    "err.bad_invoice",
+    "err.bad_lot"
+   ],
+   "guide": "receive-goods"
+  },
+  {
+   "id": "suppliers",
+   "cat": "parties",
+   "page": "parties",
+   "roles": [
+    "owner",
+    "manager",
+    "accountant",
+    "receiver"
+   ],
+   "errors": [
+    "err.unknown_supplier",
+    "err.receipt_other_supplier",
+    "err.receipt_required",
+    "err.nothing_to_adjust",
+    "err.lines_do_not_add_up",
+    "err.duplicate_credit_note",
+    "err.unknown_receipt",
+    "err.lot_not_from_supplier",
+    "err.unknown_supplier_return"
+   ],
+   "guide": "pay-supplier"
+  },
+  {
+   "id": "cutting",
+   "cat": "prepare",
+   "page": "prepare",
+   "roles": [
+    "owner",
+    "manager",
+    "butcher"
+   ],
+   "errors": [
+    "err.mass_not_balanced",
+    "err.food_input_required",
+    "err.food_input_must_be_weighed",
+    "err.input_expiry_missing",
+    "err.inputs_outputs_required",
+    "err.bad_output_product",
+    "err.duplicate_input",
+    "err.output_expiry_out_of_bounds",
+    "err.prepared_needs_recipe",
+    "err.bad_cost_method",
+    "err.meat_is_weighed"
+   ],
+   "guide": "cut-meat"
+  },
+  {
+   "id": "recipes",
+   "cat": "prepare",
+   "page": "prepare",
+   "roles": [
+    "owner",
+    "manager",
+    "butcher"
+   ],
+   "errors": [
+    "err.recipe_component_missing",
+    "err.recipe_needs_prepared_product",
+    "err.recipe_single_output",
+    "err.recipe_units_required",
+    "err.input_not_in_recipe",
+    "err.unknown_recipe_version",
+    "err.components_required",
+    "err.bad_component",
+    "err.bad_component_role",
+    "err.bad_alternative",
+    "err.meat_role_needs_meat_product",
+    "err.meat_claim_exceeds_input",
+    "err.meat_exceeds_net",
+    "err.bad_meat_share"
+   ],
+   "guide": "make-tagine"
+  },
+  {
+   "id": "freezer-and-places",
+   "cat": "stock",
+   "page": "stock",
+   "roles": [
+    "owner",
+    "manager",
+    "receiver",
+    "butcher",
+    "counter"
+   ],
+   "errors": [
+    "err.use_thaw",
+    "err.thaw_needs_fridge",
+    "err.no_refreeze",
+    "err.not_in_freezer",
+    "err.thaw_policy_missing",
+    "err.same_location",
+    "err.quarantine_location_missing",
+    "err.bad_location",
+    "err.unknown_location",
+    "err.unknown_lot"
+   ]
+  },
+  {
+   "id": "recalls",
+   "cat": "stock",
+   "page": "stock",
+   "roles": [
+    "owner",
+    "manager"
+   ],
+   "errors": [
+    "err.unknown_recall",
+    "err.recall_already_lifted",
+    "err.status_unchanged"
+   ]
+  },
+  {
+   "id": "counting",
+   "cat": "count",
+   "page": "count",
+   "roles": [
+    "owner",
+    "manager",
+    "receiver",
+    "butcher",
+    "counter"
+   ],
+   "errors": [
+    "err.count_already_open",
+    "err.count_not_open",
+    "err.unknown_count"
+   ],
+   "guide": "count-stock"
+  },
+  {
+   "id": "items",
+   "cat": "catalog",
+   "page": "catalog",
+   "roles": [
+    "owner",
+    "manager",
+    "receiver"
+   ],
+   "errors": [
+    "err.code_taken",
+    "err.barcode_taken",
+    "err.bad_product",
+    "err.bad_code",
+    "err.promotion_needs_units",
+    "err.promotion_overlaps",
+    "err.unknown_promotion",
+    "err.same_factor"
+   ],
+   "guide": "add-product"
+  },
+  {
+   "id": "closed-days",
+   "cat": "reports",
+   "page": "reports",
+   "roles": [
+    "owner",
+    "manager",
+    "accountant",
+    "viewer"
+   ],
+   "errors": [
+    "err.day_closed",
+    "err.day_already_closed",
+    "err.day_in_future",
+    "err.bad_period",
+    "err.bad_date"
+   ],
+   "guide": "close-day"
+  },
+  {
+   "id": "backup-restore",
+   "cat": "settings",
+   "page": "settings",
+   "roles": [
+    "owner"
+   ],
+   "errors": [
+    "err.backup_checksum_mismatch",
+    "err.backup_integrity_failed",
+    "err.backup_manifest_missing",
+    "err.backup_other_product",
+    "err.restore_target_not_empty",
+    "err.wrong_data_folder",
+    "err.database_newer_than_app",
+    "err.pre_upgrade_copy_failed",
+    "err.training_only"
+   ],
+   "guide": "backup-now"
+  },
+  {
+   "id": "settings-values",
+   "cat": "settings",
+   "page": "settings",
+   "roles": [
+    "owner",
+    "manager"
+   ],
+   "errors": [
+    "err.bad_setting",
+    "err.unknown_setting"
+   ]
+  },
+  {
+   "id": "typing",
+   "cat": "today",
+   "page": "today",
+   "roles": [
+    "owner",
+    "manager",
+    "cashier",
+    "receiver",
+    "butcher",
+    "counter",
+    "accountant",
+    "viewer"
+   ],
+   "errors": [
+    "err.bad_amount",
+    "err.bad_number",
+    "err.bad_note",
+    "err.bad_reason",
+    "err.reason_required",
+    "err.required",
+    "err.bad_request",
+    "err.bad_request_key",
+    "err.request_key_reused",
+    "err.request_key_other_user",
+    "err.bad_divisor"
+   ],
+   "guide": "first-look"
+  }
+ ]
+}

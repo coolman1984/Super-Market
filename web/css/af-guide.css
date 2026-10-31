@@ -1,0 +1,42 @@
+/* Vendored from Apps-Factory packages/af-guide 0.1.3 - do not edit here. */
+/* Update with: python scripts/vendor_guide.py <product repo> (from the Apps-Factory checkout) */
+/* af-guide 0.1.0: guide widget, panel, coach card and target highlight. Uses af-ui tokens when present
+   (packages/af-ui/css/tokens.css) and falls back to plain values; logical properties so RTL and LTR both work. */
+.afg-fab, .afg-panel, .afg-coach { font-family: var(--font-ui, system-ui, "Segoe UI", Tahoma, sans-serif); font-size: var(--fs, 15px); line-height: var(--lh, 1.6); color: var(--ink, #1c2430); box-sizing: border-box; }
+.afg-panel *, .afg-coach * { box-sizing: border-box; }
+.afg-fab { position: fixed; inset-block-end: 16px; inset-inline-end: 16px; z-index: 9000; display: inline-flex; align-items: center; gap: 8px; min-block-size: 44px; padding: 0 16px; border: 0; border-radius: var(--r-pill, 999px); background: var(--brand, #1f5eff); color: var(--ink-inverse, #fff); font-weight: 700; box-shadow: var(--shadow-2, 0 4px 14px rgba(0,0,0,.18)); cursor: pointer; }
+.afg-badge { padding: 0 8px; border-radius: var(--r-pill, 999px); background: rgba(255,255,255,.22); font-size: var(--fs-sm, 13px); }
+.afg-panel { position: fixed; inset-block: 16px 76px; inset-inline-end: 16px; z-index: 9001; inline-size: min(420px, calc(100vw - 32px)); overflow: auto; padding: 0 16px 16px; border: 1px solid var(--line, #d9dee7); border-radius: var(--r-lg, 14px); background: var(--surface, #fff); box-shadow: var(--shadow-3, 0 10px 30px rgba(0,0,0,.2)); }
+.afg-head { position: sticky; inset-block-start: 0; display: flex; align-items: center; gap: 8px; padding-block: 12px; background: inherit; border-block-end: 1px solid var(--line, #d9dee7); }
+.afg-head h2 { margin: 0; flex: 1; font-size: var(--fs-lg, 18px); }
+.afg-sec { padding-block: 12px; border-block-end: 1px solid var(--line, #eef0f4); }
+.afg-sec h3 { margin: 0 0 8px; font-size: var(--fs-md, 16px); }
+.afg-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+ol.afg-list { counter-reset: afg; }
+.afg-row { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: var(--r-md, 10px); background: var(--surface-2, #f6f7fa); }
+.afg-row-main { flex: 1; display: grid; gap: 2px; }
+.afg-row.is-done strong::after { content: " ✓"; color: var(--ok, #138a4b); }
+.afg-row.is-locked { opacity: .65; }
+.afg-meta { color: var(--ink-2, #5b6574); font-size: var(--fs-sm, 13px); }
+.afg-btn { min-block-size: 40px; padding: 0 14px; border: 0; border-radius: var(--r-md, 10px); background: var(--brand, #1f5eff); color: var(--ink-inverse, #fff); font: inherit; font-weight: 700; cursor: pointer; }
+.afg-btn.afg-quiet { background: transparent; color: var(--brand, #1f5eff); box-shadow: inset 0 0 0 1px var(--line-2, #c8cfdb); }
+.afg-btn[disabled] { opacity: .5; cursor: not-allowed; }
+.afg-x { min-inline-size: 40px; min-block-size: 40px; border: 0; background: transparent; font-size: 22px; cursor: pointer; color: inherit; }
+.afg-help { inline-size: 32px; block-size: 32px; border-radius: 50%; border: 1px solid var(--line-2, #c8cfdb); background: var(--surface, #fff); color: var(--brand, #1f5eff); font-weight: 800; cursor: pointer; }
+.afg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-block-start: 8px; }
+.afg-bar { block-size: 6px; border-radius: 3px; background: var(--line, #e3e7ee); overflow: hidden; }
+.afg-bar > span { display: block; block-size: 100%; background: var(--ok, #138a4b); transition: width .25s var(--ease-out, ease-out); }
+.afg-problem { border: 1px solid var(--line, #e3e7ee); border-radius: var(--r-md, 10px); padding: 8px 12px; margin-block-end: 8px; }
+.afg-problem summary { cursor: pointer; font-weight: 700; }
+.afg-coach { position: fixed; inset-block-end: 76px; inset-inline-end: 16px; z-index: 9002; inline-size: min(380px, calc(100vw - 32px)); padding: 12px 16px 16px; border-radius: var(--r-lg, 14px); background: var(--surface, #fff); border: 2px solid var(--brand, #1f5eff); box-shadow: var(--shadow-3, 0 10px 30px rgba(0,0,0,.2)); display: grid; gap: 8px; }
+.afg-coach-head { display: flex; align-items: center; gap: 8px; }
+.afg-coach-head strong { flex: 1; }
+.afg-say { margin: 0; font-size: var(--fs-md, 16px); }
+.afg-say.afg-warn { color: var(--bad, #b42318); }
+.afg-say.afg-tip { color: var(--info, #175cd3); }
+.afg-ui { font-weight: 700; unicode-bidi: isolate; }
+.afg-target { outline: 3px solid var(--copper, #f59e0b) !important; outline-offset: 3px; border-radius: 6px; animation: afg-pulse 1.6s ease-in-out infinite; }
+@keyframes afg-pulse { 50% { outline-color: var(--brand, #1f5eff); } }
+.afg-fab:focus-visible, .afg-btn:focus-visible, .afg-x:focus-visible, .afg-help:focus-visible, .afg-problem summary:focus-visible { outline: 3px solid var(--focus, #ffbf47); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .afg-target { animation: none; } .afg-bar > span { transition: none; } }
+@media print { .afg-fab, .afg-panel, .afg-coach { display: none !important; } }

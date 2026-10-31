@@ -25,18 +25,55 @@
     if (!state.user) return loginScreen(state);
     SM.state.user = state.user;
     SM.state.session = (SM.state.session || 0) + 1;   // late answers of a previous session are ignored
+    if (state.user.locked) return lockScreen(state);
+    if (state.user.must_change) return passwordScreen(state, true);
     SM.state.settings = await SM.api('GET', '/api/settings').catch(() => ({}));
     SM.scanner.installGlobalOnce();
     await SM.scanner.load();
     SM.renderShell();
+    if (SM.guide) SM.guide.mount();
   }
   /* Audit R17: nothing typed or scanned by one user survives for the next. */
   SM.onLoggedOut = () => {
+    if (SM.guide) SM.guide.unmount();          // nothing of one person's guide stays for the next
     SM.state.user = null; SM.state.session = (SM.state.session || 0) + 1;
     SM.scanner.stop(); SM.scanner.handler = null;
     for (const reset of SM.draftResets) { try { reset(); } catch (e) { /* ignore */ } }
     boot();
   };
+  SM.onAccountGate = () => { if (!gateShown) { gateShown = true; boot().finally(() => { gateShown = false; }); } };
+  let gateShown = false;
+
+  /* Locked till: only the SAME user's password opens it; "switch user" logs out (drafts stay per user). */
+  function lockScreen(state) {
+    const pass = h('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
+    SM.scanner.handler = null;
+    authFrame(t('lock.title', { name: state.user.name }), t('lock.sub'), h('form', { class: 'stack', onsubmit: async (e) => {
+      e.preventDefault();
+      try { await SM.api('POST', '/api/account/unlock', { password: pass.value }); boot(); } catch (err) { pass.value = ''; SM.fail(err); }
+    } }, SM.field(t('password'), pass), h('button', { class: 'btn primary lg', type: 'submit', text: t('lock.open') }),
+      h('button', { class: 'btn ghost', type: 'button', text: t('lock.switch'), onclick: async () => { await SM.api('POST', '/api/logout', {}).catch(() => {}); SM.onLoggedOut(); } })));
+    pass.focus();
+  }
+
+  /* Own password. Forced after the owner typed it (new employee or reset). */
+  function passwordScreen(state, forced) {
+    let dlg = null;   // closed before the shell is rebuilt, so the scanner and F-keys work again
+    const old = h('input', { class: 'input', type: 'password', autocomplete: 'current-password', 'data-guide': 'account.old' });
+    const pw = h('input', { class: 'input', type: 'password', autocomplete: 'new-password', 'data-guide': 'account.new' }), pw2 = h('input', { class: 'input', type: 'password', autocomplete: 'new-password' });
+    const form = h('form', { class: 'stack', onsubmit: async (e) => {
+      e.preventDefault();
+      if (pw.value !== pw2.value) return SM.toast(t('setup.mismatch'), 'bad');
+      try { await SM.api('POST', '/api/account/password', { old: old.value, new: pw.value }); if (dlg) dlg.close(); SM.toast(t('account.changed')); boot(); } catch (err) { SM.fail(err); }
+    } }, SM.field(forced ? t('account.temp_password') : t('account.old_password'), old), SM.field(t('account.new_password'), pw, t('set.pw_help')),
+      SM.field(t('setup.repeat'), pw2), h('button', { class: 'btn primary lg', type: 'submit', text: t('account.change') }),
+      forced ? h('button', { class: 'btn ghost', type: 'button', text: t('logout'), onclick: async () => { await SM.api('POST', '/api/logout', {}).catch(() => {}); SM.onLoggedOut(); } }) : null);
+    if (forced) { authFrame(t('account.forced_title'), t('account.forced_sub'), form); old.focus(); return; }
+    dlg = SM.dialog({ title: t('account.change'), body: [form] });
+    return dlg;
+  }
+  SM.passwordDialog = () => passwordScreen(null, false);
+
   SM.scanner.installGlobalOnce = function () { if (!this._installed) { this._installed = true; this.installGlobal(); } };
 
   function authFrame(title, sub, form) {
@@ -70,11 +107,14 @@
 
   SM.renderShell = function () {
     const u = SM.state.user;
+    SM.state.dialogOpen = false;     // a new shell has no dialog: a stale flag would block every scan
     const nav = h('nav', { class: 'nav', 'aria-label': t('nav.label') }, NAV.map(([group, views]) => h('div', { class: 'nav-group' }, h('span', { text: t('nav.g.' + group) }),
       views.filter(allowed).map(v => h('a', { href: '#' + v, 'data-view': v }, icon(SM.views[v].icon), h('span', { text: t('nav.' + v) }))))));
     const side = h('aside', { class: 'sidebar' }, h('div', { class: 'brand' }, h('div', { class: 'mark' }, icon('cart')), h('div', { class: 'name' }, SM.state.settings.shop_name || t('app.name'), h('small', { text: t('app.tagline') }))),
       nav, h('div', { class: 'side-foot' }, h('div', { class: 'who' }, h('b', { text: u.name }), h('small', { text: t('role.' + u.role) })),
-        h('button', { class: 'icon-btn', 'aria-label': t('logout'), title: t('logout'), onclick: async () => { await SM.api('POST', '/api/logout', {}).catch(() => {}); SM.onLoggedOut(); } }, icon('out'))));
+        h('button', { class: 'icon-btn', 'data-guide': 'shell.lock', 'aria-label': t('lock.btn'), title: t('lock.btn'), onclick: async () => { await SM.api('POST', '/api/account/lock', {}).catch(() => {}); boot(); } }, icon('lock')),
+        h('button', { class: 'icon-btn', 'data-guide': 'shell.password', 'aria-label': t('account.change'), title: t('account.change'), onclick: () => SM.passwordDialog() }, icon('key')),
+        h('button', { class: 'icon-btn logout-btn', 'aria-label': t('lock.switch'), title: t('lock.switch'), onclick: async () => { await SM.api('POST', '/api/logout', {}).catch(() => {}); SM.onLoggedOut(); } }, icon('out'))));
     const title = h('div', { class: 'crumbs' }, h('b', { id: 'view-title' }));
     const themeBtn = h('button', { class: 'icon-btn', 'aria-label': t('set.theme'), title: t('set.theme'), onclick: () => {
       const next = document.documentElement.dataset.theme === 'night' ? 'daylight' : 'night'; SM.prefs.set('theme', next); SM.applyPrefs(); } }, icon(document.documentElement.dataset.theme === 'night' ? 'sun' : 'moon'));
@@ -124,6 +164,6 @@
     try { await current.mount(body); SM.put(root, page); }
     catch (e) { SM.put(root, page); SM.put(body, h('p', { class: 'tip', text: SM.errorText(e) })); }
   }
-  window.addEventListener('hashchange', route);
+  window.addEventListener('hashchange', () => { route().then(() => { if (SM.guide) SM.guide.routeChanged(); }); });
   window.addEventListener('DOMContentLoaded', boot);
 })();

@@ -13,3 +13,6 @@ node tests/ui/smoke.js http://127.0.0.1:8799 "$OUT"
 node tests/ui/flows.js http://127.0.0.1:8799 "$OUT"
 node tests/ui/rows.js http://127.0.0.1:8799 "$OUT"
 node tests/ui/review_b.js http://127.0.0.1:8799 "$OUT"
+node tests/ui/accounts.js http://127.0.0.1:8799 "$OUT"
+node tests/ui/draft_review.js http://127.0.0.1:8799
+node tests/ui/guide.js http://127.0.0.1:8799 "$OUT"

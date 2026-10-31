@@ -109,7 +109,7 @@ class Auth:
         expires = (now() + dt.timedelta(hours=SESSION_HOURS)).isoformat(timespec="seconds")
 
         def work():
-            self.store.db.execute("INSERT INTO sessions VALUES(?,?,?,?,?)",
+            self.store.db.execute("INSERT INTO sessions(token_hash,user_id,workstation,created_at,expires_at) VALUES(?,?,?,?,?)",
                                   (token_hash(token), user["id"], workstation, now_iso(), expires))
             self.store.audit({"id": user["id"], "workstation": workstation}, "login")
         self.store.tx(work)
@@ -122,13 +122,105 @@ class Auth:
     def session(self, token):
         if not token:
             return None
-        row = self.store.one("""SELECT u.*, s.workstation, s.expires_at FROM sessions s
+        row = self.store.one("""SELECT u.*, s.workstation, s.expires_at, s.locked FROM sessions s
             JOIN users u ON u.id=s.user_id WHERE s.token_hash=?""", (token_hash(token),))
         if not row or not row["active"] or row["expires_at"] < now_iso():
             return None
         actor = self.public(row)
         actor["workstation"] = row["workstation"]
+        actor["must_change"] = bool(row["must_change"])
+        actor["locked"] = bool(row["locked"])
         return actor
+
+    # ---- accounts (gap row 5). A changed or reset password ends the other sessions;
+    # a stopped employee loses every session at once; nothing is ever deleted.
+    def _set_password(self, user_id, password, must_change):
+        check_password_rules(password)
+        digest, salt, iterations = hash_password(password)
+        self.store.db.execute("UPDATE users SET pw_hash=?, pw_salt=?, pw_iter=?, must_change=?, failed=0, locked_until=NULL WHERE id=?",
+                              (digest, salt, iterations, int(must_change), user_id))
+
+    def change_password(self, actor, token, old, new):
+        """The user's own password: the old one is checked (and counted on failure);
+        every other session of this user ends, this one stays."""
+        if not actor:
+            raise ShopError("login_required", status=401)
+        with self.store.lock:
+            self.verify(actor["username"], old)
+        if old == new:
+            raise ShopError("same_password")
+
+        def work():
+            self._set_password(actor["id"], new, False)
+            self.store.db.execute("DELETE FROM sessions WHERE user_id=? AND token_hash<>?", (actor["id"], token_hash(token)))
+            self.store.audit(actor, "user.password_changed", str(actor["id"]))
+            return {"ok": True}
+        return self.store.tx(work)
+
+    def _target(self, actor, user_id):
+        require(actor, "users")
+        user = self.store.one("SELECT * FROM users WHERE id=?", (user_id,))
+        if not user:
+            raise ShopError("unknown_user")
+        return user
+
+    def reset_password(self, actor, user_id, new):
+        """Owner sets a temporary password for an employee who forgot it: all of
+        that employee's sessions end and the new password must be changed at login."""
+        user = self._target(actor, user_id)
+
+        def work():
+            self._set_password(user["id"], new, user["id"] != actor["id"])
+            self.store.db.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
+            self.store.audit(actor, "user.password_reset", str(user["id"]))
+            return {"ok": True, "must_change": user["id"] != actor["id"]}
+        return self.store.tx(work)
+
+    def set_active(self, actor, user_id, active, reason):
+        """Stop or bring back an employee. Stopping ends every session at once.
+        The owner cannot stop himself, and the last active owner is never stopped."""
+        user = self._target(actor, user_id)
+        reason = text(reason, "reason_required", 200)
+        if not active and user["id"] == actor["id"]:
+            raise ShopError("cannot_stop_self")
+
+        def work():
+            if not active and user["role"] == "owner" and self.store.scalar(
+                    "SELECT COUNT(*) FROM users WHERE role='owner' AND active=1 AND id<>?", (user["id"],)) == 0:
+                raise ShopError("last_owner")
+            self.store.db.execute("UPDATE users SET active=? WHERE id=?", (int(bool(active)), user["id"]))
+            if not active:
+                self.store.db.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
+            self.store.audit(actor, "user.activated" if active else "user.stopped", str(user["id"]), {"reason": reason})
+            return {"ok": True, "active": bool(active)}
+        return self.store.tx(work)
+
+    def lock_screen(self, actor, token):
+        """The till is locked on the server: until the same user types the password,
+        every request of this session is refused, even after a page reload."""
+        self.store.tx(lambda: self.store.db.execute("UPDATE sessions SET locked=1 WHERE token_hash=?", (token_hash(token),)))
+        return {"locked": True}
+
+    def unlock_screen(self, actor, token, password):
+        with self.store.lock:
+            self.verify(actor["username"], password)       # failures count and lock the account like a login
+        self.store.tx(lambda: self.store.db.execute("UPDATE sessions SET locked=0 WHERE token_hash=?", (token_hash(token),)))
+        return {"locked": False}
+
+    def recover_owner(self, username, new_password):
+        """Run ON the shop computer only (tools/shopctl.py owner-recovery): whoever can
+        open the data folder already holds the data. Sets a new owner password,
+        clears the lock and ends the owner's sessions. Nothing else changes."""
+        def work():
+            user = self.store.one("SELECT * FROM users WHERE username=? AND role='owner'", (username,))
+            if not user:
+                raise ShopError("unknown_owner")
+            self._set_password(user["id"], new_password, False)
+            self.store.db.execute("UPDATE users SET active=1 WHERE id=?", (user["id"],))
+            self.store.db.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
+            self.store.audit({"id": user["id"], "workstation": "shop-pc"}, "owner.recovery", str(user["id"]))
+            return {"ok": True, "username": user["username"]}
+        return self.store.tx(work)
 
     @staticmethod
     def public(user):

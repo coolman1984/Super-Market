@@ -22,7 +22,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-from . import backup, training
+from . import guidebook, backup, training
 from .auth import Auth, can, require
 from .core import ShopError, integer, text
 from .db import Store
@@ -35,6 +35,9 @@ WEB = ROOT / "web"
 MAX_BODY = 1_000_000
 COOKIE = "sm_session"
 log = logging.getLogger("supermarket")
+
+
+GATE_FREE = {"/api/state", "/api/logout", "/api/account/password", "/api/account/unlock"}
 
 
 class App:
@@ -54,6 +57,13 @@ class App:
         r("POST", r"/api/setup", self.setup, auth=False)
         r("POST", r"/api/login", self.login, auth=False)
         r("POST", r"/api/logout", self.logout)
+        r("GET", r"/api/guide/state", lambda a, q, b: guidebook.state(self.store, a))
+        r("POST", r"/api/guide/progress", lambda a, q, b: guidebook.save_progress(self.store, a, b.get("update")))
+        r("POST", r"/api/account/password", self.change_password)
+        r("POST", r"/api/account/lock", self.lock)
+        r("POST", r"/api/account/unlock", self.unlock)
+        r("POST", r"/api/users/(\d+)/password", lambda a, q, b, uid: self.auth.reset_password(a, int(uid), b.get("password")))
+        r("POST", r"/api/users/(\d+)/active", lambda a, q, b, uid: self.auth.set_active(a, int(uid), bool(b.get("active")), b.get("reason")))
         r("GET", r"/api/products", lambda a, q, b: self.shop.search_products(q.get("q", ""), _int(q.get("limit"), 30), a))
         r("GET", r"/api/products/(\d+)", lambda a, q, b, pid: self.shop.product(int(pid), a))
         r("POST", r"/api/products", lambda a, q, b: {"id": self.shop.add_product(a, b)})
@@ -179,6 +189,15 @@ class App:
     def login(self, actor, q, body):
         token, user = self.auth.login(body.get("username"), body.get("password"), body.get("workstation") or "unknown")
         return {"user": user, "_cookie": token}
+
+    def change_password(self, actor, q, body, token=None):
+        return self.auth.change_password(actor, token, body.get("old"), body.get("new"))
+
+    def lock(self, actor, q, body, token=None):
+        return self.auth.lock_screen(actor, token)
+
+    def unlock(self, actor, q, body, token=None):
+        return self.auth.unlock_screen(actor, token, body.get("password"))
 
     def logout(self, actor, q, body, token=None):
         if token:
@@ -341,11 +360,17 @@ class App:
 
     def users(self, actor, q, body):
         require(actor, "users")
-        return self.store.all("SELECT id, username, display_name, role, active, created_at FROM users ORDER BY id")
+        return self.store.all("SELECT id, username, display_name, role, active, must_change, created_at FROM users ORDER BY id")
 
     def add_user(self, actor, q, body):
         require(actor, "users")
-        return {"id": self.store.tx(lambda: self.auth.create_user(body.get("username"), body.get("name"), body.get("role"), body.get("password")))}
+        def work():
+            uid = self.auth.create_user(body.get("username"), body.get("name"), body.get("role"), body.get("password"))
+            # the owner typed this password: the employee replaces it with his own at first login
+            self.store.db.execute("UPDATE users SET must_change=1 WHERE id=?", (uid,))
+            self.store.audit(actor, "user.added", str(uid))
+            return uid
+        return {"id": self.store.tx(work)}
 
     def make_backup(self, actor, q, body):
         require(actor, "backup")
@@ -473,13 +498,19 @@ def make_handler(app, allowed_lan):
                         actor = app.auth.session(token)
                     if needs_auth and not actor and parts.path != "/api/state":
                         raise ShopError("login_required", status=401)
+                    # a locked till and a password that must be changed stop everything else on the server
+                    if actor and parts.path not in GATE_FREE:
+                        if actor.get("locked"):
+                            raise ShopError("screen_locked", status=423)
+                        if actor.get("must_change"):
+                            raise ShopError("must_change_password", status=403)
                     # one shared connection: reads take the lock too, so nobody
                     # sees rows of a transaction that may still roll back
                     lock = app.store.lock if take_lock else contextlib.nullcontext()
                     with lock:
                         if fn == app.setup:
                             result = fn(actor, query, body, client=self.client_address[0])
-                        elif fn == app.logout:
+                        elif fn in (app.logout, app.change_password, app.lock, app.unlock):
                             result = fn(actor, query, body, token=token)
                         else:
                             result = fn(actor, query, body, *match.groups())

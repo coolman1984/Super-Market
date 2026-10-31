@@ -556,3 +556,32 @@ def m004(conn):
 
 MIGRATIONS.append((4, "matrix rows 2,3,5,6,9,14,26,38: invoices, cost corrections, gifts, rebates, cartons, thaw, promotions, day close", m004))
 SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+# ---------------------------------------------------------------- migration 5
+# Accounts (gap table row 5): a password set by the owner must be changed at
+# first login; a locked screen is locked on the server, so a page reload
+# cannot open it. Adds columns only.
+M005 = r"""
+ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE sessions ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;
+"""
+
+
+def m005(conn):
+    run_script(conn, M005)
+
+
+MIGRATIONS.append((5, "accounts: forced password change, server-side screen lock", m005))
+SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+# ---------------------------------------------------------------- migration 6
+# The in-app guide (af-guide, same engine as the Yousef app): each person's lesson progress.
+def m006(conn):
+    from . import afguide
+    conn.execute(afguide.SQL)
+
+
+MIGRATIONS.append((6, "in-app guide progress per person", m006))
+SCHEMA_VERSION = MIGRATIONS[-1][0]
