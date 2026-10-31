@@ -9,6 +9,8 @@
     ['manage', ['reports', 'parties', 'catalog', 'scanner', 'settings', 'help']],
   ];
   const PERM = { sell: 'sell', returns: 'refund', cash: 'shift', receive: 'receive', prepare: ['cutting', 'produce'], count: 'count',
+    // quantities on hand: a pure counter counts blind (server: Shop.can_see_qty), so the page is not offered to him
+    stock: ['reports', 'receive', 'transfer', 'waste', 'cutting', 'produce', 'sell'],
     reports: 'reports', scanner: 'scanner_setup', parties: ['receive', 'supplier_pay', 'sell'] };
   const allowed = (v) => { const p = PERM[v]; return !p || (Array.isArray(p) ? p.some(SM.can) : SM.can(p)); };
   let current = null;
@@ -103,6 +105,9 @@
     const pass = h('input', { class: 'input', type: 'password', autocomplete: 'new-password' }), pass2 = h('input', { class: 'input', type: 'password', autocomplete: 'new-password' });
     authFrame(t('setup.title'), t('setup.sub'), h('form', { class: 'stack', onsubmit: async (e) => {
       e.preventDefault();
+      // report L4: say which box is empty and put the cursor there
+      const empty = [[shop, 'setup.need_shop'], [user, 'setup.need_user'], [pass, 'setup.need_pass']].find(([el]) => !el.value.trim());
+      if (empty) { empty[0].focus(); return SM.toast(t(empty[1]), 'bad'); }
       if (pass.value !== pass2.value) return SM.toast(t('setup.mismatch'), 'bad');
       try { await SM.api('POST', '/api/setup', { shop_name: shop.value, username: user.value, name: name.value || user.value, password: pass.value }); SM.toast(t('setup.done')); boot(); } catch (err) { SM.fail(err); }
     } }, SM.field(t('set.shop_name'), shop), SM.field(t('setup.owner_name'), name), SM.field(t('username'), user), SM.field(t('password'), pass, t('set.pw_help')),
@@ -112,10 +117,12 @@
   function loginScreen(state) {
     const user = h('input', { class: 'input', autocomplete: 'username', autofocus: true }), pass = h('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
     const tl = state.training_login;
+    const ended = SM.state.sessionEnded ? h('p', { class: 'tip', id: 'session-ended', role: 'status', text: t('login.session_ended') }) : null;
+    SM.state.sessionEnded = false;
     authFrame(state.shop_name || t('app.name'), t('login.sub'), h('form', { class: 'stack', onsubmit: async (e) => {
       e.preventDefault();
       try { await SM.api('POST', '/api/login', { username: user.value, password: pass.value, workstation: SM.workstation() }); boot(); } catch (err) { SM.fail(err); }
-    } }, SM.field(t('username'), user), SM.field(t('password'), pass), h('button', { class: 'btn primary lg', type: 'submit', text: t('login.go') }),
+    } }, ended, SM.field(t('username'), user), SM.field(t('password'), pass), h('button', { class: 'btn primary lg', type: 'submit', text: t('login.go') }),
       h('button', { class: 'btn ghost', type: 'button', id: 'login-forgot', text: t('login.forgot'), onclick: () => SM.forgotDialog() }),
       tl ? h('div', { class: 'tip' }, h('div', {}, h('b', { text: t('login.training_users') }), ' ', tl.users.join(' · '), h('br'), t('password'), ': ', h('code', { class: 'ltr', text: tl.password }))) : null));
     user.focus();
@@ -180,6 +187,9 @@
 
   async function route() {
     if (!SM.state.user || !document.getElementById('view')) return;
+    // a side panel of the page being left (an item's details...) must not stay over the next page
+    const panels = document.getElementById('panels');
+    if (panels) SM.put(panels);
     let v = (location.hash || '#today').slice(1);
     if (!SM.views[v] || !allowed(v)) v = SM.can('sell') && !SM.can('reports') ? 'sell' : 'today';
     if (current && current.unmount) { try { current.unmount(); } catch (e) { /* ignore */ } }

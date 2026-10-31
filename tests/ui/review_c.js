@@ -38,8 +38,8 @@ const out = process.argv[3] || '.';
     assert.ok((await page.locator('.drawer').innerText()).includes(await T('party.claim_covered')));
     assert.ok(await page.locator('[data-supplier-return]').evaluate(el => el.scrollWidth <= el.clientWidth + 1));
     await page.locator('.drawer').screenshot({ path: out + '/review-c-supplier-ar.png' });
-    page.once('dialog', d => d.accept('تسوية نهائية بعد استلام الإشعارين'));
     await page.getByRole('button', { name: await T('party.close_claim'), exact: true }).click();
+    await page.fill('#ask-input', 'تسوية نهائية بعد استلام الإشعارين'); await page.click('#ask-ok');   // the program's own question window (review M9)
     await page.waitForSelector('.drawer', { state: 'detached' });
     await page.getByText('مورد مراجعة ثالثة', { exact: true }).click();
     await page.waitForSelector('.drawer');

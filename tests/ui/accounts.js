@@ -42,8 +42,8 @@ const out = process.argv[3] || '.';
   // owner stops him: his open page is out at the next request
   const uid = (await page.evaluate(() => SM.api('GET', '/api/users'))).find(u => u.username === 'newcash').id;
   await page.goto(base + '/#settings'); await page.waitForSelector('#view .tbl');
-  page.once('dialog', d => d.accept('ترك العمل'));
-  await page.locator('#view tr', { hasText: 'newcash' }).locator('button.danger').click(); await page.waitForTimeout(800);
+  await page.locator('#view tr', { hasText: 'newcash' }).locator('button.danger').click();
+  await page.fill('#ask-input', 'ترك العمل'); await page.click('#ask-ok'); await page.waitForTimeout(800);   // the program's own question window (review M9)
   await p2.goto(base + '/#sell'); await p2.reload(); await p2.waitForTimeout(900);
   res.stopped_is_out = await p2.locator('input[autocomplete=username]').count() === 1;
   res.users_state = (await page.evaluate(() => SM.api('GET', '/api/users'))).find(u => u.id === uid).active === 0;

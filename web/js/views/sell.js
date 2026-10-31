@@ -94,9 +94,9 @@
       }
       cart.lines.push({ product: r.product, qty: r.pack.net_g, pack: r.pack, scanned: r.scan.code });
     } else if (r.qty === null || r.qty === undefined) {
-      const grams = await askWeight(r.product);
-      if (!grams) return;
-      cart.lines.push({ product: r.product, qty: grams, scanned: r.scan.code, manualWeight: true });
+      const w = await askWeight(r.product);
+      if (!w) return;
+      cart.lines.push({ product: r.product, qty: w.grams, scanned: r.scan.code, manualWeight: !w.fromScale });
     } else {
       addProduct(r.product, r.qty, r.scan.code, r.scan.kind === 'label');
     }
@@ -111,19 +111,56 @@
     else cart.lines.push({ product, qty, scanned, label: separate });
   }
 
+  /* Weighed item: with a scale cabled to this till its live weight shows and one tap takes it
+     (owner, 31 Oct 2026); without one, or if it is off, the weight is typed as before. */
+  /* report M8: after every change of the cart the server says, a moment later, if any item asks for
+     more than can be sold; the line shows it at once instead of failing at payment. */
+  let stockTimer = null, stockAsked = '';
+  function checkStock(view) {
+    clearTimeout(stockTimer);
+    stockTimer = setTimeout(async () => {
+      const payload = cart.lines.length ? cartPayload() : null;
+      const sig = JSON.stringify(payload);
+      if (!payload || sig === stockAsked) { if (!payload && cart.short) { cart.short = null; } return; }
+      stockAsked = sig;
+      const q = await SM.api('POST', '/api/quote', { payload }).catch(() => null);
+      if (!q || sig !== JSON.stringify(cart.lines.length ? cartPayload() : null)) return;
+      const next = {};
+      (q.short || []).forEach(s => { next[s.product] = s.available; });
+      if (JSON.stringify(next) !== JSON.stringify(cart.short || {})) { cart.short = Object.keys(next).length ? next : null; view.render(); }
+    }, 350);
+  }
+
   function askWeight(product) {
     return new Promise((resolve) => {
       const input = h('input', { class: 'input big', inputmode: 'decimal', autocomplete: 'off', 'data-guide': 'sell.weight' });
-      let done = false;
+      let done = false, closed = false, live = null;
+      const finish = (grams, fromScale) => { done = true; d.close(); resolve({ grams, fromScale }); };
       const ok = () => {
         const g = SM.parseKg(input.value);
-        if (!g || g <= 0) { SM.toast(t('err.bad_weight'), 'bad'); return; }
-        done = true; d.close(); resolve(g);
+        if (!g || g <= 0 || g > 200000) { SM.toast(t('err.bad_weight'), 'bad'); input.focus(); return; }     // M8: no 99,999 kg line
+        finish(g, false);
       };
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ok(); } });
-      const d = SM.dialog({ title: t('sell.weight_title', { name: SM.name(product) }), onClose: () => { if (!done) resolve(null); },
-        body: [SM.field(t('sell.weight_kg'), input, t('sell.weight_manual_note'))],
+      const scaleBox = h('div', { class: 'scale-live', hidden: true });
+      const take = h('button', { class: 'btn primary big', id: 'take-weight', disabled: true, onclick: () => { if (live && live.stable && live.grams > 0) finish(live.grams, true); } });
+      const d = SM.dialog({ title: t('sell.weight_title', { name: SM.name(product) }), onClose: () => { closed = true; if (!done) resolve(null); },
+        body: [scaleBox, SM.field(t('sell.weight_kg'), input, t('sell.weight_manual_note'))],
         actions: [h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => d.close() }), h('button', { class: 'btn primary', text: t('add'), onclick: ok })] });
+      (async () => {
+        while (!closed) {
+          const r = await SM.api('GET', '/api/scale/weight').catch(() => null);
+          if (!r || !r.has_scale || closed) return;              // no scale on this till: typing only, nothing changes
+          scaleBox.hidden = false;
+          live = r.grams === null ? null : r;
+          const shown = live ? SM.qty(live.grams, 'g') : '—';
+          SM.put(scaleBox, h('div', { class: 'muted', text: t('scale.on_scale') }), h('div', { class: 'scale-weight ltr', text: shown }),
+            h('div', { class: live && !live.stable ? 'badge warn' : 'muted', text: !r.connected ? t('scale.not_connected') : !live ? t('scale.put_item') : live.stable ? t('scale.ready') : t('scale.wait_still') }), take);
+          take.textContent = t('scale.take');
+          take.disabled = !(live && live.stable && live.grams > 0);
+          await new Promise(res => setTimeout(res, 300));
+        }
+      })();
     });
   }
 
@@ -174,7 +211,7 @@
       const rows = await SM.api('GET', '/api/products?q=' + encodeURIComponent(q.value)).catch(() => []);
       SM.put(list, ...rows.filter(r => ['grocery', 'raw_meat', 'prepared'].includes(r.kind)).map(r => h('button', { class: 'pick', onclick: async () => {
         d.close();
-        if (r.measure === 'g') { const g = await askWeight(r); if (g) { cart.key = null; cart.lines.push({ product: r, qty: g, manualWeight: true }); view.render(); } }
+        if (r.measure === 'g') { const w = await askWeight(r); if (w) { cart.key = null; cart.lines.push({ product: r, qty: w.grams, manualWeight: !w.fromScale }); view.render(); } }
         else { cart.key = null; addProduct(r, 1, null); view.render(); }
       } }, h('b', { text: SM.name(r) }), h('span', { class: 'muted', text: r.code }), SM.num(r.price === null ? '—' : SM.money(r.price)),
         h('span', { class: 'muted' }, t('sell.available'), ' ', SM.qty(r.available, r.measure)))));
@@ -328,7 +365,8 @@
   SM.receipt = function (r) {
     const lang = SM.state.lang;
     const L = (a, b) => h('div', { class: 'rc-line' }, h('span', { text: a }), SM.num(b));
-    const at = r.at ? new Date(r.at).toLocaleString(lang === 'ar' ? 'ar-EG-u-nu-latn' : 'en-GB', { timeZone: 'Africa/Cairo' }) : '—';
+    // digits only (31/10/2026 21:03): an Arabic "م" inside the left-to-right number cell printed scrambled on the receipt
+    const at = r.at ? new Date(r.at).toLocaleString('en-GB', { timeZone: 'Africa/Cairo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '') : '—';
     return h('div', { class: 'receipt' + (r.training ? ' training' : '') },
       r.training ? h('div', { class: 'rc-train', text: t('receipt.training') }) : null,
       r.reprint ? h('div', { class: 'rc-train', text: t('receipt.reprint') }) : null,
@@ -371,15 +409,17 @@
         lastScan(r, raw) {
           SM.put(status);
           if (r.ok) status.append(h('span', { class: 'badge ok' }, icon('check', 'sm'), SM.name(r.product)));
-          else status.append(h('span', { class: 'badge bad' }, icon('warn', 'sm'), t('err.' + r.error) === 'err.' + r.error ? r.error : t('err.' + r.error)),
-            r.seen ? h('code', { class: 'ltr', text: r.seen }) : null);
+          else status.append(...[h('span', { class: 'badge bad' }, icon('warn', 'sm'), t('err.' + r.error) === 'err.' + r.error ? r.error : t('err.' + r.error)),
+            r.seen ? h('code', { class: 'ltr', text: r.seen }) : null].filter(Boolean));     // append(null) would print the word null (report M1)
           if (r.price_changed) status.append(h('span', { class: 'badge warn', text: t('sell.pack_price_changed', { packed: SM.money(r.price_changed.packed), current: SM.money(r.price_changed.current) }) }));
         },
         render() {
           saveDraft();
+          checkStock(view);
           const tot = totals();
           SM.put(cartBox, cart.lines.length ? SM.table([
             { label: t('sell.item'), render: l => h('div', {}, h('b', { text: SM.name(l.product) }),
+              cart.short && cart.short[l.product.id] !== undefined && !l.pack ? h('div', { class: 'badge bad', text: t('sell.only_available', { qty: SM.qty(cart.short[l.product.id], l.product.measure) }) }) : null,
               l.pack ? h('div', { class: 'muted ltr', text: t('sell.pack') + ' ' + l.pack.code }) : null,
               l.manualWeight ? h('div', { class: 'badge warn', text: t('sell.manual_weight') }) : null) },
             { label: t('sell.qty'), render: l => h('div', { class: 'row qty-cell' },
@@ -408,8 +448,9 @@
       };
       SM.scanner.handler = (raw) => addScan(raw, view);
       SM.put(root, 
-        shift ? null : h('div', { class: 'tip warn-tip' }, icon('warn'), h('div', {}, h('b', { text: t('sell.no_shift') }), ' ',
-          h('a', { href: '#cash', text: t('sell.open_shift') }))),
+        // the first thing a cashier must do is one big button, not a small link
+        shift ? null : h('div', { class: 'tip warn-tip no-shift' }, icon('warn'), h('b', { text: t('sell.no_shift') }),
+          h('button', { class: 'btn primary big', id: 'open-shift-now', text: t('sell.open_shift'), onclick: () => SM.go('cash') })),
         h('div', { class: 'sell-grid' },
           h('section', { class: 'sell-main' },
             h('div', { class: 'scan-bar card' }, icon('scan', 'lg'), scanInput,

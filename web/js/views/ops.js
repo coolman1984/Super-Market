@@ -114,8 +114,10 @@
       };
       const register = h('button', { class: 'btn', onclick: () => invoiceDialog(suppliers, () => SM.go('receive')) }, icon('plus'), t('recv.register_invoice'));
       SM.put(root, 
-        h('div', { class: 'card' }, h('div', { class: 'grid cols-3' }, SM.field(t('recv.pre_invoice'), preInv, t('recv.pre_invoice_help')), register), invLeft,
-          h('div', { class: 'grid cols-3' }, SM.field(t('recv.supplier'), sup), SM.field(t('recv.invoice'), inv), SM.field(t('recv.invoice_date'), invDate))),
+        // the order a receiver works in: who brought it, then the items; an invoice registered earlier is the exception, folded below
+        h('div', { class: 'card' }, h('div', { class: 'grid cols-3' }, SM.field(t('recv.supplier'), sup), SM.field(t('recv.invoice'), inv), SM.field(t('recv.invoice_date'), invDate)),
+          h('details', { class: 'advanced', open: invoices.length ? null : null }, h('summary', { text: t('recv.pre_invoice') }),
+            h('div', { class: 'grid cols-3' }, SM.field(t('recv.pre_invoice'), preInv, t('recv.pre_invoice_help')), register)), invLeft),
         h('div', { class: 'scan-bar card' }, icon('scan', 'lg'), scan, pick),
         table,
         h('div', { class: 'card' }, h('div', { class: 'grid cols-3' }, SM.field(t('recv.invoice_discount'), invDisc), SM.field(t('recv.extra_cost'), extra, t('recv.extra_help')),
@@ -165,14 +167,14 @@
     const kv = (k, v) => [h('dt', { text: k }), h('dd', {}, v)];
     const acts = [];
     const doStatus = async (status) => {
-      const reason = prompt(t('lots.reason_q'));
+      const reason = await SM.ask(t('lots.reason_q'));
       if (!reason) return;
       try { await SM.command('/api/lots/status', SM.newKey(), undefined, { lot_id: lot.id, status, reason }); SM.toast(t('saved')); d.close(); after && after(); } catch (e) { SM.fail(e); }
     };
     if (lot.status === 'released') acts.push(h('button', { class: 'btn', onclick: () => doStatus('held') }, t('lots.hold')));
     else acts.push(h('button', { class: 'btn', onclick: () => doStatus('released') }, t('lots.release')));
     if (SM.can('recall') && lot.status !== 'recalled') acts.push(h('button', { class: 'btn danger', onclick: async () => {
-      const reason = prompt(t('lots.recall_q')); if (!reason) return;
+      const reason = await SM.ask(t('lots.recall_q')); if (!reason) return;
       try { const r = await SM.command('/api/recall', SM.newKey(), undefined, { lot_id: lot.id, reason }); d.close(); recallResult(r); after && after(); } catch (e) { SM.fail(e); }
     } }, t('lots.recall')));
     const d = SM.drawer({ title: t('lots.title', { no: lot.lot_no }), actions: acts, body: [
@@ -291,7 +293,7 @@
       { label: t('ret.reason'), key: 'reason' },
       { label: t('stock.state'), render: r => r.lifted_at ? h('span', { class: 'badge ok', text: t('recall.lifted') + ': ' + r.lift_reason }) :
         h('button', { class: 'btn sm', text: t('recall.lift'), onclick: SM.guard(async () => {
-          const reason = prompt(t('recall.lift_q')); if (!reason) return;
+          const reason = await SM.ask(t('recall.lift_q')); if (!reason) return;
           try { await SM.command('/api/recalls/lift', SM.newKey(), undefined, { recall_id: r.id, reason }); SM.toast(t('recall.lifted_toast')); d.close(); after(); }
           catch (e) { SM.fail(e); }
         }) }) }], rows) : h('p', { text: t('none') }) });
@@ -530,13 +532,13 @@
             if (v === null) { SM.put(saved, h('span', { class: 'badge bad', text: t('err.bad_number') })); return; }
             try { await SM.api('POST', '/api/counts/' + id + '/line', { lot_id: l.lot_id, counted: v }); SM.put(saved, h('span', { class: 'badge ok', text: t('saved') })); } catch (e) { SM.fail(e); }
           });
-          const el = h('div', { class: 'count-row' }, h('div', {}, h('b', { text: SM.name(l) }), h('div', { class: 'muted ltr', text: l.lot_no + ' — ' + (l.expires || '') })),
+          const el = h('div', { class: 'count-row' }, h('div', {}, h('b', { text: SM.name(l) }), h('div', { class: 'muted' }, l.expires ? t('count.expires', { date: l.expires }) : null, h('small', { class: 'muted ltr lot-no', text: ' ' + l.lot_no }))),   // report L9: what the counter reads first is the date, not the batch number
             h('div', { class: 'row' }, input, h('span', { class: 'muted', text: l.measure === 'g' ? t('unit.kg') : t('unit.pc') }), saved));
           return { lot: l, input, el };
         });
         const key = SM.newKey();
         const cancel = h('button', { class: 'btn ghost', text: t('count.cancel'), onclick: SM.guard(async () => {
-          const reason = prompt(t('count.cancel_q')); if (!reason) return;
+          const reason = await SM.ask(t('count.cancel_q')); if (!reason) return;
           try { await SM.api('POST', '/api/counts/' + id + '/cancel', { reason }); SM.toast(t('count.cancelled')); SM.go('count'); } catch (e) { SM.fail(e); }
         }) });
         const approve = SM.can('count_approve') ? h('button', { class: 'btn primary', 'data-guide': 'count.approve', text: t('count.approve'), onclick: async () => {
@@ -546,7 +548,7 @@
             try { await SM.command('/api/counts/' + id + '/approve', key, undefined); }
             catch (e) {
               if (e.code !== 'approver_counted' || SM.state.user.role !== 'owner') throw e;
-              const reason = prompt(t('count.owner_reason_q')); if (!reason) return;
+              const reason = await SM.ask(t('count.owner_reason_q')); if (!reason) return;
               extra = { owner_reason: reason };
             }
             const r = await SM.command('/api/counts/' + id + '/approve', key, undefined, extra); SM.toast(t('count.approved', { n: r.differences.length })); SM.go('count'); } catch (e) { SM.fail(e); }

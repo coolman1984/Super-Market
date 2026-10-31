@@ -71,7 +71,9 @@ english.Lan=Other tills on the shop network can connect
 arabic.AllUsers=السماح لكل حسابات ويندوز على هذا الجهاز بالدخول إلى بيانات المحل (حماية أقل؛ مفيد إذا كان الكاشير يستخدم حساب ويندوز آخر)
 english.AllUsers=Allow every Windows account on this PC to use the shop data (less protection; useful when the cashier signs in with another Windows account)
 arabic.Training=السوبر ماركت - تدريب
-english.Training=Super Market - training
+english.Training=Super Market - Training
+arabic.TrainingReset=السوبر ماركت - تدريب من البداية
+english.TrainingReset=Super Market - Training from the start
 arabic.Stop=إيقاف السوبر ماركت
 english.Stop=Stop Super Market
 arabic.Recovery=استعادة دخول صاحب المحل
@@ -107,6 +109,7 @@ Source: "..\build\launcher.dist\*"; DestDir: "{app}"; Flags: ignoreversion recur
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\SuperMarket.exe"; Parameters: "{code:LanArg}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\SuperMarket.exe"; Parameters: "{code:LanArg}"; Tasks: desktopicon
 Name: "{autoprograms}\{cm:Training}"; Filename: "{app}\SuperMarket.exe"; Parameters: "training"
+Name: "{autoprograms}\{cm:TrainingReset}"; Filename: "{app}\SuperMarket.exe"; Parameters: "training reset"
 Name: "{autoprograms}\{cm:Stop}"; Filename: "{app}\SuperMarket.exe"; Parameters: "stop"
 Name: "{autoprograms}\{cm:Recovery}"; Filename: "{cmd}"; Parameters: "/k ""{app}\SuperMarket.exe"" owner-recovery"
 Name: "{autoprograms}\{cm:UsbBackup}"; Filename: "{cmd}"; Parameters: "/k ""{app}\SuperMarket.exe"" usb-backup"

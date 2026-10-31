@@ -24,7 +24,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-from . import guidebook, backup, training
+from . import guidebook, backup, scale, training
 from .auth import Auth, can, require
 from .core import Forbidden, ShopError, integer, text, today
 from .db import Store
@@ -148,6 +148,8 @@ class App:
         r("POST", r"/api/settings", self.save_settings)
         r("GET", r"/api/label-templates", lambda a, q, b: self.shop.label_templates())
         r("POST", r"/api/label-templates", lambda a, q, b: {"id": self.shop.save_label_template(a, b)})
+        r("POST", r"/api/label-templates/detect", self.detect_label)
+        r("GET", r"/api/scale/weight", self.scale_weight, lock=False)
         r("GET", r"/api/scanner/profile", lambda a, q, b: self.profile_for(a))
         r("POST", r"/api/scanner/profile", self.save_profile)
         r("GET", r"/api/scanner/ports", self.ports)
@@ -335,6 +337,25 @@ class App:
             return clean
         return self.store.tx(work)
 
+    def detect_label(self, actor, q, body):
+        """Scale sticker set-up from ONE real sticker: the owner scans it and types the weight (or
+        price) printed on it; the program finds the layout. Nothing is saved here."""
+        require(actor, "settings")
+        found, error = scale.detect_label_layout(body.get("code"), body.get("printed"), body.get("item_code"))
+        if error == "bad_check_digit":
+            raise ShopError("bad_check_digit")
+        if error == "not_scale_label":
+            raise ShopError("not_scale_label")
+        if error:
+            raise ShopError("label_not_understood")
+        return {"candidates": found}
+
+    def scale_weight(self, actor, q, body):
+        """Live weight of the scale cabled to this till (sell screen, weighed items)."""
+        require(actor, "sell")
+        r = self.hub.weight(actor.get("workstation"))
+        return {"has_scale": False} if r is None else dict(r, has_scale=True)
+
     def ports(self, actor, q, body):
         require(actor, "scanner_setup")
         return {"serial": list_serial_ports(), "devices": self.hub.status(), "platform": sys.platform}
@@ -355,6 +376,8 @@ class App:
                     "suffix": d.get("suffix", "CR") if d.get("suffix") in (None, "CR", "LF", "CRLF", "TAB", "ETX", "EOT") else "CR",
                     "prefix": str(d.get("prefix", ""))[:4], "gap_ms": integer(d.get("gap_ms", 80), 10, maximum=2000),
                     "partial_ms": integer(d.get("partial_ms", 1500), 100, maximum=10000)}
+            if d.get("role") == "scale":                # a weighing scale on a COM/TCP port, not a scanner
+                item.update(role="scale", poll=d.get("poll") if d.get("poll") in scale.POLL else "none")
             if d["type"] == "serial":
                 item.update(port=str(d.get("port", ""))[:40], baud=integer(d.get("baud", 9600), 1200, maximum=115200),
                             bits=integer(d.get("bits", 8), 7, maximum=8), stop=integer(d.get("stop", 1), 1, maximum=2),
@@ -588,6 +611,12 @@ def make_handler(app, allowed_lan):
 
         def do_POST(self):
             self._dispatch("POST")
+
+        def _not_allowed(self):
+            # review report L11: HEAD/OPTIONS/PUT/DELETE get a short JSON answer, not the library's English HTML page
+            self._send(405, {"error": "method_not_allowed"}, headers={"Allow": "GET, POST"})
+
+        do_HEAD = do_OPTIONS = do_PUT = do_DELETE = do_PATCH = _not_allowed
 
         def _dispatch(self, method):
             if not self._client_ok():

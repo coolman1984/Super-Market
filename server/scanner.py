@@ -117,6 +117,10 @@ class PosixSerial:
             raise OSError("port closed")
         return data
 
+    def write(self, data):
+        """A request character for scales that answer only when asked (never used for scanners)."""
+        os.write(self.fd, data)
+
     def close(self):
         os.close(self.fd)
 
@@ -163,8 +167,9 @@ class WindowsSerial:  # pragma: no cover - needs a Windows COM port (structures 
         k32.SetCommState.argtypes = [HANDLE, ctypes.POINTER(DCB)]
         k32.SetCommTimeouts.argtypes = [HANDLE, ctypes.POINTER(TIMEOUTS)]
         k32.ReadFile.argtypes = [HANDLE, LPVOID, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), LPVOID]
+        k32.WriteFile.argtypes = [HANDLE, ctypes.c_char_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), LPVOID]
         k32.CloseHandle.argtypes = [HANDLE]
-        for fn in ("GetCommState", "SetCommState", "SetCommTimeouts", "ReadFile", "CloseHandle"):
+        for fn in ("GetCommState", "SetCommState", "SetCommTimeouts", "ReadFile", "WriteFile", "CloseHandle"):
             getattr(k32, fn).restype = BOOL
         self.k32 = k32
         name = path if path.startswith("\\\\.\\") else "\\\\.\\" + path
@@ -184,8 +189,8 @@ class WindowsSerial:  # pragma: no cover - needs a Windows COM port (structures 
             dcb.flags = dcb_flags(parity)
             if not k32.SetCommState(handle, ctypes.byref(dcb)):
                 raise OSError("SetCommState failed (error %d)" % ctypes.get_last_error())
-            # return at once with what arrived, or after 50 ms with nothing
-            if not k32.SetCommTimeouts(handle, ctypes.byref(TIMEOUTS(0xFFFFFFFF, 0xFFFFFFFF, 50, 0, 0))):
+            # return at once with what arrived, or after 50 ms with nothing; a write (scale request) gives up after 200 ms
+            if not k32.SetCommTimeouts(handle, ctypes.byref(TIMEOUTS(0xFFFFFFFF, 0xFFFFFFFF, 50, 0, 200))):
                 raise OSError("SetCommTimeouts failed (error %d)" % ctypes.get_last_error())
         except BaseException:
             self.close()
@@ -197,6 +202,11 @@ class WindowsSerial:  # pragma: no cover - needs a Windows COM port (structures 
         if not self.k32.ReadFile(self.handle, buf, 4096, self.ct.byref(n), None):
             raise OSError("ReadFile failed (error %d)" % self.ct.get_last_error())
         return buf.raw[:n.value]
+
+    def write(self, data):
+        n = self.ct.c_uint32()
+        if not self.k32.WriteFile(self.handle, data, len(data), self.ct.byref(n), None):
+            raise OSError("WriteFile failed (error %d)" % self.ct.get_last_error())
 
     def close(self):
         if getattr(self, "handle", None):
@@ -219,6 +229,9 @@ class TcpSource:
         if data == b"":
             raise OSError("connection closed")
         return data
+
+    def write(self, data):
+        self.sock.sendall(data)
 
     def close(self):
         self.sock.close()
@@ -377,9 +390,20 @@ class ScannerHub:
             if cfg.get("workstation"):
                 self.bindings[cfg["id"]] = cfg["workstation"]
             if cfg.get("enabled", True) and cfg.get("type") in ("serial", "tcp"):
-                dev = Device(cfg, self.push)
+                if cfg.get("role") == "scale":
+                    from .scale import ScaleReader
+                    dev = ScaleReader(cfg, open_transport)
+                else:
+                    dev = Device(cfg, self.push)
                 self.devices[cfg["id"]] = dev
                 dev.thread.start()
+
+    def weight(self, workstation):
+        """The live weight of the scale bound to this till (None when it has no scale)."""
+        for dev_id, dev in self.devices.items():
+            if hasattr(dev, "reading") and self.bindings.get(dev_id) == workstation:
+                return dev.reading()
+        return None
 
     def status(self):
         out = []

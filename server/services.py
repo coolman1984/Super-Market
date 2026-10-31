@@ -125,6 +125,8 @@ class Shop:
                 raise bad
         elif not isinstance(value, str) or len(value) > 200:
             raise bad
+        elif key == "shop_name" and not value.strip():
+            raise bad                       # the name is on every receipt and on the sign-in screen
 
     def add_location(self, actor, code, name_ar, name_en, kind, sellable):
         require(actor, "settings")
@@ -164,7 +166,16 @@ class Shop:
                 raise ShopError("bad_meat_share")   # raw meat is meat; groceries carry no meat claim
 
         def work():
-            code = text(p.get("code"), "bad_code", 30)
+            if not str(p.get("code") or "").strip():
+                # report M6: nobody has to invent an item number; the next free one is given
+                top = self.store.scalar("SELECT MAX(CAST(code AS INTEGER)) FROM products WHERE code GLOB '[0-9]*' AND code NOT GLOB '*[^0-9]*' AND length(code)<=9")
+                code = str(max(int(top or 0) + 1, 1001))
+                while self.store.scalar("SELECT 1 FROM products WHERE code=?", (code,)):
+                    code = str(int(code) + 1)
+            else:
+                code = text(p.get("code"), "bad_code", 30)
+                if not re.fullmatch(r"[A-Za-z0-9\u0660-\u0669._/-]{1,30}", code):   # no spaces or symbols that cannot be typed back
+                    raise ShopError("bad_code")
             if self.store.scalar("SELECT 1 FROM products WHERE code=?", (code,)):
                 raise ShopError("code_taken")
             cur = self.store.db.execute(
@@ -918,8 +929,18 @@ class Shop:
         if not isinstance(payload, dict) or not isinstance(payload.get("lines"), list) or not payload["lines"]:
             raise ShopError("lines_required")
         priced = self._price(actor, payload, self.settings(), check=False)
+        # report M8: tell the till NOW when the cart asks for more than can be sold, not at payment
+        need = {}
+        for l in priced["lines"]:
+            if not l["pack"]:
+                need[l["prod"]["id"]] = need.get(l["prod"]["id"], 0) + l["qty"]
+        short = []
+        for pid, qty in need.items():
+            have = self.available(pid)
+            if have < qty:
+                short.append({"product": pid, "available": have, "asked": qty})
         return {"total": priced["total"], "gross": priced["gross_total"], "discount": priced["discount"],
-                "promo": priced["promo"], "quote_hash": self._quote_hash(priced),
+                "promo": priced["promo"], "quote_hash": self._quote_hash(priced), "short": short,
                 "lines": [{"product": l["prod"]["id"], "qty": l["qty"], "unit_price": l["unit_price"], "gross": l["gross"],
                            "basis": l["basis"], "pack": l["pack"]["code"] if l["pack"] else None, "promo": l["promo"]}
                           for l in priced["lines"]]}

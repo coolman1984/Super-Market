@@ -43,7 +43,8 @@
   "backup.made",
   "password.changed",
   "day.closed",
-  "supplier.paid"
+  "supplier.paid",
+  "scale.sticker_ready"
  ],
  "checklist": [
   "open-shift",
@@ -354,6 +355,18 @@
   "help.account": {
    "page": "help",
    "sel": "[data-guide=\"help.account\"]"
+  },
+  "scale.code": {
+   "page": "scanner",
+   "sel": "[data-guide=\"scale.code\"]"
+  },
+  "scale.printed": {
+   "page": "scanner",
+   "sel": "[data-guide=\"scale.printed\"]"
+  },
+  "scale.detect": {
+   "page": "scanner",
+   "sel": "[data-guide=\"scale.detect\"]"
   }
  },
  "guides": [
@@ -362,7 +375,6 @@
    "cat": "start",
    "perm": "*",
    "minutes": 2,
-   "requires": [],
    "steps": [
     {
      "k": "go",
@@ -393,9 +405,6 @@
    "cat": "daily",
    "perm": "shift",
    "minutes": 2,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -431,9 +440,6 @@
    "cat": "daily",
    "perm": "sell",
    "minutes": 4,
-   "requires": [
-    "open-shift"
-   ],
    "steps": [
     {
      "k": "go",
@@ -491,9 +497,6 @@
    "cat": "daily",
    "perm": "sell",
    "minutes": 3,
-   "requires": [
-    "first-sale"
-   ],
    "steps": [
     {
      "k": "go",
@@ -540,9 +543,6 @@
    "cat": "daily",
    "perm": "sell",
    "minutes": 2,
-   "requires": [
-    "first-sale"
-   ],
    "steps": [
     {
      "k": "go",
@@ -579,9 +579,6 @@
    "cat": "daily",
    "perm": "refund",
    "minutes": 3,
-   "requires": [
-    "first-sale"
-   ],
    "steps": [
     {
      "k": "go",
@@ -635,9 +632,6 @@
    "cat": "daily",
    "perm": "shift",
    "minutes": 3,
-   "requires": [
-    "open-shift"
-   ],
    "steps": [
     {
      "k": "go",
@@ -670,9 +664,6 @@
    "cat": "goods",
    "perm": "receive",
    "minutes": 5,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -754,9 +745,6 @@
    "cat": "goods",
    "perm": "cutting",
    "minutes": 5,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -829,9 +817,6 @@
    "cat": "goods",
    "perm": "produce",
    "minutes": 4,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -882,9 +867,6 @@
    "cat": "goods",
    "perm": "count",
    "minutes": 4,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -930,9 +912,6 @@
    "cat": "office",
    "perm": "reports",
    "minutes": 3,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -965,9 +944,6 @@
    "cat": "office",
    "perm": "close_day",
    "minutes": 2,
-   "requires": [
-    "day-report"
-   ],
    "steps": [
     {
      "k": "go",
@@ -993,9 +969,6 @@
    "cat": "office",
    "perm": "catalog",
    "minutes": 4,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -1008,14 +981,7 @@
      "k": "click",
      "target": "cat.add",
      "until": {
-      "target": "cat.code"
-     }
-    },
-    {
-     "k": "type",
-     "target": "cat.code",
-     "until": {
-      "filled": "cat.code"
+      "target": "cat.name_ar"
      }
     },
     {
@@ -1056,9 +1022,6 @@
    "cat": "office",
    "perm": "supplier_pay",
    "minutes": 3,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -1098,9 +1061,6 @@
    "cat": "admin",
    "perm": "users",
    "minutes": 3,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -1147,9 +1107,6 @@
    "cat": "admin",
    "perm": "backup",
    "minutes": 2,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -1178,9 +1135,6 @@
    "cat": "start",
    "perm": "*",
    "minutes": 2,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "click",
@@ -1219,10 +1173,7 @@
    "id": "lock-screen",
    "cat": "start",
    "perm": "*",
-   "minutes": 1,
-   "requires": [
-    "first-look"
-   ],
+   "minutes": 2,
    "steps": [
     {
      "k": "click",
@@ -1241,9 +1192,6 @@
    "cat": "start",
    "perm": "users",
    "minutes": 2,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -1273,9 +1221,6 @@
    "cat": "admin",
    "perm": "users",
    "minutes": 2,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -1306,9 +1251,6 @@
    "cat": "admin",
    "perm": "users",
    "minutes": 2,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -1337,9 +1279,6 @@
    "cat": "daily",
    "perm": "refund",
    "minutes": 2,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -1367,10 +1306,7 @@
    "id": "wrong-password",
    "cat": "start",
    "perm": "*",
-   "minutes": 1,
-   "requires": [
-    "first-look"
-   ],
+   "minutes": 2,
    "steps": [
     {
      "k": "go",
@@ -1396,9 +1332,6 @@
    "cat": "admin",
    "perm": "users",
    "minutes": 2,
-   "requires": [
-    "first-look"
-   ],
    "steps": [
     {
      "k": "go",
@@ -1421,6 +1354,48 @@
      "k": "done"
     }
    ]
+  },
+  {
+   "id": "scale-sticker",
+   "cat": "admin",
+   "perm": "settings",
+   "minutes": 3,
+   "steps": [
+    {
+     "k": "go",
+     "page": "scanner",
+     "until": {
+      "route": "scanner"
+     }
+    },
+    {
+     "k": "type",
+     "target": "scale.code",
+     "until": {
+      "filled": "scale.code"
+     }
+    },
+    {
+     "k": "type",
+     "target": "scale.printed",
+     "until": {
+      "filled": "scale.printed"
+     }
+    },
+    {
+     "k": "click",
+     "target": "scale.detect"
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "done"
+    }
+   ],
+   "done": {
+    "state": "scale.sticker_ready"
+   }
   }
  ],
  "roles": [
@@ -1448,7 +1423,14 @@
     "lock-screen",
     "wrong-password",
     "forgot-owner-password",
-    "backup-now"
+    "backup-now",
+    "weighed-sale",
+    "hold-sale",
+    "cut-meat",
+    "make-tagine",
+    "count-stock",
+    "pay-supplier",
+    "scale-sticker"
    ]
   },
   {
@@ -1468,7 +1450,8 @@
     "close-day",
     "refund-approval",
     "lock-screen",
-    "wrong-password"
+    "wrong-password",
+    "scale-sticker"
    ]
   },
   {
@@ -1662,22 +1645,24 @@
    "errors": [
     "err.bad_barcode",
     "err.bad_check_digit",
+    "err.bad_devices",
+    "err.bad_profile",
+    "err.bad_template",
+    "err.bad_window",
+    "err.device_must_be_local",
     "err.gs1_bad_date",
     "err.gs1_bad_length",
     "err.gs1_bad_number",
     "err.gs1_unknown_ai",
+    "err.label_not_understood",
+    "err.layout_mismatch",
+    "err.not_scale_label",
     "err.scan_control_char",
     "err.scan_empty",
     "err.scan_not_text",
     "err.scan_too_long",
     "err.scanner_taken_by_other_window",
-    "err.bad_devices",
-    "err.device_must_be_local",
-    "err.layout_mismatch",
-    "err.bad_profile",
-    "err.bad_template",
-    "err.template_overlaps_pack_prefix",
-    "err.bad_window"
+    "err.template_overlaps_pack_prefix"
    ]
   },
   {
