@@ -30,8 +30,11 @@ MESSAGES = {
                   "Port {port} is used by another program. Close it or call support."),
     "other_shop": ("برنامج سوبر ماركت آخر (مجلد بيانات مختلف) يعمل على المنفذ {port}.\nأغلق نافذته أولًا ثم شغّل هذا المحل.",
                    "Another Super Market (a different data folder) is running on port {port}.\nClose its window first, then start this shop."),
-    "restart_for_lan": ("البرنامج يعمل الآن لهذا الجهاز فقط.\nلتشغيله للكاشيرات الأخرى: أغلق نافذته ثم شغّل start-lan.bat.",
+    "restart_for_lan": ("البرنامج يعمل الآن لهذا الجهاز فقط.\nلتشغيله لبقية أمناء الصناديق: أغلق نافذته ثم شغّل start-lan.bat.",
                         "The program is running for this PC only.\nTo serve other tills: close its window, then run start-lan.bat."),
+    "reset_done": ("أُعيد تجهيز نسخة التدريب. حُفظت البيانات السابقة في المجلد:\n{folder}\nبيانات المحل الحقيقية لم تُمسّ.",
+                   "The training copy was reset. The previous data was kept in:\n{folder}\nThe real shop data was not touched."),
+    "reset_running": ("أغلق نافذة التدريب أولًا ثم أعد المحاولة.", "Close the training window first, then try again."),
     "start_failed": ("تعذر تشغيل البرنامج: {error}\n\nسجل التفاصيل في:\n{log}", "The program could not start: {error}\n\nDetails in:\n{log}"),
 }
 
@@ -122,6 +125,17 @@ def daily_backup(store, folder):
         (json.dumps(VERSION),)))
 
 
+def backup_loop(store, folder, stop, interval=1800):
+    """A program that stays open for days still gets one verified copy per day
+    (the start-up copy alone would miss every day after the first)."""
+    while not stop.wait(interval):
+        try:
+            daily_backup(store, folder)
+        except Exception:   # a failed copy must never stop selling; it is logged and retried
+            import logging
+            logging.getLogger("supermarket").exception("scheduled backup failed")
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     training = "training" in argv
@@ -129,6 +143,16 @@ def main(argv=None):
     mode = "training" if training else "shop"
     port = 8766 if training else 8765
     data = ROOT / ("training-data" if training else "shop-data")
+    if training and "reset" in argv:        # training only: the shop folder can never be reset from here
+        if running_here(port, mode, data) is not None:
+            tell("reset_running")
+            return 6
+        if data.exists():
+            import datetime
+            kept = ROOT / ("training-data-previous-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+            data.rename(kept)
+            tell("reset_done", folder=kept)
+            return 0
     if not writable(data):
         tell("not_writable", folder=ROOT)
         return 2
@@ -162,11 +186,14 @@ def main(argv=None):
         ctypes.windll.kernel32.SetConsoleTitleW("السوبر ماركت %s — لا تغلق هذه النافذة أثناء العمل" % VERSION)
     print("%s %s (%s) %s — close this window to stop." % (PRODUCT_ID, VERSION, mode, url), flush=True)
     threading.Timer(0.8, webbrowser.open, (url,)).start()
+    stop_backups = threading.Event()
+    threading.Thread(target=backup_loop, args=(httpd.app.store, ROOT / ("backups-" + mode), stop_backups), daemon=True).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        stop_backups.set()
         httpd.app.hub.stop()
         httpd.server_close()
         httpd.app.store.close()

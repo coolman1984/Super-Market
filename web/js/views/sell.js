@@ -69,6 +69,39 @@
     });
   }
 
+  /* Held sales: kept in this browser per user + till + mode. Holding reserves nothing:
+     on resume every line is re-resolved by the server (price, expiry, pack status). */
+  const heldKey = () => 'held.' + ownerOf();
+  const held = () => SM.prefs.get(heldKey(), []);
+  function holdCart(view) {
+    if (!cart.lines.length || cart.unknown) return;
+    const lines = cart.lines.map(l => ({ id: l.product.id, qty: l.qty, pack: l.pack ? l.pack.code : null, scanned: l.scanned || null, manualWeight: !!l.manualWeight }));
+    SM.prefs.set(heldKey(), held().concat([{ at: new Date().toISOString(), lines, invoiceDiscount: cart.invoiceDiscount }]).slice(-10));
+    resetCart(); view.render(); SM.toast(t('sell.held_saved'));
+  }
+  async function resumeDialog(view) {
+    const list = held();
+    const body = list.length ? list.map((h1, i) => h('div', { class: 'card row' }, h('div', { class: 'grow' }, h('b', { class: 'ltr', text: h1.at.slice(0, 16).replace('T', ' ') }),
+      h('span', { class: 'muted', text: ' — ' + h1.lines.length })),
+      h('button', { class: 'btn primary sm', text: t('sell.resume'), onclick: async () => {
+        const session = SM.state.session, owner = cart.owner, key = heldKey();
+        d.close(); cart.key = null;
+        const restored = [];
+        for (const l of h1.lines) {
+          if (l.pack) { const r = await SM.api('POST', '/api/scan', { raw: l.pack }).catch(() => null); if (session !== SM.state.session || owner !== cart.owner) return;
+            if (r && r.ok && r.pack) restored.push({ product: r.product, qty: r.pack.net_g, pack: r.pack, scanned: l.scanned }); else SM.toast(t('err.' + (r ? r.error : 'network')), 'bad'); }
+          else { const p = await SM.api('GET', '/api/products/' + l.id).catch(() => null); if (session !== SM.state.session || owner !== cart.owner) return;
+            if (p) restored.push({ product: p, qty: l.qty, scanned: l.scanned, manualWeight: l.manualWeight }); }
+        }
+        // the answer belongs to the user who asked: a logout meanwhile leaves their held sale where it was
+        SM.prefs.set(key, SM.prefs.get(key, []).filter(x => x.at !== h1.at));
+        cart.lines.push(...restored); cart.invoiceDiscount = h1.invoiceDiscount || 0; view.render();
+      } }),
+      h('button', { class: 'icon-btn', 'aria-label': t('remove'), onclick: () => { SM.prefs.set(heldKey(), held().filter((_, j) => j !== i)); d.close(); resumeDialog(view); } }, icon('trash'))))
+      : [h('p', { text: t('sell.held_none') })];
+    const d = SM.dialog({ title: t('sell.held_title'), body: [h('p', { class: 'tip', text: t('sell.held_help') }), ...body] });
+  }
+
   async function search(view) {
     const q = h('input', { class: 'input', placeholder: t('sell.search_ph'), autocomplete: 'off' });
     const list = h('div', { class: 'pick-list' });
@@ -102,7 +135,7 @@
     let quote;
     try { quote = await SM.api('POST', '/api/quote', { payload: cartPayload() }); } catch (e) { SM.fail(e); return; }
     const estimate = totals();
-    const tot = { total: quote.total };
+    const tot = { total: quote.total, hash: quote.quote_hash };
     // the key belongs to this cart until its answer is known (audit S03)
     cart.key = cart.key || SM.newKey();
     const key = cart.key;
@@ -168,7 +201,7 @@
       busy = true; payBtn.disabled = true; payBtn.textContent = t('pay.saving');
       const payload = Object.assign(cartPayload(), {
         payments: others.map(o => ({ method: o.method, amount: SM.parseMoney(o.amount.value || '0'), reference: o.ref.value || undefined })).filter(p => p.amount > 0),
-        cash_tendered: v.due > 0 ? v.got : 0, expected_total: tot.total,
+        cash_tendered: v.due > 0 ? v.got : 0, expected_total: tot.total, quote_hash: tot.hash,
       });
       try {
         const sale = await SM.commandWithApproval('/api/sales', key, payload);
@@ -181,7 +214,7 @@
         if (e.code === 'price_changed') {
           // nothing was saved; show the new total and let the cashier redo the cash
           const old = tot.total;
-          tot.total = e.detail.total;
+          tot.total = e.detail.total; tot.hash = e.detail.quote_hash;
           showTotal(t('pay.price_changed', { old: SM.money(old), now: SM.money(tot.total) }));
           cash.value = ''; update();
           return;
@@ -294,6 +327,8 @@
             h('div', { class: 'tot-big' }, h('span', { text: t('sell.total') }), SM.num(SM.moneyText(tot.total))),
             h('button', { class: 'btn primary lg block', disabled: !cart.lines.length || !shift || cart.unknown, onclick: () => payDialog(view) }, t('sell.pay'), h('span', { class: 'kbd', text: 'F9' })),
             h('button', { class: 'btn ghost block', disabled: !cart.lines.length, onclick: () => discountDialog(view) }, t('sell.discount_btn')),
+            h('button', { class: 'btn ghost block', disabled: !cart.lines.length || cart.unknown, onclick: () => holdCart(view) }, t('sell.hold')),
+            held().length ? h('button', { class: 'btn ghost block', disabled: cart.unknown, onclick: () => resumeDialog(view) }, t('sell.resume') + ' (' + held().length + ')') : null,
             h('button', { class: 'btn ghost block', disabled: !cart.lines.length, onclick: async () => { if (await SM.confirm(t('sell.clear'), t('sell.clear_q'))) { cart.key = null; cart.lines = []; cart.invoiceDiscount = 0; view.render(); } } }, t('sell.clear')));
           scanInput.focus();
         },

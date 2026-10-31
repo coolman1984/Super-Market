@@ -60,17 +60,20 @@
       kind: SM.select(['grocery', 'raw_meat', 'prepared', 'ingredient', 'packaging'].map(k => ({ value: k, label: t('kind.' + k) }))),
       price: h('input', { class: 'input', inputmode: 'decimal' }), barcode: h('input', { class: 'input', dir: 'ltr' }),
       needs_expiry: h('input', { type: 'checkbox', checked: true }), allergens: h('input', { class: 'input' }),
+      meat_share: h('input', { class: 'input', inputmode: 'numeric', placeholder: '700' }),
       carton: h('input', { class: 'input', inputmode: 'numeric', placeholder: '12' }), carton_barcode: h('input', { class: 'input', dir: 'ltr' }) };
     const d = SM.dialog({ title: t('cat.add'), wide: true, body: [h('div', { class: 'grid cols-2' },
       SM.field(t('cat.code'), f.code), SM.field(t('cat.kind'), f.kind, t('cat.kind_help')), SM.field(t('cat.name_ar'), f.name_ar), SM.field(t('cat.name_en'), f.name_en),
       SM.field(t('cat.price'), f.price, t('cat.price_help')), SM.field(t('cat.barcode'), f.barcode, t('cat.barcode_help')),
       SM.field(t('cat.carton_units'), f.carton), SM.field(t('cat.carton_barcode'), f.carton_barcode),
-      SM.field(t('lots.allergens'), f.allergens, t('cat.allergens_help')), h('label', { class: 'row' }, f.needs_expiry, t('cat.needs_expiry')))],
+      SM.field(t('lots.allergens'), f.allergens, t('cat.allergens_help')), SM.field(t('cat.meat_share'), f.meat_share, t('cat.meat_share_help')),
+      h('label', { class: 'row' }, f.needs_expiry, t('cat.needs_expiry')))],
       actions: [h('button', { class: 'btn primary', text: t('save'), onclick: async () => {
         const weighed = ['raw_meat', 'prepared', 'ingredient'].includes(f.kind.value);
         const body = { code: f.code.value, name_ar: f.name_ar.value, name_en: f.name_en.value || f.name_ar.value, kind: f.kind.value,
           measure: weighed ? 'g' : 'unit', needs_expiry: f.needs_expiry.checked, allergens: f.allergens.value,
           price: f.price.value ? SM.parseMoney(f.price.value) : undefined, barcodes: f.barcode.value ? [f.barcode.value.trim()] : [] };
+        if (f.meat_share.value) body.meat_permille = SM.parseInt(f.meat_share.value);
         if (f.carton.value) body.packagings = [{ name_ar: 'كرتونة', name_en: 'Carton', factor_num: SM.parseInt(f.carton.value), barcodes: f.carton_barcode.value ? [f.carton_barcode.value.trim()] : [] }];
         try { await SM.api('POST', '/api/products', body); SM.toast(t('saved')); d.close(); after(); } catch (e) { SM.fail(e); }
       } })] });
@@ -293,16 +296,4 @@
       list.length ? h('ul', {}, list.slice(0, 10).map(b => h('li', { class: 'ltr', text: b.created_at + ' — schema ' + b.schema + ' — ' + b.integrity }))) : null);
   }
 
-  /* ---------------- help ---------------- */
-  SM.views.help = {
-    icon: 'help',
-    mount(root) {
-      const topics = ['today', 'sell', 'receive', 'stock', 'prepare', 'count', 'cash', 'returns', 'reports', 'catalog', 'scanner', 'settings'];
-      SM.put(root, 
-        h('div', { class: 'tip' }, icon('school'), h('div', { text: SM.state.mode === 'training' ? t('help.in_training') : t('help.training') })),
-        ...topics.map(v => h('details', { class: 'card faq', open: v === (SM.state.helpFor || 'today') }, h('summary', {}, h('b', { text: t('nav.' + v) })),
-          h('p', { text: t('help.' + v) }), h('ol', { class: 'steps' }, (t('help.' + v + '.steps') || '').split('|').filter(Boolean).map(s => h('li', { text: s }))),
-          h('p', { class: 'muted' }, h('b', { text: t('help.next') + ' ' }), t('help.' + v + '.next')))));
-    },
-  };
 })();

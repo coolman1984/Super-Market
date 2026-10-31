@@ -19,6 +19,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Unit and integration tests on Windows
         run: python tools/ci_tests.py
       - name: PowerShell tools - parse, read-only inventory, Excel tool without Office
@@ -39,9 +42,6 @@ jobs:
             if ($p.ExitCode -ne 3) { throw "expected a clear 'Excel missing' exit 3, got $($p.ExitCode)" }
           }
           $global:LASTEXITCODE = 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
       - name: Frontend audit checks (R16 R17 R18)
         run: node tests/ui/audit_ui.js
       - name: Build portable package (pinned Python from NuGet, SHA-512 checked)

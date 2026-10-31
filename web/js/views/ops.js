@@ -172,6 +172,8 @@
         SM.can('waste') ? h('button', { class: 'btn', onclick: () => moveDialog('waste', rows, load) }, t('stock.waste')) : null,
         SM.can('transfer') ? h('button', { class: 'btn', onclick: () => moveDialog('transfer', rows, load) }, t('stock.transfer')) : null,
         SM.can('waste') ? h('button', { class: 'btn', onclick: () => wastePackDialog(load) }, t('stock.waste_pack')) : null,
+        SM.can('receive') ? h('button', { class: 'btn', onclick: () => supplierReturnDialog(rows, load) }, t('stock.supplier_return')) : null,
+        SM.can('cutting') || SM.can('produce') ? h('button', { class: 'btn ghost', onclick: () => reprintDialog() }, t('prep.reprint')) : null,
         SM.can('recall') ? h('button', { class: 'btn', onclick: () => recallsDialog(load) }, t('recall.list')) : null,
         SM.can('export') ? h('a', { class: 'btn ghost', href: '/api/export/stock.csv', download: 'stock.csv' }, t('stock.export')) : null);
       SM.put(root, actions, box);
@@ -188,6 +190,43 @@
       actions: [h('button', { class: 'btn primary', text: t('save'), onclick: SM.guard(async () => {
         try { await SM.command('/api/packs/waste', key, undefined, { code: code.value.trim(), reason: reason.value }); d.close(); SM.toast(t('saved')); after(); }
         catch (e) { SM.fail(e); }
+      }) })] });
+  }
+
+  /* Goods back to a supplier: stock leaves at cost; the debt changes only with the credit note. */
+  async function supplierReturnDialog(rows, after) {
+    const suppliers = await SM.api('GET', '/api/parties?kind=supplier').catch(() => []);
+    const sup = select(suppliers.map(x => ({ value: x.id, label: x.name })), null, t('choose'));
+    const lot = select(rows.map(r => ({ value: r.lot_id + ':' + r.location_id, label: SM.name(r) + ' — ' + r.lot_no + ' — ' + SM.qty(r.qty, r.measure) })), null, t('choose'));
+    const qty = h('input', { class: 'input', inputmode: 'decimal' });
+    const reason = select(['damaged', 'wrong_item', 'weight_dispute', 'expired', 'quality', 'other'].map(v => ({ value: v, label: t('reason.' + v) })));
+    const key = SM.newKey();
+    const d = SM.dialog({ title: t('stock.supplier_return'), body: [h('p', { class: 'tip', text: t('stock.supplier_return_help') }),
+      SM.field(t('recv.supplier'), sup), SM.field(t('stock.lot'), lot), SM.field(t('stock.qty_help'), qty), SM.field(t('party.return_reason'), reason)],
+      actions: [h('button', { class: 'btn primary', text: t('save'), onclick: SM.guard(async () => {
+        const [lotId, locId] = lot.value.split(':').map(Number);
+        const row = rows.find(r => r.lot_id === lotId && r.location_id === locId);
+        if (!row || !sup.value) return;
+        try {
+          await SM.command('/api/supplier-returns', key, undefined, { supplier_id: parseInt(sup.value, 10), lot_id: lotId, location_id: locId,
+            qty: row.measure === 'g' ? SM.parseKg(qty.value) : SM.parseInt(qty.value), reason: reason.value });
+          d.close(); SM.toast(t('party.return_done')); after();
+        } catch (e) { SM.fail(e); }
+      }) })] });
+  }
+
+  /* Reprint a label: same code, no new pack, no stock movement. */
+  function reprintDialog() {
+    const code = SM.scanner.field({ placeholder: t('stock.pack_scan'), onEnter: (raw) => { code.value = raw.trim(); } });
+    const out = h('div');
+    const d = SM.dialog({ title: t('prep.reprint'), body: [h('p', { class: 'tip', text: t('prep.reprint_help') }), SM.field(t('sell.pack'), code), out],
+      actions: [h('button', { class: 'btn primary', text: t('prep.reprint'), onclick: SM.guard(async () => {
+        const l = await SM.api('GET', '/api/packs/' + encodeURIComponent(code.value.trim()) + '/label').catch(e => { SM.fail(e); return null; });
+        if (!l) return;
+        SM.put(out, SM.packLabel({ code: l.code, net_g: l.net_g, meat_g: l.meat_g, meat_basis: l.meat_basis, price: l.price }, { name_ar: l.name_ar, name_en: l.name_en, expires: l.expires, allergens: l.allergens }));
+        const area = document.getElementById('print') || document.body.appendChild(h('div', { id: 'print' }));
+        area.className = 'labels-print'; SM.put(area, SM.packLabel({ code: l.code, net_g: l.net_g, meat_g: l.meat_g, meat_basis: l.meat_basis, price: l.price }, { name_ar: l.name_ar, name_en: l.name_en, expires: l.expires, allergens: l.allergens }));
+        window.print();
       }) })] });
   }
 
@@ -298,13 +337,33 @@
             calc();
           };
         } else { addInput(r => r.kind === 'raw_meat'); addOutput(); }
+        const unpackBox = h('div', { class: 'stack' });
+        const unpackChecks = [];
+        const refreshUnpack = async () => {
+          unpackChecks.length = 0;
+          const seenLots = new Set();
+          const parts = [];
+          for (const i of inputs) {
+            if (!i.s.value || seenLots.has(i.s.value)) continue;
+            seenLots.add(i.s.value);
+            const [lot, loc] = i.s.value.split(':').map(Number);
+            const packs = await SM.api('GET', '/api/packs?lot=' + lot + '&location=' + loc).catch(() => []);
+            for (const pk of packs) {
+              const c = h('input', { type: 'checkbox' }); unpackChecks.push({ code: pk.code, c });
+              parts.push(h('label', { class: 'row' }, c, h('span', { class: 'ltr', text: pk.code }), ' ', SM.num(SM.qty(pk.net_g, 'g'))));
+            }
+          }
+          SM.put(unpackBox, parts.length ? [h('h4', { text: t('prep.unpack') }), h('p', { class: 'muted', text: t('prep.unpack_help') }), ...parts] : null);
+        };
+        inBox.addEventListener('change', refreshUnpack);
         const post = h('button', { class: 'btn primary lg', text: t('prep.post') });
         post.onclick = async () => {
           const payload = { kind: mode, recipe_version_id: version ? version.id : undefined,
             inputs: inputs.filter(i => i.s.value).map(i => { const [lot, loc] = i.s.value.split(':').map(Number); const r = measureOf(i);
               return { lot_id: lot, location_id: loc, qty: r.measure === 'g' ? SM.parseKg(i.q.value) : SM.parseInt(i.q.value) }; }),
             outputs: outputs.filter(o => o.s.value).map(o => ({ product_id: parseInt(o.s.value, 10), qty: SM.parseKg(o.q.value), location_id: parseInt(o.loc.value, 10) })),
-            natural_loss_g: SM.parseKg(natural.value || '0'), abnormal_loss_g: SM.parseKg(abnormal.value || '0') };
+            natural_loss_g: SM.parseKg(natural.value || '0'), abnormal_loss_g: SM.parseKg(abnormal.value || '0'),
+            unpack: unpackChecks.filter(x => x.c.checked).map(x => x.code) };
           const n = SM.parseInt(packsN.value || '0');
           if (mode === 'recipe' && n) {
             const each = SM.parseKg(packG.value), tare = SM.parseKg(packTare.value || '0');
@@ -322,7 +381,7 @@
           } catch (e) { SM.fail(e); }
         };
         SM.put(body, recipeBox || h('p', { class: 'tip', text: t('prep.cutting_tip') }),
-          h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('prep.inputs') }), h('button', { class: 'btn sm', onclick: () => { addInput(); } }, icon('plus', 'sm'), t('add'))), inBox),
+          h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('prep.inputs') }), h('button', { class: 'btn sm', onclick: () => { addInput(); } }, icon('plus', 'sm'), t('add'))), inBox, unpackBox),
           h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('prep.outputs') }), mode === 'cutting' ? h('button', { class: 'btn sm', onclick: () => addOutput() }, icon('plus', 'sm'), t('add')) : null), outBox,
             mode === 'recipe' ? h('div', { class: 'grid cols-3' }, SM.field(t('prep.packs_n'), packsN), SM.field(t('prep.pack_kg'), packG, t('prep.pack_help')), SM.field(t('prep.tare_kg'), packTare)) : null),
           h('div', { class: 'card' }, h('div', { class: 'grid cols-2' }, SM.field(t('prep.natural'), natural, t('prep.natural_help')), SM.field(t('prep.abnormal'), abnormal, t('prep.abnormal_help'))), balance,
@@ -337,7 +396,7 @@
   /* Pack label: the code is printed as digits and as an EAN-13 drawing. */
   SM.packLabel = function (p, out) {
     return h('div', { class: 'pack-label' }, h('b', { text: SM.name(out) || '' }),
-      h('div', {}, t('label.net'), ' ', SM.num(SM.qty(p.net_g, 'g'))), p.meat_g ? h('div', {}, t('label.meat'), ' ', SM.num(SM.qty(p.meat_g, 'g'))) : null,
+      h('div', {}, t('label.net'), ' ', SM.num(SM.qty(p.net_g, 'g'))), p.meat_g ? h('div', {}, t(p.meat_basis === 'estimated' ? 'label.meat_estimated' : 'label.meat'), ' ', SM.num(SM.qty(p.meat_g, 'g'))) : null,
       h('div', {}, t('label.price'), ' ', SM.num(SM.moneyText(p.price))), h('div', {}, t('label.expires'), ' ', h('span', { class: 'ltr', text: out.expires })),
       out.allergens ? h('div', {}, t('lots.allergens'), ': ', out.allergens) : null, SM.ean13(p.code), h('div', { class: 'ltr mono', text: p.code }));
   };
@@ -396,6 +455,10 @@
           return { lot: l, input, el };
         });
         const key = SM.newKey();
+        const cancel = h('button', { class: 'btn ghost', text: t('count.cancel'), onclick: SM.guard(async () => {
+          const reason = prompt(t('count.cancel_q')); if (!reason) return;
+          try { await SM.api('POST', '/api/counts/' + id + '/cancel', { reason }); SM.toast(t('count.cancelled')); SM.go('count'); } catch (e) { SM.fail(e); }
+        }) });
         const approve = SM.can('count_approve') ? h('button', { class: 'btn primary', text: t('count.approve'), onclick: async () => {
           if (!(await SM.confirm(t('count.approve'), t('count.approve_q')))) return;
           try {
@@ -408,7 +471,7 @@
             }
             const r = await SM.command('/api/counts/' + id + '/approve', key, undefined, extra); SM.toast(t('count.approved', { n: r.differences.length })); SM.go('count'); } catch (e) { SM.fail(e); }
         } }) : null;
-        SM.put(root, h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('count.sheet', { id }) }), approve), h('p', { class: 'tip', text: t('count.uncounted_tip') }), filter),
+        SM.put(root, h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('count.sheet', { id }) }), cancel, approve), h('p', { class: 'tip', text: t('count.uncounted_tip') }), filter),
           h('div', { class: 'stack' }, rows.map(r => r.el)));
       }
     },

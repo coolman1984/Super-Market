@@ -166,6 +166,8 @@
             try {
               const r = await SM.commandWithApproval('/api/returns', key, { sale_id: sale.id, lines, reason: reason.value, method: method.value });
               SM.dialog({ title: t('ret.done'), body: [h('p', {}, t('ret.amount'), ' ', SM.num(SM.moneyText(r.amount))),
+                h('p', { class: 'muted' }, t('ret.reference', { no: r.reference_receipt })),
+                r.cancelled_uncollected ? h('p', { class: 'badge warn', text: t('ret.cancelled_uncollected', { amount: SM.money(r.cancelled_uncollected) }) }) : null,
                 h('ul', {}, (r.refunds || []).map(x => h('li', {}, t('refund.' + x.method), ' ', SM.num(SM.money(x.amount))))), h('ul', {}, r.lines.map(x => h('li', {}, SM.badge(x.disposition), ' ', h('span', { class: 'ltr', text: x.lot }))))] });
               SM.put(box);
             } catch (e) { SM.fail(e); }
@@ -195,7 +197,8 @@
             r.cost_of_sales !== undefined ? [kv(t('rep.cost'), SM.money(r.cost_of_sales)), kv(t('rep.margin'), SM.money(r.gross_margin), t('rep.margin_hint')),
               kv(t('rep.losses'), SM.money(r.losses), t('rep.losses_hint')), kv(t('rep.after_losses'), SM.money(r.margin_after_recorded_losses), t('rep.after_losses_hint'))] : null)),
           h('div', { class: 'card' }, h('h3', { text: t('rep.by_method') }), h('p', { class: 'muted', text: t('rep.sales_not_cash') }),
-            h('dl', { class: 'kv' }, r.by_method.map(m => kv(t('pay.m.' + m.method) + (m.state === 'pending' ? ' (' + t('state.pending') + ')' : ''), SM.money(m.amount))))),
+            h('dl', { class: 'kv' }, r.by_method.map(m => kv(t('pay.m.' + m.method) + (m.state !== 'settled' ? ' (' + t('state.' + m.state) + ')' : ''), SM.money(m.amount)))),
+            r.refunds_by_method && r.refunds_by_method.length ? [h('h4', { text: t('rep.refunds') }), h('dl', { class: 'kv' }, r.refunds_by_method.map(m => kv(t('refund.' + m.method), SM.money(m.amount))))] : null),
           h('div', { class: 'card' }, h('h3', { text: t('rep.shifts') }), r.shifts.length ? SM.table([{ label: '#', key: 'id' },
             { label: t('cash.expected'), num: true, render: s => s.expected === null ? t('state.open') : SM.num(SM.money(s.expected)) },
             { label: t('cash.counted'), num: true, render: s => s.counted === null ? '—' : SM.num(SM.money(s.counted)) },
@@ -206,8 +209,31 @@
             h('p', { class: 'muted', text: t('rep.tax_unverified') }))));
       };
       day.onchange = load;
-      SM.put(root, h('div', { class: 'toolbar' }, SM.field(t('rep.day'), day)), box);
-      load();
+      const from = h('input', { class: 'input', type: 'date', value: SM.today().slice(0, 8) + '01' });
+      const to = h('input', { class: 'input', type: 'date', value: SM.today() });
+      const periodBox = h('div');
+      const showPeriod = async () => {
+        const r = await SM.api('GET', '/api/reports/period?start=' + from.value + '&end=' + to.value).catch(e => { SM.fail(e); return null; });
+        if (!r) return;
+        SM.put(periodBox, SM.table([{ label: t('rep.day'), render: x => h('span', { class: 'ltr', text: x.day }) }, { label: t('rep.sales_count'), num: true, render: x => SM.num(String(x.sales)) },
+          { label: t('rep.sales_total'), num: true, render: x => SM.num(SM.money(x.sales_total)) }, { label: t('rep.returns'), num: true, render: x => SM.num(SM.money(x.returns)) },
+          { label: t('rep.net_sales'), num: true, render: x => SM.num(SM.money(x.net_sales)) }], r.series),
+          h('p', { class: 'muted' }, t('rep.net_sales'), ': ', SM.num(SM.moneyText(r.totals.net_sales)), ' — ', t('rep.net_sales_hint')));
+      };
+      const agingBox = h('div');
+      const showAging = async () => {
+        const r = await SM.api('GET', '/api/aging').catch(() => null);
+        if (!r) return;
+        const table = (title, rows) => h('div', {}, h('h4', { text: title }), rows.length ? SM.table([{ label: t('cat.name'), key: 'name' },
+          { label: t('rep.age_0_30'), num: true, render: x => SM.num(SM.money(x.d0_30)) }, { label: t('rep.age_31_60'), num: true, render: x => SM.num(SM.money(x.d31_60)) },
+          { label: t('rep.age_61'), num: true, render: x => SM.num(SM.money(x.d61_plus)) }], rows) : h('p', { class: 'muted', text: t('none') }));
+        SM.put(agingBox, table(t('rep.aging_customers'), r.customers), table(t('rep.aging_suppliers'), r.suppliers));
+      };
+      SM.put(root, h('div', { class: 'toolbar' }, SM.field(t('rep.day'), day)), box,
+        h('div', { class: 'card' }, h('h3', { text: t('rep.period') }), h('div', { class: 'row wrap' }, SM.field(t('rep.from'), from), SM.field(t('rep.to'), to),
+          h('button', { class: 'btn', text: t('rep.show'), onclick: SM.guard(showPeriod) })), periodBox),
+        h('div', { class: 'card' }, h('h3', { text: t('rep.aging') }), agingBox));
+      load(); showAging();
     },
   };
 })();

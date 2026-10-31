@@ -32,6 +32,23 @@ class Launcher(ShopFixture, unittest.TestCase):
         self.assertEqual(labels, ["before-9.9.9", "daily"])
         self.assertEqual(self.store.setting("last_app_version"), "9.9.9")
 
+    def test_row40_a_long_running_program_backs_up_each_new_day(self):
+        import threading
+        from server import core
+        self.receive(self.grocery(), 5, 500, expires=None)
+        stop = threading.Event()
+        threading.Thread(target=launcher.backup_loop, args=(self.store, self.dest, stop, 0.05), daemon=True).start()
+        deadline = __import__("time").time() + 5
+        while __import__("time").time() < deadline and not backup.list_backups(self.dest):
+            __import__("time").sleep(0.05)
+        self.assertEqual(len(backup.list_backups(self.dest)), 1)
+        core.set_clock(core.now().replace(day=31))                      # the program is still open next day
+        deadline = __import__("time").time() + 5
+        while __import__("time").time() < deadline and len(backup.list_backups(self.dest)) < 2:
+            __import__("time").sleep(0.05)
+        stop.set()
+        self.assertEqual(len(backup.list_backups(self.dest)), 2)
+
     def test_busy_port_is_detected(self):
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
