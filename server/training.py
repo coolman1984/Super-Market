@@ -75,6 +75,8 @@ def seed(shop):
     shop.save_label_template(owner, {"name": "ميزان تدريبي (وزن)", "prefix": "21", "length": 13, "item_start": 2,
                                      "item_len": 5, "value_start": 7, "value_len": 5, "value_kind": "weight",
                                      "decimals": 3})
+    store.tx(lambda: store.db.execute("INSERT OR REPLACE INTO settings VALUES('training_seed_audit',?)",
+        (str(store.scalar("SELECT COALESCE(MAX(id),0) FROM audit")),)))
     return True
 
 

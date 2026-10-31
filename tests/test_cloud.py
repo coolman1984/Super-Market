@@ -62,6 +62,16 @@ class CloudBackup(ShopFixture, unittest.TestCase):
         self.assertFalse(again.connect(), "no second setup")
         self.assertEqual(again.data["pc"], pc_id)
 
+    def test_a_damaged_queued_copy_never_claims_confirmed_cloud_storage(self):
+        c = self.pc()
+        meta = c.snapshot('hourly')
+        (c.queue / (meta['name'] + '.db.gz')).write_bytes(b'damaged')
+        with mock.patch.object(c, 'due', return_value=None):
+            result = c.tick(force=True)
+        self.assertIsNone(result['last_ok_at'])
+        self.assertIsNone(result['last_copy'])
+        self.assertEqual(c.client().copies(), [])
+
     def test_a_lost_answer_is_asked_again_as_the_same_pc(self):
         c = self.pc()
         c.connect()
