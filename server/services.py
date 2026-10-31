@@ -5,8 +5,10 @@ fingerprint, audit). Permissions are checked here, never only in the UI.
 
 import hashlib
 import json
+import pathlib
 import re
 
+from . import backup
 from . import barcode as bc
 from .auth import ROLES, Auth, can, require
 import datetime as _dt
@@ -28,6 +30,8 @@ DEFAULT_SETTINGS = {
     "day_start_hour": 4,
     # till-fraud guard (review H1): a refund beyond these limits needs a manager's approval
     "refund_approval_over": 20000, "refund_days_without_approval": 7,
+    # a second place for every verified backup: USB stick, second drive or network share (review H5); "" = none
+    "backup_folder_2": "",
 }
 
 
@@ -57,6 +61,8 @@ class Shop:
             for key, value in changes.items():
                 if key not in DEFAULT_SETTINGS:
                     raise ShopError("unknown_setting", {"key": key})
+                if key == "backup_folder_2":
+                    require(actor, "backup")            # where the shop's copies go is the owner's decision
                 self._check_setting(key, value)
                 self.store.db.execute("INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                                       (key, json.dumps(value)))
@@ -81,6 +87,11 @@ class Shop:
                 raise bad
             if key == "receipt_width_mm" and value not in (58, 80):
                 raise bad
+        elif key == "backup_folder_2":
+            if not isinstance(value, str) or len(value) > 200:
+                raise bad
+            if value:
+                backup.check_external(value, pathlib.Path(self.store.folder).parent)
         elif key in ("block_below_cost", "gtin_equivalence"):
             if type(value) is not bool:
                 raise bad

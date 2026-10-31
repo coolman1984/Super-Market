@@ -100,7 +100,7 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 - **Impact:** a shop that must issue ETA e-receipts/e-invoices cannot legally use the program as its till; blocks sale to registered shops.
 - **Fix:** owner/accountant must confirm obligations (Egyptian Tax Authority e-receipt rules for retail). Then implement as a separate module (receipt number sequence per ETA, tax lines/VAT rates per product, export). Until then, ship with a clear contract/UI statement that the program is an internal management system, not an ETA-compliant invoicing system. (Do not guess tax rules in code.)
 
-### [ ] H5 — Only off-box backup is the (broken) cloud; no USB/second-disk copy
+### [x] H5 — Only off-box backup is the (broken) cloud; no USB/second-disk copy
 - **Where:** `launcher.py:133-160` (`daily_backup` → `HOME/backups-shop` on the same disk), `server/backup.py`.
 - **Impact:** with C1 unresolved, a failed disk loses everything; even after C1, an offline shop has no external copy.
 - **Fix:** add setting `backup_folder_2` (any path, e.g. USB/second drive/network share) and copy each verified daily backup there (`shutil.copytree`, verify manifest hash, skip silently when drive missing, show a yellow banner "no external copy for N days"). Include in Start-menu a "نسخة على فلاشة" action. Tests with a tmp folder.
@@ -142,12 +142,12 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 - **Impact:** a dead CMOS battery/wrong date freezes the shop with an unclear message.
 - **Fix:** detect at start-up and show a dedicated Arabic screen "ساعة الجهاز خاطئة — صحّحها (التاريخ الصحيح …)"; allow the owner to continue only after correcting; never auto-post to the past. Add test that the message names the closed date.
 
-### [ ] M6 — Backup/restore ordering depends on the PC clock; renaming the PC creates a new cloud space
+### [x] M6 — Backup/restore ordering depends on the PC clock; renaming the PC creates a new cloud space
 - **Where:** `server/backup.py:85-87` sorts manifests by folder name (`%Y%m%d-%H%M%S` of PC clock); `server/cloud.py` PC identity/space derived from name.
 - **Impact:** wrong clock ⇒ newest copy pruned/skipped; renaming Windows PC orphans old cloud copies.
 - **Fix:** order by a monotonic sequence stored in each manifest (`seq` from `ops` max id + counter), not by name; key cloud space on a random `instance_id` (already in settings) not the hostname.
 
-### [ ] M7 — Local backup retention only prunes `daily`
+### [x] M7 — Local backup retention only prunes `daily`
 - **Where:** `launcher.py:47,146` (`KEEP_DAILY=30`); `before-<version>` and manual copies never pruned; no disk-space check.
 - **Fix:** keep last N `before-*` (e.g. 5), warn when free disk < 2 GB or backups > X GB, skip with logged error instead of failing silently.
 
@@ -170,7 +170,7 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 - [ ] **L1** `server/domain.py` is dead code (tests `test_domain.py` only). Delete or wire it; update CLAUDE.md.
 - [ ] **L2** Promotions use calendar `today()` rather than the business day (`services.py` promotion lookup) — a promo ending "today" stops at midnight though the shop's day continues until `day_start_hour`. Use `self.store.business_day_for(...)`.
 - [ ] **L3** Plain `http://` request to the live Worker returns 500 instead of redirect/400 (`cloudflare-sync` Worker). Return 400/redirect to https; enable "Always Use HTTPS".
-- [ ] **L4** Pre-upgrade copy folder uses minute resolution; two upgrades in one minute would collide (`before-<version>`). Include seconds.
+- [x] **L4** Pre-upgrade copy folder uses minute resolution; two upgrades in one minute would collide (`before-<version>`). Include seconds.
 - [ ] **L5** `GET /api/state` is unauthenticated and returns shop name + instance id (needed by launcher). Return only `version/mode/setup_needed` unless the caller is local (127.0.0.1) or logged in.
 - [x] **L6** PBKDF2 iterations 240,000 (`auth.py:14`) < OWASP 2023 600,000 for PBKDF2-SHA256. Raise to ≥600k; hashes carry `pw_iter` so existing users re-hash on next login (verify the rehash-on-login path exists, else add).
 - [ ] **L7** Four server error codes lack Arabic `err.*` text: `download_mismatch`, `no_copies`, `not_found`, `rejected` (cloud restore). Add to `ar.js`/`en.js` (+ a test comparing `ShopError` codes to `err.*` keys, `tests/errorcodes.py` could be extended).

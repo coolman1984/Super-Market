@@ -76,6 +76,8 @@ arabic.Stop=إيقاف السوبر ماركت
 english.Stop=Stop Super Market
 arabic.Recovery=استعادة دخول صاحب المحل
 english.Recovery=Owner sign-in recovery
+arabic.UsbBackup=نسخة على فلاشة
+english.UsbBackup=Backup to a USB stick
 arabic.CloudCode=رمز استعادة نسخ السحابة
 english.CloudCode=Cloud copies recovery code
 arabic.CloudRestore=استعادة المحل من السحابة (جهاز جديد)
@@ -109,6 +111,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\SuperMarket.exe"; Parameter
 Name: "{autoprograms}\{cm:Training}"; Filename: "{app}\SuperMarket.exe"; Parameters: "training"
 Name: "{autoprograms}\{cm:Stop}"; Filename: "{app}\SuperMarket.exe"; Parameters: "stop"
 Name: "{autoprograms}\{cm:Recovery}"; Filename: "{cmd}"; Parameters: "/k ""{app}\SuperMarket.exe"" owner-recovery"
+Name: "{autoprograms}\{cm:UsbBackup}"; Filename: "{cmd}"; Parameters: "/k ""{app}\SuperMarket.exe"" usb-backup"
 Name: "{autoprograms}\{cm:CloudCode}"; Filename: "{cmd}"; Parameters: "/k ""{app}\SuperMarket.exe"" cloud-code"
 Name: "{autoprograms}\{cm:CloudRestore}"; Filename: "{cmd}"; Parameters: "/k ""{app}\SuperMarket.exe"" cloud-restore"
 Name: "{commonstartup}\{#MyAppName}"; Filename: "{app}\SuperMarket.exe"; Parameters: "--background {code:LanArg}"; Tasks: autostart

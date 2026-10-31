@@ -128,6 +128,7 @@
       top, h('div', { class: 'content', id: 'view' }));
     SM.put(document.body, h('div', { class: 'app' }, side, main));
     pendingBanner(main);
+    backupBanner(main);
     route();
   };
 
@@ -144,6 +145,21 @@
         if (!SM.pendingOps().length) bar.remove();
       } }));
     main.insertBefore(bar, main.querySelector('.topbar').nextSibling);
+  }
+
+  /* Review H5/M7: a copy that only lives on the shop PC is lost with the PC; the owner/manager sees it on every screen. */
+  async function backupBanner(main) {
+    if (SM.state.mode === 'training' || !SM.can('settings')) return;
+    const st = await SM.api('GET', '/api/backup/status').catch(() => null);
+    if (!st || !st.has_data) return;
+    const lines = [];
+    if (st.external_error) lines.push(t('bk.error'));
+    else if (!st.configured && st.external_days === null) lines.push(t('bk.none'));
+    else if (st.external_days !== null && st.external_days >= 3) lines.push(t('bk.stale', { n: st.external_days }));
+    if (st.low_disk) lines.push(t('bk.disk', { mb: st.free_mb }));
+    const top = main.querySelector('.topbar');
+    if (!lines.length || !top || !document.body.contains(main)) return;
+    top.parentNode.insertBefore(h('div', { class: 'tip warn-tip backup-bar', id: 'backup-bar', role: 'alert' }, icon('warn'), h('div', { class: 'grow' }, lines.map(x => h('div', { text: x })))), top.nextSibling);
   }
 
   async function route() {

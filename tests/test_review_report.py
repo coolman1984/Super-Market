@@ -1,6 +1,7 @@
 """Acceptance tests for docs/REVIEW_REPORT.md (review of 31 Oct 2026). One class
 per issue family; each test states the CORRECT behaviour."""
 
+import pathlib
 import unittest
 
 from helpers import PASSWORD, ShopFixture, ean, key
@@ -163,3 +164,110 @@ class LoginThrottle(ShopFixture, unittest.TestCase):
         import importlib, server.auth as a
         src = open(a.__file__, encoding="utf-8").read()
         self.assertIn("PBKDF2_ITER = 600_000", src)
+
+
+class BackupSafety(ShopFixture, unittest.TestCase):
+    """H5, M6, M7, L4 - a copy outside the shop PC, ordered by sequence, pruned, never silent."""
+
+    def setUp(self):
+        import pathlib
+        import tempfile
+        self.make_shop()
+        self.local = self.folder / "backups-shop"
+        usb = tempfile.TemporaryDirectory()
+        self.addCleanup(usb.cleanup)
+        self.usb = pathlib.Path(usb.name)
+        self.p = self.grocery(price=1000)
+        self.receive(self.p, 5, 500, expires=None)      # real data: the banner only matters then
+
+    def make(self, label="daily"):
+        from server import backup
+        return backup.create_backup(self.store, self.local, label)
+
+    def test_h5_second_place_gets_a_verified_copy(self):
+        from server import backup
+        self.shop.update_settings(self.owner, {"backup_folder_2": str(self.usb)})
+        first = self.make()
+        out = backup.sync_external(self.store, self.local, self.folder)
+        self.assertEqual(out["copied"], first["folder"])
+        copied = self.usb / backup.EXTERNAL_DIR / pathlib.Path(first["folder"]).name
+        self.assertEqual(backup.verify_backup(copied)["sha256"], first["sha256"])
+        st = backup.status(self.store, self.local)
+        self.assertTrue(st["configured"] and st["external_days"] == 0 and not st["external_error"])
+
+    def test_h5_missing_drive_is_reported_never_created_and_never_stops_selling(self):
+        from server import backup
+        self.shop.update_settings(self.owner, {"backup_folder_2": str(self.usb)})
+        self.make()
+        import shutil
+        shutil.rmtree(self.usb)
+        out = backup.sync_external(self.store, self.local, self.folder)
+        self.assertEqual(out["error"], "backup2_unusable")
+        self.assertFalse(self.usb.exists())                       # the unplugged drive's folder is not recreated on the shop disk
+        st = backup.status(self.store, self.local)
+        self.assertEqual(st["external_error"], "backup2_unusable")
+
+    def test_h5_banner_data_no_copy_and_days_without_copy(self):
+        from server import backup
+        self.make()
+        st = backup.status(self.store, self.local)
+        self.assertTrue(st["has_data"])
+        self.assertFalse(st["configured"])
+        self.assertIsNone(st["external_days"])                    # the banner says "no external copy"
+        self.shop.update_settings(self.owner, {"backup_folder_2": str(self.usb)})
+        backup.sync_external(self.store, self.local, self.folder)
+        core.set_clock(core.now() + __import__("datetime").timedelta(days=4))
+        self.assertEqual(backup.status(self.store, self.local)["external_days"], 4)
+
+    def test_h5_bad_places_are_refused_and_only_the_owner_sets_it(self):
+        for bad in ("relative/path", str(self.folder / "does-not-exist"), str(self.folder / "data")):
+            with self.assertRaises(ShopError) as c:
+                self.shop.update_settings(self.owner, {"backup_folder_2": bad})
+            self.assertEqual(c.exception.code, "backup2_unusable")
+        with self.assertRaises(Forbidden):
+            self.shop.update_settings(self.manager, {"backup_folder_2": str(self.usb)})
+        self.shop.update_settings(self.owner, {"backup_folder_2": str(self.usb)})
+        self.shop.update_settings(self.owner, {"backup_folder_2": ""})            # switched off
+
+    def test_h5_damaged_copy_on_the_stick_is_replaced_not_trusted(self):
+        from server import backup
+        first = self.make()
+        root = self.usb
+        target = pathlib.Path(backup.copy_external(first["folder"], root, self.folder))
+        (target / "shop.db").write_bytes(b"broken")
+        again = pathlib.Path(backup.copy_external(first["folder"], root, self.folder))
+        self.assertEqual(backup.verify_backup(again)["sha256"], first["sha256"])
+
+    def test_m6_newest_is_decided_by_sequence_not_by_the_clock(self):
+        from server import backup
+        a = self.make()
+        core.set_clock(core.now() - __import__("datetime").timedelta(days=400))       # the PC clock jumps far back
+        b = self.make()
+        self.assertEqual([x["folder"] for x in backup.list_backups(self.local)], [b["folder"], a["folder"]])
+        self.assertGreater(b["seq"], a["seq"])
+
+    def test_m7_before_copies_are_pruned_and_manual_copies_never(self):
+        from server import backup
+        for n in range(8):
+            self.make("before-1.%d" % n)
+        manual = [self.make("manual") for _ in range(3)]
+        removed = backup.prune(self.local, {"daily": 30, "before": 5})
+        self.assertEqual(len(removed), 3)
+        labels = [b["label"] for b in backup.list_backups(self.local)]
+        self.assertEqual(sum(1 for x in labels if x.startswith("before-")), 5)
+        self.assertEqual(labels.count("manual"), 3)
+        self.assertNotIn("before-1.0", labels)                      # the oldest went, the newest stayed
+        self.assertIn("before-1.7", labels)
+
+    def test_m7_low_disk_is_flagged(self):
+        from unittest import mock
+        from server import backup
+        with mock.patch.object(backup, "disk_free", return_value=100 * 1024 * 1024):
+            st = backup.status(self.store, self.local)
+        self.assertTrue(st["low_disk"])
+        self.assertEqual(st["free_mb"], 100)
+
+    def test_l4_two_pre_upgrade_copies_in_one_second_do_not_collide(self):
+        self.store._pre_upgrade_copy(3)
+        self.store._pre_upgrade_copy(3)
+        self.assertEqual(len(list((self.store.folder / "pre-upgrade").glob("schema-3-*.db"))), 2)

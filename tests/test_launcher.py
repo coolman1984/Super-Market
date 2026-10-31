@@ -98,6 +98,26 @@ class Launcher(ShopFixture, unittest.TestCase):
         self.assertIn("Flags: unchecked", iss[iss.index('Name: "allusers"'):iss.index('Name: "allusers"') + 120])
         self.assertIn('/remove:g "*S-1-5-32-545" "*S-1-5-11"', iss)           # default: Users and Authenticated Users removed
 
+    def test_h5_usb_backup_action_copies_verified_and_remembers_the_place(self):
+        import tempfile
+        from server import backup
+        home = self.folder
+        self.store.close()
+        with tempfile.TemporaryDirectory() as usb, mock.patch.object(launcher, "HOME", home), \
+                mock.patch("builtins.input", return_value=usb):
+            (home / "shop-data").mkdir(exist_ok=True)
+            self.store = type(self.store)(home / "shop-data", "shop")        # the launcher opens the same data folder
+            self.store.close()
+            self.assertEqual(launcher.usb_backup(home / "shop-data"), 0)
+            copies = list((pathlib.Path(usb) / backup.EXTERNAL_DIR).glob("*/manifest.json"))
+            self.assertEqual(len(copies), 1)
+            backup.verify_backup(copies[0].parent)
+            self.assertEqual(launcher.usb_backup(home / "shop-data"), 0)        # place remembered: no question the second time
+        with mock.patch.object(launcher, "HOME", home), mock.patch("builtins.input", return_value=str(home / "nope")):
+            conn = __import__("sqlite3").connect(home / "shop-data" / "shop.db")
+            conn.execute("DELETE FROM settings WHERE key='backup_folder_2'"); conn.commit(); conn.close()
+            self.assertEqual(launcher.usb_backup(home / "shop-data"), 1)        # an unplugged stick: told, nothing changed
+
 
 if __name__ == "__main__":
     unittest.main()

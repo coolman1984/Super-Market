@@ -45,6 +45,7 @@ from server import window  # noqa: E402
 from server import cloud  # noqa: E402
 
 KEEP_DAILY = 30
+KEEP_BEFORE = 5
 MESSAGES = {
     "stopped": ("أُغلق البرنامج. كل العمليات المحفوظة موجودة.", "The program was stopped. Every saved operation is kept."),
     "not_running": ("البرنامج لا يعمل الآن.", "The program is not running now."),
@@ -144,10 +145,11 @@ def daily_backup(store, folder):
         label = "daily"
     if label and store.scalar("SELECT COUNT(*) FROM ops"):
         backup.create_backup(store, folder, label)
-    daily = [b for b in backup.list_backups(folder) if b.get("label") == "daily"]
-    for old in daily[KEEP_DAILY:]:
-        import shutil
-        shutil.rmtree(old["folder"], ignore_errors=True)
+    backup.prune(folder, {"daily": KEEP_DAILY, "before": KEEP_BEFORE})          # M7: not only the daily copies
+    backup.sync_external(store, folder, HOME)                                     # H5: second place (USB / second drive)
+    if backup.disk_free(folder) < backup.LOW_DISK_BYTES:
+        import logging
+        logging.getLogger("supermarket").warning("low disk space for backups: %d MB free", backup.disk_free(folder) // (1024 * 1024))
     store.tx(lambda: store.db.execute(
         "INSERT INTO settings VALUES('last_app_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         (json.dumps(VERSION),)))
@@ -184,6 +186,38 @@ def owner_recovery(data):
     finally:
         store.close()
     print("تم. ادخل بكلمة المرور الجديدة.")
+    return 0
+
+
+def usb_backup(data):
+    """Start menu «نسخة على فلاشة»: a verified copy of the shop now, written to the stick / second drive.
+    The place is remembered (settings.backup_folder_2) when none was chosen yet, so the daily copies follow."""
+    import json
+    from server.db import Store
+    store = Store(data, "shop")
+    try:
+        row = store.scalar("SELECT value FROM settings WHERE key='backup_folder_2'")
+        root = json.loads(row) if row else ""
+        if not root:
+            root = input("اكتب حرف الفلاشة أو القرص الثاني (مثال E:\\) ثم Enter: ").strip().strip('"')
+            if len(root) == 2 and root[1] == ":":
+                root += "\\"
+        try:
+            backup.check_external(root, HOME)
+            result = backup.create_backup(store, HOME / "backups-shop", "usb")
+            backup.copy_external(result["folder"], root, HOME)
+        except (ShopError, OSError) as exc:
+            print("لم تتم النسخة ولم يتغير شيء. السبب:", getattr(exc, "code", exc))
+            print("تأكد أن الفلاشة موصولة ومعروفة للجهاز وفيها مساحة، ثم أعد المحاولة.")
+            return 1
+        if not row or not json.loads(row):
+            store.tx(lambda: store.db.execute("INSERT INTO settings VALUES('backup_folder_2',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(root),)))
+        store.tx(lambda: store.audit(None, "backup_usb", root))
+        backup.sync_external(store, HOME / "backups-shop", HOME)
+    finally:
+        store.close()
+    print("تمت النسخة وفُحصت بصمتها على:", root)
+    print("يمكنك نزع الفلاشة الآن وحفظها في مكان آخر غير جهاز المحل.")
     return 0
 
 
@@ -270,10 +304,12 @@ def start_cloud(app, mode, stop_event):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    if argv[:1] in (["owner-recovery"], ["cloud-code"], ["cloud-restore"]):
+    if argv[:1] in (["owner-recovery"], ["cloud-code"], ["cloud-restore"], ["usb-backup"]):
         console_utf8()
     if argv[:1] == ["owner-recovery"]:              # Start menu: «استعادة دخول المالك» (opens in a console window)
         return owner_recovery(HOME / "shop-data")
+    if argv[:1] == ["usb-backup"]:                   # Start menu: «نسخة على فلاشة»
+        return usb_backup(HOME / "shop-data")
     if argv[:1] == ["cloud-code"]:
         return cloud_code(HOME / "shop-data")
     if argv[:1] == ["cloud-restore"]:

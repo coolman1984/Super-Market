@@ -1812,6 +1812,7 @@
    "errors": [
     "err.backup_checksum_mismatch",
     "err.backup_integrity_failed",
+    "err.backup2_unusable",
     "err.backup_manifest_missing",
     "err.backup_other_product",
     "err.cloud_off",

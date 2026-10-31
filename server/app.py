@@ -137,7 +137,7 @@ class App:
         r("GET", r"/api/reports/day", lambda a, q, b: self.shop.day_report(a, q.get("day")))
         r("GET", r"/api/export/stock\.csv", self.export_stock)
         r("GET", r"/api/settings", lambda a, q, b: self.public_settings(a))
-        r("POST", r"/api/settings", lambda a, q, b: self.shop.update_settings(a, b))
+        r("POST", r"/api/settings", self.save_settings)
         r("GET", r"/api/label-templates", lambda a, q, b: self.shop.label_templates())
         r("POST", r"/api/label-templates", lambda a, q, b: {"id": self.shop.save_label_template(a, b)})
         r("GET", r"/api/scanner/profile", lambda a, q, b: self.profile_for(a))
@@ -151,6 +151,7 @@ class App:
         r("POST", r"/api/users", self.add_user)
         r("POST", r"/api/backup", self.make_backup)
         r("GET", r"/api/backups", lambda a, q, b: require(a, "backup") and backup.list_backups(self.backup_folder))
+        r("GET", r"/api/backup/status", self.backup_status)
         r("GET", r"/api/cloud", self.cloud_status, lock=False)
         r("POST", r"/api/cloud/now", self.cloud_now, lock=False)
         r("GET", r"/api/reconcile", lambda a, q, b: require(a, "reports") and self.shop.reconcile())
@@ -403,7 +404,27 @@ class App:
         require(actor, "backup")
         result = backup.create_backup(self.store, self.backup_folder, "manual")
         self.store.tx(lambda: self.store.audit(actor, "backup", result["folder"]))
+        result["external"] = backup.sync_external(self.store, self.backup_folder, self.home)
         return result
+
+    @property
+    def home(self):
+        return pathlib.Path(self.store.folder).parent
+
+    def save_settings(self, actor, q, body):
+        out = self.shop.update_settings(actor, body)
+        if isinstance(body, dict) and "backup_folder_2" in body and body["backup_folder_2"]:
+            backup.sync_external(self.store, self.backup_folder, self.home)       # first copy now, not at the next half hour
+        return out
+
+    def backup_status(self, actor, q, body):
+        require(actor, "settings")
+        cloud_ok = None
+        try:
+            cloud_ok = (self.cloud.status() or {}).get("last_ok_at") if self.cloud else None
+        except Exception:
+            cloud_ok = None
+        return backup.status(self.store, self.backup_folder, cloud_ok)
 
 
 def _int(value, default):

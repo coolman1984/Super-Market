@@ -352,11 +352,18 @@
 
   async function backupCard() {
     const list = await SM.api('GET', '/api/backups').catch(() => []);
+    const st = await SM.api('GET', '/api/backup/status').catch(() => ({}));
+    const second = h('input', { class: 'input ltr', id: 'backup2', value: (SM.state.settings || {}).backup_folder_2 || '', placeholder: 'E:\\' });
     return h('div', { class: 'card' }, h('h3', { text: t('set.backup') }), h('p', { class: 'muted', text: t('set.backup_help') }),
       h('button', { class: 'btn primary', 'data-guide': 'set.backup_now', text: t('set.backup_now'), onclick: async () => {
         try { const r = await SM.api('POST', '/api/backup', {}); SM.toast(t('set.backup_done')); SM.dialog({ title: t('set.backup_done'), body: h('code', { class: 'ltr', text: r.folder + '\nSHA-256 ' + r.sha256 }) }); } catch (e) { SM.fail(e); }
       } }),
-      list.length ? h('ul', {}, list.slice(0, 10).map(b => h('li', { class: 'ltr', text: b.created_at + ' — schema ' + b.schema + ' — ' + b.integrity }))) : null);
+      list.length ? h('ul', {}, list.slice(0, 10).map(b => h('li', { class: 'ltr', text: b.created_at + ' — schema ' + b.schema + ' — ' + b.integrity }))) : null,
+      h('h4', { text: t('set.backup2') }), h('p', { class: 'muted', text: t('set.backup2_help') }),
+      h('p', { class: st.external_error ? 'warn' : 'muted', text: st.external_error ? t('bk.error') : st.external_ok_at ? t('set.backup2_state_ok', { at: '\u2066' + st.external_ok_at.replace('T', ' ').slice(0, 16) + '\u2069' }) : t('set.backup2_state_none') }),
+      h('div', { class: 'row' }, second, h('button', { class: 'btn', id: 'backup2-save', text: t('set.backup2_save'), onclick: async () => {
+        try { SM.state.settings = await SM.api('POST', '/api/settings', { backup_folder_2: second.value.trim() }); SM.toast(t('set.backup2_saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
+      } })));
   }
 
   // Hourly and nightly copies to the owner's cloud (server/cloud.py). Never shows the secret or the address.

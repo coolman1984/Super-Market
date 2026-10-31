@@ -71,7 +71,12 @@ class Store:
         """Upgrade rule: a verified copy exists before any migration runs."""
         folder = self.folder / "pre-upgrade"
         folder.mkdir(exist_ok=True)
-        target_path = folder / ("schema-%d-%s.db" % (current, now_iso().replace(":", "")[:15]))
+        stamp = now_iso().replace(":", "").replace("-", "")[:15]            # 20261031T180912: seconds, so two upgrades never collide (L4)
+        target_path = folder / ("schema-%d-%s.db" % (current, stamp))
+        n = 1
+        while target_path.exists():
+            n += 1
+            target_path = folder / ("schema-%d-%s-%d.db" % (current, stamp, n))
         target = sqlite3.connect(str(target_path))
         try:
             self.db.backup(target)
