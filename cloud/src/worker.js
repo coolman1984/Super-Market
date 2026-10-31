@@ -3,8 +3,9 @@
 //   shop PC (role "shop")   POST /v1/push        sends changed rows           (signed)
 //                           GET  /v1/commands    asks for pending commands    (signed)
 //                           POST /v1/commands/ack  reports what it did        (signed)
-//   phone (role "mobile")   GET  /v1/pull        reads the copy, read-only    (signed)
-//                           POST /v1/commands    asks the shop PC to do something (signed)
+//   phone (role "mobile")   GET  /v1/reports/... reads the REPORTS the shop PC published (read-only, signed)
+//                           POST /v1/commands    only {kind:"ping"}; every other command is refused
+//                           (a phone cannot push, pull raw rows, or change anything)
 //   owner (admin key)       POST /admin/stores, /admin/pairing, /admin/revoke, GET /admin/stores/:id
 //   new device              POST /v1/pair        trades a one-time code for its own secret
 //
@@ -15,7 +16,7 @@
 // are kept only as hashes, and nothing sensitive is ever logged.
 
 const enc = new TextEncoder();
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const MAX_BODY = 900 * 1024;
 const MAX_RECORDS = 200;
 const MAX_RECORD_JSON = 200 * 1024;
@@ -235,6 +236,7 @@ async function push(env, auth, body) {
 }
 
 async function pull(env, auth, url) {
+  need(auth, 'shop');                       // raw rows (users, customers...) are for the shop PC's own restore only
   const after = Number(url.searchParams.get('after') || 0);
   if (!Number.isSafeInteger(after) || after < 0) throw new Fail(400, 'Bad cursor');
   const limit = Math.min(PULL_MAX, Math.max(1, Number(url.searchParams.get('limit')) || PULL_DEFAULT));
@@ -250,6 +252,7 @@ async function pull(env, auth, url) {
 }
 
 async function summary(env, auth) {
+  need(auth, 'shop');
   const s = await env.DB.prepare('SELECT seq, last_push FROM stores WHERE id = ?').bind(auth.store).first();
   const tables = (await env.DB.prepare('SELECT tbl, COUNT(*) AS n, MAX(v) AS max_v FROM records WHERE store_id = ? AND deleted = 0 GROUP BY tbl ORDER BY tbl').bind(auth.store).all()).results;
   const pending = await env.DB.prepare("SELECT COUNT(*) AS n FROM commands WHERE store_id = ? AND status = 'pending'").bind(auth.store).first();
@@ -258,6 +261,7 @@ async function summary(env, auth) {
 
 // ---------------------------------------------------------------- commands
 async function submitCommand(env, auth, body) {
+  if (auth.role === 'mobile' && body.kind !== 'ping') throw new Fail(403, 'Phones are read-only: only ping is allowed');
   const key = String(body.key || ''), kind = String(body.kind || '');
   if (!KEY_RE.test(key)) throw new Fail(400, 'key must be 8-80 letters, digits, . _ : -');
   if (!KIND_RE.test(kind)) throw new Fail(400, 'bad kind');
@@ -297,6 +301,44 @@ async function getCommand(env, auth, id) {
   return { id: c.id, kind: c.kind, status: c.status, result: c.result ? JSON.parse(c.result) : null, created_at: c.created_at, done_at: c.done_at };
 }
 
+// ---------------------------------------------------------------- reports (read-only, for phones and the shop PC)
+// The shop PC computes every figure with its own rules and publishes them as rows of the rep_* tables;
+// the cloud only hands them back. It never calculates money.
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+async function reportRow(env, auth, tbl, rid) {
+  const row = await env.DB.prepare('SELECT data FROM records WHERE store_id = ? AND tbl = ? AND rid = ? AND deleted = 0').bind(auth.store, tbl, rid).first();
+  if (!row) throw new Fail(404, 'This report has not been published yet');
+  return JSON.parse(row.data);
+}
+async function reports(env, auth, path, url) {
+  const m = path.match(/^\/v1\/reports(?:\/([a-z-]+))?$/);
+  const name = m && m[1];
+  const limit = Math.min(60, Math.max(1, Number(url.searchParams.get('limit')) || 14));
+  if (!name) {
+    const rows = (await env.DB.prepare("SELECT tbl, COUNT(*) AS n FROM records WHERE store_id = ? AND deleted = 0 AND tbl IN ('rep_day','rep_stock','rep_debts','day_closes') GROUP BY tbl").bind(auth.store).all()).results;
+    return { reports: ['days', 'day', 'stock', 'debts', 'day-closes'], published: Object.fromEntries(rows.map((r) => [r.tbl, r.n])) };
+  }
+  if (name === 'days') {
+    const rows = (await env.DB.prepare("SELECT data FROM records WHERE store_id = ? AND tbl = 'rep_day' AND deleted = 0 ORDER BY rid DESC LIMIT ?").bind(auth.store, limit).all()).results;
+    return { days: rows.map((r) => JSON.parse(r.data)) };
+  }
+  if (name === 'day') {
+    const date = url.searchParams.get('date') || '';
+    if (!DAY_RE.test(date)) throw new Fail(400, 'date=YYYY-MM-DD is required');
+    return await reportRow(env, auth, 'rep_day', Number(date.replace(/-/g, '')));
+  }
+  if (name === 'stock') return await reportRow(env, auth, 'rep_stock', 1);
+  if (name === 'debts') return await reportRow(env, auth, 'rep_debts', 1);
+  if (name === 'day-closes') {
+    // the shop PC's own closing snapshots (fingerprinted there); only what a report needs, no user ids
+    const rows = (await env.DB.prepare("SELECT data FROM records WHERE store_id = ? AND tbl = 'day_closes' AND deleted = 0 ORDER BY rid DESC LIMIT ?").bind(auth.store, limit).all()).results;
+    const closes = rows.map((r) => JSON.parse(r.data)).map((d) => ({ day: d.day, at: d.at, snapshot_hash: d.snapshot_hash, snapshot: JSON.parse(d.snapshot) }));
+    closes.sort((a, b) => (a.day < b.day ? 1 : -1));
+    return { closes };
+  }
+  throw new Fail(404, 'Not found');
+}
+
 // ---------------------------------------------------------------- housekeeping (daily cron)
 export async function cleanup(env) {
   const t = now();
@@ -334,6 +376,7 @@ async function handle(request, env) {
     const body = request.method === 'GET' ? {} : parseJson(bytes);
     if (path === '/v1/push' && request.method === 'POST') return reply(200, await push(env, auth, body));
     if (path === '/v1/pull' && request.method === 'GET') return reply(200, await pull(env, auth, url));
+    if (path.startsWith('/v1/reports') && request.method === 'GET') return reply(200, await reports(env, auth, path, url));
     if (path === '/v1/summary' && request.method === 'GET') return reply(200, await summary(env, auth));
     if (path === '/v1/commands' && request.method === 'POST') return reply(200, await submitCommand(env, auth, body));
     if (path === '/v1/commands' && request.method === 'GET') return reply(200, await listCommands(env, auth, url));

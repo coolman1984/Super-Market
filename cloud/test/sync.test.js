@@ -112,14 +112,14 @@ test('push stores rows, an older version never overwrites a newer one, tombstone
   assert.equal(r.stale, 1, 'same version again changes nothing');
   r = await json(await signed(env, shop, 'POST', '/v1/push', { records: [rec('sales', 1, 9, { id: 1, total: 777 })] }));
   assert.equal(r.accepted, 1);
-  let p = await json(await signed(env, phone, 'GET', '/v1/pull'));
+  let p = await json(await signed(env, shop, 'GET', '/v1/pull'));
   const byRid = Object.fromEntries(p.records.map((x) => [x.r, x]));
   assert.equal(byRid[1].d.total, 777);
   assert.equal(byRid[2].d.total, 200);
   await signed(env, shop, 'POST', '/v1/push', { records: [{ t: 'sales', r: 2, v: 10, d: null }] });
-  p = await json(await signed(env, phone, 'GET', '/v1/pull?after=0'));
+  p = await json(await signed(env, shop, 'GET', '/v1/pull?after=0'));
   assert.equal(p.records.find((x) => x.r === 2).d, null, 'tombstone is delivered');
-  const s = await json(await signed(env, phone, 'GET', '/v1/summary'));
+  const s = await json(await signed(env, shop, 'GET', '/v1/summary'));
   assert.deepEqual(s.tables.map((t) => [t.tbl, t.n]), [['sales', 1]]);
 });
 
@@ -130,16 +130,16 @@ test('pull pages by change number and a device only sees what is new', async () 
   const seen = [];
   let after = 0, more = true, pages = 0;
   while (more) {
-    const p = await json(await signed(env, phone, 'GET', `/v1/pull?after=${after}&limit=20`));
+    const p = await json(await signed(env, shop, 'GET', `/v1/pull?after=${after}&limit=20`));
     seen.push(...p.records.map((x) => x.r));
     after = p.next; more = p.more; pages++;
   }
   assert.equal(pages, 3);
   assert.equal(new Set(seen).size, 50);
   await signed(env, shop, 'POST', '/v1/push', { records: [rec('lots', 7, 100, { id: 7, changed: true })] });
-  const p = await json(await signed(env, phone, 'GET', `/v1/pull?after=${after}`));
+  const p = await json(await signed(env, shop, 'GET', `/v1/pull?after=${after}`));
   assert.deepEqual(p.records.map((x) => [x.r, x.d.changed]), [[7, true]]);
-  const q = await json(await signed(env, phone, 'GET', `/v1/pull?after=0&table=nothing`));
+  const q = await json(await signed(env, shop, 'GET', `/v1/pull?after=0&table=nothing`));
   assert.equal(q.records.length, 0);
 });
 
@@ -154,17 +154,17 @@ test('bad pushes are refused whole', async () => {
     assert.equal((await signed(env, shop, 'POST', '/v1/push', bad)).status, tooMany ? 413 : 400);
   }
   assert.equal((await signed(env, shop, 'POST', '/v1/push', { records: [rec('a', 1, 1, { big: 'x'.repeat(210 * 1024) })] })).status, 413);
-  const s = await json(await signed(env, phone, 'GET', '/v1/summary'));
+  const s = await json(await signed(env, shop, 'GET', '/v1/summary'));
   assert.equal(s.tables.length, 0);
   assert.equal((await signed(env, phone, 'POST', '/v1/push', { records: [rec('a', 1, 1)] })).status, 403, 'a phone cannot write rows');
 });
 
 test('revoking a device cuts it off at once', async () => {
   const { env, store, shop, phone } = await setup();
-  assert.equal((await signed(env, phone, 'GET', '/v1/summary')).status, 200);
+  assert.equal((await signed(env, phone, 'GET', '/v1/reports')).status, 200);
   const r = await json(await admin(env, 'POST', '/admin/revoke', { store_id: store, device_id: phone.device_id }));
   assert.equal(r.revoked, 1);
-  assert.equal((await signed(env, phone, 'GET', '/v1/summary')).status, 401);
+  assert.equal((await signed(env, phone, 'GET', '/v1/reports')).status, 401);
   assert.equal((await signed(env, shop, 'GET', '/v1/summary')).status, 200);
   const info = await json(await admin(env, 'GET', '/admin/stores/' + store));
   assert.equal(info.devices.length, 2);
@@ -174,19 +174,19 @@ test('revoking a device cuts it off at once', async () => {
 
 test('commands: phone asks, shop PC applies; retries never duplicate; roles enforced', async () => {
   const { env, shop, phone } = await setup();
-  const cmd = { key: 'count-2026-10-31-aaaa', kind: 'count.submit', payload: { lot: 3, qty: 12 } };
+  const cmd = { key: 'count-2026-10-31-aaaa', kind: 'ping', payload: { n: 12 } };
   let a = await json(await signed(env, phone, 'POST', '/v1/commands', cmd));
   assert.equal(a.status, 'pending');
   const again = await json(await signed(env, phone, 'POST', '/v1/commands', cmd));
   assert.equal(again.id, a.id);
   assert.equal(again.replayed, true);
-  assert.equal((await signed(env, phone, 'POST', '/v1/commands', { ...cmd, payload: { lot: 3, qty: 99 } })).status, 409, 'same key, other content');
+  assert.equal((await signed(env, phone, 'POST', '/v1/commands', { ...cmd, payload: { n: 99 } })).status, 409, 'same key, other content');
   assert.equal((await signed(env, phone, 'POST', '/v1/commands', { ...cmd, key: 'bad key' })).status, 400);
   assert.equal((await signed(env, phone, 'GET', '/v1/commands')).status, 403, 'a phone cannot read the queue');
   assert.equal((await signed(env, phone, 'POST', '/v1/commands/ack', { id: a.id, status: 'applied' })).status, 403);
   const list = await json(await signed(env, shop, 'GET', '/v1/commands'));
   assert.equal(list.commands.length, 1);
-  assert.deepEqual(list.commands[0].payload, { lot: 3, qty: 12 });
+  assert.deepEqual(list.commands[0].payload, { n: 12 });
   assert.equal((await json(await signed(env, shop, 'POST', '/v1/commands/ack', { id: a.id, status: 'rejected', result: { code: 'not_allowed' } }))).updated, 1);
   assert.equal((await json(await signed(env, shop, 'POST', '/v1/commands/ack', { id: a.id, status: 'applied' }))).updated, 0, 'decided once');
   const got = await json(await signed(env, phone, 'GET', '/v1/commands/' + a.id));
@@ -216,4 +216,53 @@ test('unknown paths and errors never leak details', async () => {
   const broken = { ...env, DB: { prepare() { throw new Error('secret table path /x/y'); } } };
   const e = await call(broken, 'GET', '/v1/summary', { headers: { 'X-SM-Store': 'a'.repeat(32) } });
   assert.ok(!(await e.text()).includes('secret table'));
+});
+
+async function publish(env, shop, rows) {
+  const out = await signed(env, shop, 'POST', '/v1/push', { records: rows });
+  assert.equal(out.status, 200);
+}
+
+test('a phone is read-only: no raw rows, no push, no summary, only ping', async () => {
+  const { env, shop, phone } = await setup();
+  await publish(env, shop, [rec('customers', 1, 1, { id: 1, name: 'Ali', phone: '010' })]);
+  for (const path of ['/v1/pull', '/v1/pull?after=0&table=customers', '/v1/summary']) {
+    assert.equal((await signed(env, phone, 'GET', path)).status, 403, path);
+  }
+  assert.equal((await signed(env, phone, 'POST', '/v1/push', { records: [rec('rep_day', 20261031, 99, { x: 1 })] })).status, 403);
+  assert.equal((await signed(env, phone, 'POST', '/v1/commands/ack', { id: 1, status: 'applied' })).status, 403);
+  assert.equal((await signed(env, phone, 'POST', '/v1/commands', { key: 'sell-0000001', kind: 'sale.create', payload: {} })).status, 403);
+  assert.equal((await signed(env, phone, 'POST', '/v1/commands', { key: 'ping-0000001', kind: 'ping', payload: {} })).status, 200);
+  assert.equal((await signed(env, phone, 'GET', '/v1/reports/customers')).status, 404, 'raw tables are not reports');
+  assert.equal((await signed(env, phone, 'POST', '/v1/reports', {})).status, 404);
+});
+
+test('reports: phones read what the shop PC published, nothing is calculated here', async () => {
+  const { env, shop, phone } = await setup();
+  assert.equal((await signed(env, phone, 'GET', '/v1/reports/stock')).status, 404, 'not published yet');
+  await publish(env, shop, [
+    rec('rep_day', 20261030, 1, { day: '2026-10-30', net_sales: 1000 }),
+    rec('rep_day', 20261031, 2, { day: '2026-10-31', net_sales: 2500 }),
+    rec('rep_stock', 1, 3, { products: [{ code: 'G1', qty: 40 }] }),
+    rec('rep_debts', 1, 4, { total: 700, customers: [{ name: 'Ali', balance: 700 }] }),
+    rec('day_closes', 5, 5, { day: '2026-10-30', at: '2026-10-31T01:00', user_id: 9, snapshot: JSON.stringify({ net_sales: 1000 }), snapshot_hash: 'abc' }),
+    rec('customers', 1, 6, { id: 1, name: 'Ali', phone: '010' }),
+  ]);
+  const days = await json(await signed(env, phone, 'GET', '/v1/reports/days'));
+  assert.deepEqual(days.days.map((d) => d.day), ['2026-10-31', '2026-10-30'], 'newest first');
+  assert.equal((await json(await signed(env, phone, 'GET', '/v1/reports/day?date=2026-10-31'))).net_sales, 2500);
+  assert.equal((await signed(env, phone, 'GET', '/v1/reports/day?date=nope')).status, 400);
+  assert.equal((await signed(env, phone, 'GET', '/v1/reports/day?date=2020-01-01')).status, 404);
+  assert.equal((await json(await signed(env, phone, 'GET', '/v1/reports/stock'))).products[0].qty, 40);
+  assert.equal((await json(await signed(env, phone, 'GET', '/v1/reports/debts'))).total, 700);
+  const closes = await json(await signed(env, phone, 'GET', '/v1/reports/day-closes'));
+  assert.deepEqual(closes.closes, [{ day: '2026-10-30', at: '2026-10-31T01:00', snapshot_hash: 'abc', snapshot: { net_sales: 1000 } }]);
+  assert.ok(!JSON.stringify(closes).includes('user_id'));
+  const index = await json(await signed(env, phone, 'GET', '/v1/reports'));
+  assert.equal(index.published.rep_day, 2);
+  assert.equal(index.published.customers, undefined);
+  // another store's phone sees nothing of this store
+  const other = await makeStore(env);
+  const phone2 = await pairDevice(env, other, 'mobile', '203.0.113.9');
+  assert.equal((await signed(env, phone2, 'GET', '/v1/reports/debts')).status, 404);
 });

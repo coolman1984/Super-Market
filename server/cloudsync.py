@@ -27,7 +27,7 @@ import time
 import urllib.error
 import urllib.request
 
-from .core import ShopError
+from .core import ShopError, add_days, now_iso
 
 log = logging.getLogger("supermarket.sync")
 
@@ -37,6 +37,9 @@ NEVER_SYNCED = {"sessions", "stock_balances", "outbox", "sync_changes", "sync_me
 LOCAL_SETTINGS = {"last_app_version"}
 BATCH_KEYS = 200
 BATCH_TIMEOUT = 40
+REPORT_DAYS = 14                 # how many business days of daily figures phones can read
+REPORT_EVERY = 60                # seconds between publications while the shop is busy
+REPORT_REFRESH = 600             # and at least this often (expiry states move with the date)
 USER_AGENT = "SuperMarket-CloudCopy/1"
 RESTORE_LAST = ("barcodes", "day_closes", "day_corrections")   # triggers there need the other tables first
 
@@ -198,6 +201,11 @@ class Cloud:
     def summary(self):
         return self.call("GET", "/v1/summary")
 
+    def report(self, name, **query):
+        """Read one published report (phones and the shop PC). name: days, day, stock, debts, day-closes."""
+        qs = "".join(("&" if i else "?") + "%s=%s" % kv for i, kv in enumerate(query.items()))
+        return self.call("GET", "/v1/reports/" + name + qs)
+
     def submit(self, key, kind, payload):
         return self.call("POST", "/v1/commands", {"key": key, "kind": kind, "payload": payload})
 
@@ -258,6 +266,45 @@ def save_config(folder, config):
     os.replace(tmp, path)
 
 
+# ---------------------------------------------------------------- reports for phones (read-only)
+def _jsonable(doc):
+    return json.loads(json.dumps(doc, ensure_ascii=False))
+
+
+def build_reports(shop, owner):
+    """Every figure a phone may read, computed here by the shop's own services (the cloud never
+    calculates money). Keys are (table, row id) of the rep_* tables the Worker serves."""
+    store = shop.store
+    out = {}
+    today = store.current_business_day()
+    for i in range(REPORT_DAYS):
+        day = add_days(today, -i)
+        rep = shop.day_report(owner, day)
+        for heavy in ("near_expiry", "held"):      # lot lists belong to the stock report, not to every day
+            rep.pop(heavy, None)
+        out[("rep_day", int(day.replace("-", "")))] = rep
+    per = {}
+    for r in shop.stock_report(owner):
+        p = per.setdefault(r["product_id"], {"product_id": r["product_id"], "code": r["code"], "name_ar": r["name_ar"],
+                                             "name_en": r["name_en"], "measure": r["measure"], "kind": r["kind"],
+                                             "qty": 0, "available": 0, "near_expiry": 0, "expired": 0, "held": 0})
+        p["qty"] += r["qty"]
+        key = {"available": "available" if r["sellable"] else "held", "near_expiry": "near_expiry", "expired": "expired"}.get(r["state"], "held")
+        p[key] += r["qty"]
+    levels = {r["id"]: r["reorder_level"] for r in store.all("SELECT id, reorder_level FROM products")}
+    products = sorted(per.values(), key=lambda p: (p["name_ar"], p["product_id"]))
+    for p in products:
+        p["reorder_level"] = levels.get(p["product_id"], 0)
+        p["low"] = bool(p["reorder_level"] and p["available"] <= p["reorder_level"])
+    out[("rep_stock", 1)] = {"products": products, "low": [p["code"] for p in products if p["low"]],
+                             "expired": [p["code"] for p in products if p["expired"]],
+                             "near_expiry": [p["code"] for p in products if p["near_expiry"]]}
+    debts = store.all("""SELECT c.id, c.name, c.phone, c.credit_limit, SUM(e.amount) balance FROM customers c
+        JOIN customer_entries e ON e.customer_id=c.id GROUP BY c.id HAVING SUM(e.amount)>0 ORDER BY balance DESC, c.id""")
+    out[("rep_debts", 1)] = {"customers": debts, "total": sum(d["balance"] for d in debts), "count": len(debts)}
+    return {k: _jsonable(v) for k, v in out.items()}
+
+
 # ---------------------------------------------------------------- shop side: push, commands
 class CloudSync:
     """Runs next to the shop (own database connection): sends changes, applies commands."""
@@ -274,9 +321,48 @@ class CloudSync:
         self.db.execute("PRAGMA busy_timeout=10000")
         self.last_error = None
         self.last_ok = None
+        self._store = None
+        self._published = {}
+        self._pub_version = 0
+        self._last_pub = 0.0
+        self._dirty = False
 
     def close(self):
         self.db.close()
+        if self._store is not None:
+            self._store.close()
+            self._store = None
+
+    def publish_reports(self, force=False):
+        """Send the phone reports whose figures changed. Returns how many rows were sent."""
+        from .db import Store
+        from .services import Shop
+        if not force and time.time() - self._last_pub < REPORT_EVERY:
+            return 0
+        self._last_pub = time.time()
+        if self._store is None:
+            self._store = Store(self.folder, "shop")
+        shop = Shop(self._store)
+        row = self._store.one("SELECT * FROM users WHERE role='owner' AND active=1 ORDER BY id LIMIT 1")
+        if row is None:
+            return 0
+        owner = shop.auth.public(row)
+        owner["workstation"] = "cloud"
+        docs = build_reports(shop, owner)
+        stamp = now_iso()
+        records = []
+        for key, doc in docs.items():
+            digest = hashlib.sha256(json.dumps(doc, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            if self._published.get(key) == digest:
+                continue
+            self._pub_version = max(self._pub_version + 1, int(time.time() * 1000))
+            records.append(({"t": key[0], "r": key[1], "v": self._pub_version, "d": dict(doc, published_at=stamp)}, key, digest))
+        for i in range(0, len(records), BATCH_KEYS):
+            chunk = records[i:i + BATCH_KEYS]
+            self.cloud.push([c[0] for c in chunk])
+            for _, key, digest in chunk:
+                self._published[key] = digest
+        return len(records)
 
     def pending(self):
         return self.db.execute("SELECT COUNT(*) FROM sync_changes").fetchone()[0]
@@ -345,9 +431,21 @@ class CloudSync:
     def cycle(self):
         sent = self.drain()
         handled = self.process_commands()
+        published = 0
+        self._dirty = self._dirty or bool(sent)
+        due = time.time() - self._last_pub
+        if (self._dirty and due >= REPORT_EVERY) or due > REPORT_REFRESH or not self._last_pub:
+            try:
+                published = self.publish_reports(force=True)
+                self._dirty = False
+            except CloudError:
+                raise
+            except Exception:       # reports are extra: a failure here must never hold back the backup
+                log.exception("publishing phone reports failed")
+                self._last_pub = time.time()
         self.last_ok = time.time()
         self.last_error = None
-        return {"sent": sent, "commands": handled, "pending": self.pending()}
+        return {"sent": sent, "commands": handled, "pending": self.pending(), "reports": published}
 
     def run_forever(self, stop, interval=15, max_wait=600):
         """Background loop: retry with growing waits when the internet is down; never raises."""
@@ -376,7 +474,7 @@ class CloudSync:
         remote = {t["tbl"]: t["n"] for t in cloud["tables"]}
         differ = {t: {"here": local.get(t, 0), "cloud": remote.get(t, 0)}
                   for t in sorted(set(local) | set(remote)) if local.get(t, 0) != remote.get(t, 0)
-                  and not (t == "settings")}
+                  and not (t == "settings" or t.startswith("rep_"))}
         return {"pending_here": self.pending(), "cloud_changes": cloud["seq"], "last_push": cloud["last_push"],
                 "waiting_commands": cloud["pending_commands"], "tables_differ": differ,
                 "complete": not self.pending() and not differ}
@@ -442,7 +540,7 @@ def restore_from_cloud(cloud, new_folder, progress=None):
                 db.execute('%s INTO "%s"(%s) VALUES(%s)' % (verb, table, ",".join('"%s"' % c for c in cols), ",".join("?" * len(cols))),
                            [data[c] for c in cols])
             # the next local change must be newer than anything the cloud already holds
-            top = max([r["v"] for r in rows] or [0])
+            top = max([r["v"] for r in rows if not r["t"].startswith("rep_")] or [0])      # rep_* versions are clock stamps, not change numbers
             db.execute("DELETE FROM sync_changes")
             if not db.execute("UPDATE sqlite_sequence SET seq=? WHERE name='sync_changes'", (top,)).rowcount:
                 db.execute("INSERT INTO sqlite_sequence(name,seq) VALUES('sync_changes',?)", (top,))

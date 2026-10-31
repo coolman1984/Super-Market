@@ -172,6 +172,7 @@ class CloudCopy(ShopFixture, unittest.TestCase):
         self.connect()
         self.sell_one()
         self.sync.drain()
+        self.sync.publish_reports(force=True)          # phone reports sit in the cloud too; a restore must ignore them
         mine = self.counts(self.store.db)
         new_pc = self.device(self.store_id)
         target = self.folder / "new-pc"
@@ -197,7 +198,7 @@ class CloudCopy(ShopFixture, unittest.TestCase):
             shop.sell(cash, key(), {"lines": [{"product_id": self.pid, "qty": 1}]})
             self.assertEqual(restored.scalar("SELECT MAX(id) FROM sales"), before + 1)
             self.assertGreater(restored.scalar("SELECT MIN(seq) FROM sync_changes"),
-                               max(r["v"] for r in cloudsync.Cloud(new_pc).pull(0, 500)["records"]))
+                               max(r["v"] for r in cloudsync.Cloud(new_pc).pull(0, 500)["records"] if not r["t"].startswith("rep_")))
         finally:
             restored.close()
         second = cloudsync.CloudSync(target)
@@ -221,30 +222,88 @@ class CloudCopy(ShopFixture, unittest.TestCase):
             cloudsync.restore_from_cloud(cloudsync.Cloud(empty), self.folder / "from-empty")
         self.assertEqual(ctx.exception.code, "cloud_copy_empty")
 
-    def test_commands_run_through_the_shop_and_unknown_ones_are_rejected(self):
+    def test_a_phone_may_only_ping_and_the_shop_decides_everything_else(self):
         self.connect()
         mobile = cloudsync.Cloud(self.device(self.store_id, "mobile"))
-        seen = []
-        self.sync.handlers["note"] = lambda payload: seen.append(payload) or {"saved": True}
-
+        a = mobile.submit("cmd-000001", "ping", {"n": 1})
+        again = mobile.submit("cmd-000001", "ping", {"n": 1})          # same key: not run twice
+        self.assertEqual(a["id"], again["id"])
+        for kind in ("sale.create", "note", "nothing_like_this", "stock.adjust"):      # phones are reports-only
+            with self.assertRaises(cloudsync.CloudError) as ctx:
+                mobile.submit("cmd-" + kind.replace(".", "-")[:12].ljust(7, "x"), kind, {})
+            self.assertEqual(ctx.exception.status, 403, kind)
+        self.assertEqual(self.sync.process_commands(), 1)
+        self.assertEqual(self.sync.process_commands(), 0)
+        self.assertEqual(mobile.command(a["id"])["status"], "applied")
+        # a command that did get into the queue but is not a known kind is still refused by the shop PC
+        shop_side = cloudsync.Cloud(self.config)
+        b = shop_side.submit("cmd-000002", "nothing_like_this", {})
         def refuse(payload):
             raise ShopError("no_permission")
         self.sync.handlers["forbidden"] = refuse
-        a = mobile.submit("cmd-000001", "note", {"text": "hello"})
-        b = mobile.submit("cmd-000002", "nothing_like_this", {})
-        c = mobile.submit("cmd-000003", "forbidden", {})
-        again = mobile.submit("cmd-000001", "note", {"text": "hello"})          # same key: not run twice
-        self.assertEqual(a["id"], again["id"])
-        self.assertEqual(self.sync.process_commands(), 3)
-        self.assertEqual(self.sync.process_commands(), 0)
-        self.assertEqual(seen, [{"text": "hello"}])
-        self.assertEqual(mobile.command(a["id"])["status"], "applied")
-        self.assertEqual(mobile.command(b["id"])["status"], "rejected")
-        rejected = mobile.command(c["id"])
+        c = shop_side.submit("cmd-000003", "forbidden", {})
+        self.assertEqual(self.sync.process_commands(), 2)
+        self.assertEqual(shop_side.command(b["id"])["status"], "rejected")
+        rejected = shop_side.command(c["id"])
         self.assertEqual((rejected["status"], rejected["result"]["code"]), ("rejected", "no_permission"))
-        with self.assertRaises(cloudsync.CloudError) as ctx:        # a phone cannot write rows
+        with self.assertRaises(cloudsync.CloudError) as ctx:        # a phone cannot write rows, read raw rows or the queue
             mobile.push([{"t": "sales", "r": 1, "v": 1, "d": {}}])
         self.assertEqual(ctx.exception.status, 403)
+        for call in (lambda: mobile.pull(), lambda: mobile.summary(), lambda: mobile.commands()):
+            with self.assertRaises(cloudsync.CloudError) as ctx:
+                call()
+            self.assertEqual(ctx.exception.status, 403)
+
+    def test_customers_with_names_phones_and_debts_are_in_the_cloud_copy(self):
+        self.connect()
+        self.open_shift(self.manager, 0)
+        c = self.shop.add_party(self.owner, "customer", "Hassan Ali", phone="01012345678", credit_limit=50000)
+        self.shop.sell(self.manager, key(), {"lines": [{"product_id": self.pid, "qty": 1}], "customer_id": c,
+                                             "payments": [{"method": "credit", "amount": 1000}]})
+        self.sync.drain()
+        got = {(r["t"], r["r"]): r["d"] for r in cloudsync.Cloud(self.config).pull(0, 500)["records"]}
+        self.assertEqual(got[("customers", c)]["name"], "Hassan Ali")
+        self.assertEqual(got[("customers", c)]["phone"], "01012345678")
+        owed = [d for (t, _), d in got.items() if t == "customer_entries" and d["customer_id"] == c]
+        self.assertEqual(sum(d["amount"] for d in owed), 1000)
+        self.assertTrue(self.sync.status()["complete"])
+
+    def test_phones_read_the_shops_own_report_figures(self):
+        self.connect()
+        self.open_shift(self.manager, 0)
+        c = self.shop.add_party(self.owner, "customer", "Hassan Ali", phone="01012345678", credit_limit=50000)
+        self.shop.sell(self.manager, key(), {"lines": [{"product_id": self.pid, "qty": 2}], "customer_id": c,
+                                             "payments": [{"method": "credit", "amount": 2000}]})
+        self.sync.drain()
+        self.assertGreater(self.sync.publish_reports(force=True), 0)
+        self.assertEqual(self.sync.publish_reports(force=True), 0, "unchanged figures are not sent again")
+        phone = cloudsync.Cloud(self.device(self.store_id, "mobile"))
+        today = self.store.current_business_day()
+        day = phone.report("day", date=today)
+        self.assertEqual(day, {k: v for k, v in self.shop.day_report(self.owner, today).items() if k not in ("near_expiry", "held")} | {"published_at": day["published_at"]})
+        self.assertGreaterEqual(len(phone.report("days")["days"]), 14)
+        debts = phone.report("debts")
+        self.assertEqual(debts["total"], 2000)
+        self.assertEqual([(d["name"], d["phone"], d["balance"]) for d in debts["customers"]], [("Hassan Ali", "01012345678", 2000)])
+        stock = phone.report("stock")
+        row = [p for p in stock["products"] if p["product_id"] == self.pid][0]
+        self.assertEqual(row["qty"], self.store.scalar("SELECT SUM(b.qty) FROM stock_balances b JOIN lots l ON l.id=b.lot_id WHERE l.product_id=?", (self.pid,)))
+        # a debt paid off disappears from the report on the next publication
+        self.shop.customer_payment(self.manager, key(), c, 2000)
+        self.sync.drain()
+        self.sync.publish_reports(force=True)
+        self.assertEqual(phone.report("debts")["total"], 0)
+        # day-close summaries come from the synced closing records
+        self.assertEqual(phone.report("day-closes"), {"closes": []})
+        for shift, who in ((self.store.scalar("SELECT id FROM shifts WHERE user_id=?", (u["id"],)), u) for u in (self.cash1, self.manager)):
+            self.shop.close_shift(who, key(), self.shop.shift_expected(shift))
+        closed = self.shop.close_day(self.owner, key(), today)
+        self.sync.drain()
+        closes = phone.report("day-closes")["closes"]
+        self.assertEqual([(c["day"], c["snapshot_hash"], c["snapshot"]["net_sales"]) for c in closes],
+                         [(today, closed["snapshot_hash"], closed["net_sales"])])
+        # restoring on another PC is not confused by the report rows
+        self.assertTrue(self.sync.status()["complete"])
 
     def test_leaving_stops_recording_and_joining_again_resends_everything(self):
         self.connect()
