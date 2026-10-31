@@ -81,3 +81,12 @@ svg.ean { width: 100%; height: 3.2rem; fill: #000; background: #fff; }
   .app.nav-open .sidebar { transform: none; }
   .menu-btn { display: inline-grid; }
 }
+
+/* Help: one block per screen (purpose, steps, example, errors, fix, result, next step) */
+.help-row { margin-block: .9rem; }
+.help-row h4 { margin: 0 0 .3rem; font-size: .95rem; color: var(--ink-3, inherit); }
+.help-row p { margin: 0; line-height: 1.8; }
+.help-list { margin: 0; padding-inline-start: 1.3rem; display: grid; gap: .4rem; line-height: 1.7; }
+.example { padding: .6rem .9rem; border-inline-start: 3px solid var(--signal); background: var(--surface-2, transparent); border-radius: var(--r-sm, 6px); }
+.next-step { font-weight: 600; }
+.ex-done .badge { margin-inline-end: .3rem; }

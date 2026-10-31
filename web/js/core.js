@@ -175,12 +175,21 @@ SM.commandWithApproval = async function (path, key, payload) {
     }
   }
 };
+/* Error text = reason + whether the operation was saved + (for support) the technical code.
+   A refusal (4xx) did not save anything; a lost connection or a server error may have. */
 SM.errorText = (e) => {
   const code = e && e.code || 'internal_error';
   const k = 'err.' + code;
   const msg = t(k);
-  return msg === k ? t('err.generic', { code }) : t(k, e.detail || {});
+  const reason = msg === k ? t('err.generic', { code }) : t(k, e.detail || {});
+  if (code === 'network') return reason;                       // its own text already says "may be saved"
+  if (code === 'login_required' || code === 'bad_login' || code === 'account_locked') return reason;
+  const saved = e && e.status && e.status < 500 ? t('err.suffix_not_saved') : t('err.suffix_unknown');
+  return reason + ' ' + saved;
 };
+SM.errorCode = (e) => (e && e.code) || 'internal_error';
+/* Replace {b:key} with the REAL label of that button/field, so a step can never name a button that does not exist. */
+SM.fill = (text) => String(text).replace(/\{b:([a-z_0-9.]+)\}/g, (m, key) => t(key));
 
 /* ---------- toasts, dialogs, drawers ---------- */
 SM.toast = function (text, kind = 'ok') {

@@ -33,7 +33,9 @@
         }) });
       }
     }
-    const d = SM.drawer({ title: st.customer.name, body: [
+    const review = st.account && !st.account.ok ? h('div', { class: 'tip warn-tip', role: 'alert' }, icon('warn'), h('div', {}, h('b', { text: t('party.account_review') }), ' ',
+      SM.can('users') && st.unallocated_collections.length && st.open_sales.length ? h('button', { class: 'btn sm', text: t('party.allocate'), onclick: () => allocateDialog(st, () => { d.close(); after(); }) }) : null)) : null;
+    const d = SM.drawer({ title: st.customer.name, body: [review,
       h('p', {}, t('party.balance'), ' ', SM.num(SM.moneyText(st.balance)), ' — ', t('party.limit'), ' ', SM.num(SM.money(st.customer.credit_limit))),
       h('p', { class: 'muted', text: t('party.customer_help') }), statementTable(st.lines)] });
   }
@@ -42,6 +44,14 @@
     const st = await SM.api('GET', '/api/suppliers/' + s.id + '/statement').catch(e => { SM.fail(e); return null; });
     if (!st) return;
     const parts = [h('p', {}, t('party.we_owe'), ' ', SM.num(SM.moneyText(st.balance))), statementTable(st.lines)];
+    const open = (st.open_returns || []).filter(r => r.open);
+    if (open.length) {
+      parts.push(h('div', { class: 'card' }, h('h3', { text: t('party.returns') }), SM.table([
+        { label: t('stock.lot'), render: r => h('span', { class: 'ltr', text: r.lot_no }) }, { label: t('stock.product'), render: r => SM.name(r) },
+        { label: t('party.return_reason'), render: r => t('reason.' + r.reason) },
+        { label: t('party.cost'), num: true, render: r => SM.can('see_cost') ? SM.num(SM.money(r.cost)) : '—' },
+        { label: '', render: r => SM.can('supplier_pay') ? h('button', { class: 'btn sm', text: t('party.credit_note'), onclick: () => creditNoteDialog(r, () => { d.close(); after(); }) }) : null }], open)));
+    }
     if (SM.can('supplier_pay')) {
       const amount = h('input', { class: 'input', inputmode: 'decimal' });
       const note = h('input', { class: 'input', maxlength: '200' });
@@ -56,6 +66,32 @@
         }) })));
     }
     const d = SM.drawer({ title: st.supplier.name, body: parts });
+  }
+
+  function creditNoteDialog(ret, after) {
+    const amount = h('input', { class: 'input', inputmode: 'decimal' }), ref = h('input', { class: 'input', maxlength: '80', autocomplete: 'off' });
+    const key = SM.newKey();
+    const d = SM.dialog({ title: t('party.credit_note'), body: [SM.field(t('cash.amount'), amount), SM.field(t('party.credit_ref'), ref)],
+      actions: [h('button', { class: 'btn primary', text: t('save'), onclick: SM.guard(async () => {
+        const v = SM.parseMoney(amount.value); if (!v) return SM.toast(t('err.bad_amount'), 'bad');
+        try { await SM.command('/api/supplier-credit-notes', key, undefined, { return_id: ret.id, amount: v, reference: ref.value }); d.close(); SM.toast(t('party.credit_done')); after(); }
+        catch (e) { SM.fail(e); }
+      }) })] });
+  }
+
+  /* Owner action for an account that needs review after an upgrade: tie a collection to an invoice. */
+  function allocateDialog(st, after) {
+    const entry = SM.select(st.unallocated_collections.map(e => ({ value: e.id, label: '#' + e.id + ' — ' + SM.money(e.free) })));
+    const sale = SM.select(st.open_sales.map(x => ({ value: x.id, label: x.no + ' — ' + SM.money(x.open) })));
+    const amount = h('input', { class: 'input', inputmode: 'decimal' }), note = h('input', { class: 'input', maxlength: '300' });
+    const key = SM.newKey();
+    const d = SM.dialog({ title: t('party.allocate'), body: [h('p', { class: 'tip', text: t('party.allocate_help') }),
+      SM.field(t('party.allocate_entry'), entry), SM.field(t('party.allocate_sale'), sale), SM.field(t('party.allocate_amount'), amount), SM.field(t('party.allocate_note'), note)],
+      actions: [h('button', { class: 'btn primary', text: t('save'), onclick: SM.guard(async () => {
+        const v = SM.parseMoney(amount.value); if (!v) return SM.toast(t('err.bad_amount'), 'bad');
+        try { await SM.command('/api/account-reviews/allocate', key, undefined, { entry_id: parseInt(entry.value, 10), sale_id: parseInt(sale.value, 10), amount: v, note: note.value });
+          d.close(); SM.toast(t('saved')); after(); } catch (e) { SM.fail(e); }
+      }) })] });
   }
 
   function addDialog(kind, after) {

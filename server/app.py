@@ -81,7 +81,17 @@ class App:
         r("POST", r"/api/customers/reverse", lambda a, q, b: self.shop.reverse_customer_payment(a, b.get("key"), b.get("entry_id"), b.get("reason")))
         r("GET", r"/api/customers/(\d+)/statement", lambda a, q, b, cid: self.shop.customer_statement(a, int(cid)))
         r("GET", r"/api/suppliers/(\d+)/statement", lambda a, q, b, sid: self.shop.supplier_statement(a, int(sid)))
+        r("POST", r"/api/supplier-returns", lambda a, q, b: self.shop.supplier_return(a, b.get("key"), b.get("supplier_id"), b.get("lot_id"), b.get("location_id"), b.get("qty"), b.get("reason"), b.get("note")))
+        r("POST", r"/api/supplier-credit-notes", lambda a, q, b: self.shop.supplier_credit_note(a, b.get("key"), b.get("return_id"), b.get("amount"), b.get("reference")))
+        r("GET", r"/api/aging", lambda a, q, b: self.shop.aging(a))
+        r("GET", r"/api/reports/period", lambda a, q, b: self.shop.period_report(a, q.get("start"), q.get("end")))
+        r("GET", r"/api/account-reviews", lambda a, q, b: self.shop.review_items(a))
+        r("POST", r"/api/account-reviews/allocate", lambda a, q, b: self.shop.allocate_collection(a, b.get("key"), b.get("entry_id"), b.get("sale_id"), b.get("amount"), b.get("note")))
+        r("POST", r"/api/account-reviews/resolve", lambda a, q, b: self.shop.resolve_review(a, b.get("key"), b.get("review_id"), b.get("resolution")))
         r("POST", r"/api/safe", lambda a, q, b: self.shop.safe_move(a, b.get("key"), b.get("kind"), b.get("amount"), b.get("note")))
+        r("GET", r"/api/packs/(\d{13})/label", lambda a, q, b, code: self.shop.pack_label(a, code))
+        r("GET", r"/api/packs", lambda a, q, b: self.shop.list_packs(a, _int(q.get("lot"), 0) or 0, _int(q.get("location"), None)))
+        r("GET", r"/api/training/progress", self.training_progress)
         r("POST", r"/api/packs/waste", lambda a, q, b: self.shop.waste_pack(a, b.get("key"), b.get("code"), b.get("reason"), b.get("note")))
         r("GET", r"/api/recalls", lambda a, q, b: self.shop.recalls(a))
         r("POST", r"/api/recalls/lift", lambda a, q, b: self.shop.lift_recall(a, b.get("key"), b.get("recall_id"), b.get("reason")))
@@ -97,6 +107,7 @@ class App:
         r("POST", r"/api/counts", lambda a, q, b: self.shop.open_count(a, b.get("location_id")))
         r("GET", r"/api/counts/(\d+)", lambda a, q, b, cid: self.shop.count_sheet(a, int(cid)))
         r("POST", r"/api/counts/(\d+)/line", lambda a, q, b, cid: self.shop.record_count(a, int(cid), b.get("lot_id"), b.get("counted")))
+        r("POST", r"/api/counts/(\d+)/cancel", lambda a, q, b, cid: self.shop.cancel_count(a, int(cid), b.get("reason")))
         r("POST", r"/api/counts/(\d+)/approve", lambda a, q, b, cid: self.shop.approve_count(a, b.get("key"), int(cid), b.get("owner_reason")))
         r("GET", r"/api/stock", lambda a, q, b: self.shop.stock_report(a, _int(q.get("product"), None)))
         r("GET", r"/api/reports/day", lambda a, q, b: self.shop.day_report(a, q.get("day")))
@@ -267,6 +278,12 @@ class App:
                                                      (json.dumps(clean),)), self.store.audit(actor, "scanner.devices", None, {"n": len(clean)})))
         self.hub.configure(clean)
         return {"devices": self.hub.status()}
+
+    def training_progress(self, actor, q, body):
+        """Exercises of the training copy, proven from the ledger (never self-declared)."""
+        if self.store.mode != "training":
+            raise ShopError("training_only", status=404)
+        return {"exercises": training.progress(self.store, actor["id"])}
 
     def sell(self, actor, q, body):
         """The till must send back the server-quoted total it showed (R14):

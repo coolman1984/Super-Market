@@ -9,8 +9,8 @@ from .barcode import gs1_check_digit
 from .core import add_days, today
 
 TRAINING_USERS = [("owner", "صاحب المحل (تدريب)", "owner"), ("manager", "المدير (تدريب)", "manager"),
-                  ("cashier", "الكاشير (تدريب)", "cashier"), ("butcher", "الجزار (تدريب)", "butcher"),
-                  ("counter", "الجارد (تدريب)", "counter")]
+                  ("cashier", "أمين الصندوق (تدريب)", "cashier"), ("butcher", "الجزار (تدريب)", "butcher"),
+                  ("counter", "مسؤول الجرد (تدريب)", "counter")]
 TRAINING_PASSWORD = "training-only"
 
 
@@ -75,3 +75,43 @@ def seed(shop):
                                      "item_len": 5, "value_start": 7, "value_len": 5, "value_kind": "weight",
                                      "decimals": 3})
     return True
+
+
+# ---------------------------------------------------------------- exercises
+# Each exercise is complete only when the LEDGER shows it for this user; the
+# evidence returned is the document numbers, so a trainer can check them.
+# `role` says who can do it; `needs` lists exercises to finish first.
+EXERCISES = [
+    ("receive", ("owner", "manager", "receiver"), []),
+    ("cutting", ("owner", "manager", "butcher"), ["receive"]),
+    ("tagine", ("owner", "manager", "butcher"), ["receive"]),
+    ("shift_open", ("owner", "manager", "cashier"), []),
+    ("sell", ("owner", "manager", "cashier"), ["shift_open"]),
+    ("collect", ("owner", "manager", "cashier"), ["sell"]),
+    ("return", ("owner", "manager", "cashier"), ["sell"]),
+    ("count", ("owner", "manager", "counter"), []),
+    ("shift_close", ("owner", "manager", "cashier"), ["shift_open"]),
+    ("backup", ("owner",), []),
+]
+
+
+def progress(store, user_id):
+    """Evidence per exercise for one user (training copy only)."""
+    def docs(sql, args=()):
+        return [r[0] for r in store.db.execute(sql, args).fetchall()]
+    ev = {
+        "receive": docs("""SELECT 'R'||r.id FROM receipts r WHERE r.user_id=? AND r.id>1""", (user_id,)),
+        "cutting": docs("SELECT 'P'||p.id FROM productions p WHERE p.user_id=? AND p.kind='cutting'", (user_id,)),
+        "tagine": docs("SELECT 'P'||p.id FROM productions p WHERE p.user_id=? AND p.kind='recipe'", (user_id,)),
+        "shift_open": docs("SELECT 'W'||id FROM shifts WHERE user_id=?", (user_id,)),
+        "sell": docs("SELECT no FROM sales WHERE user_id=?", (user_id,)),
+        "collect": docs("SELECT 'C'||e.id FROM customer_entries e JOIN ops o ON o.id=e.op_id WHERE e.kind='payment' AND o.user_id=?", (user_id,)),
+        "return": docs("SELECT 'M'||id FROM returns WHERE user_id=?", (user_id,)),
+        "count": docs("SELECT DISTINCT 'J'||count_id FROM count_lines WHERE user_id=?", (user_id,)),
+        "shift_close": docs("SELECT 'W'||id FROM shifts WHERE user_id=? AND closed_at IS NOT NULL", (user_id,)),
+        "backup": docs("SELECT 'B'||id FROM audit WHERE action='backup' AND user_id=?", (user_id,)),
+    }
+    done = {k for k, v in ev.items() if v}
+    role = store.db.execute("SELECT role FROM users WHERE id=?", (user_id,)).fetchone()[0]
+    return [{"id": name, "done": name in done, "evidence": ev[name][:5], "for_you": role in roles,
+             "waiting_for": [n for n in needs if n not in done]} for name, roles, needs in EXERCISES]

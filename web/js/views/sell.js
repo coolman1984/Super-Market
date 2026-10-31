@@ -69,6 +69,34 @@
     });
   }
 
+  /* Held sales: kept in this browser per user + till + mode. Holding reserves nothing:
+     on resume every line is re-resolved by the server (price, expiry, pack status). */
+  const heldKey = () => 'held.' + ownerOf();
+  const held = () => SM.prefs.get(heldKey(), []);
+  function holdCart(view) {
+    if (!cart.lines.length || cart.unknown) return;
+    const lines = cart.lines.map(l => ({ id: l.product.id, qty: l.qty, pack: l.pack ? l.pack.code : null, scanned: l.scanned || null, manualWeight: !!l.manualWeight }));
+    SM.prefs.set(heldKey(), held().concat([{ at: new Date().toISOString(), lines, invoiceDiscount: cart.invoiceDiscount }]).slice(-10));
+    resetCart(); view.render(); SM.toast(t('sell.held_saved'));
+  }
+  async function resumeDialog(view) {
+    const list = held();
+    const body = list.length ? list.map((h1, i) => h('div', { class: 'card row' }, h('div', { class: 'grow' }, h('b', { class: 'ltr', text: h1.at.slice(0, 16).replace('T', ' ') }),
+      h('span', { class: 'muted', text: ' — ' + h1.lines.length })),
+      h('button', { class: 'btn primary sm', text: t('sell.resume'), onclick: async () => {
+        const rest = held().filter((_, j) => j !== i); SM.prefs.set(heldKey(), rest);
+        d.close(); cart.key = null;
+        for (const l of h1.lines) {
+          if (l.pack) { const r = await SM.api('POST', '/api/scan', { raw: l.pack }).catch(() => null); if (r && r.ok && r.pack) cart.lines.push({ product: r.product, qty: r.pack.net_g, pack: r.pack, scanned: l.scanned }); else SM.toast(t('err.' + (r ? r.error : 'network')), 'bad'); }
+          else { const p = await SM.api('GET', '/api/products/' + l.id).catch(() => null); if (p) cart.lines.push({ product: p, qty: l.qty, scanned: l.scanned, manualWeight: l.manualWeight }); }
+        }
+        cart.invoiceDiscount = h1.invoiceDiscount || 0; view.render();
+      } }),
+      h('button', { class: 'icon-btn', 'aria-label': t('remove'), onclick: () => { SM.prefs.set(heldKey(), held().filter((_, j) => j !== i)); d.close(); resumeDialog(view); } }, icon('trash'))))
+      : [h('p', { text: t('sell.held_none') })];
+    const d = SM.dialog({ title: t('sell.held_title'), body: [h('p', { class: 'tip', text: t('sell.held_help') }), ...body] });
+  }
+
   async function search(view) {
     const q = h('input', { class: 'input', placeholder: t('sell.search_ph'), autocomplete: 'off' });
     const list = h('div', { class: 'pick-list' });
@@ -294,6 +322,8 @@
             h('div', { class: 'tot-big' }, h('span', { text: t('sell.total') }), SM.num(SM.moneyText(tot.total))),
             h('button', { class: 'btn primary lg block', disabled: !cart.lines.length || !shift || cart.unknown, onclick: () => payDialog(view) }, t('sell.pay'), h('span', { class: 'kbd', text: 'F9' })),
             h('button', { class: 'btn ghost block', disabled: !cart.lines.length, onclick: () => discountDialog(view) }, t('sell.discount_btn')),
+            h('button', { class: 'btn ghost block', disabled: !cart.lines.length || cart.unknown, onclick: () => holdCart(view) }, t('sell.hold')),
+            held().length ? h('button', { class: 'btn ghost block', disabled: cart.unknown, onclick: () => resumeDialog(view) }, t('sell.resume') + ' (' + held().length + ')') : null,
             h('button', { class: 'btn ghost block', disabled: !cart.lines.length, onclick: async () => { if (await SM.confirm(t('sell.clear'), t('sell.clear_q'))) { cart.key = null; cart.lines = []; cart.invoiceDiscount = 0; view.render(); } } }, t('sell.clear')));
           scanInput.focus();
         },

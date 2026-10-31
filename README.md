@@ -26,7 +26,7 @@ python tools/shopctl.py backup | verify | restore
 cd tests && python -m unittest      ثم  tests/ui/run.sh
 ```
 
-[دليل الاستخدام](docs/USER_GUIDE.md) · [توافق الماسحات](docs/SCANNER_COMPATIBILITY.md) · [تقرير البيئة](ENVIRONMENT_REPORT.md)
+[دليل صاحب المحل](docs/USER_GUIDE.md) · [دليل الدعم الفني](docs/SUPPORT_GUIDE.md) · [تغطية الحالات](docs/MARKET_COVERAGE_20261031.md) · [إغلاق المراجعة](docs/MARKET_FIXES_20261031.md) · [دليل اللغة](docs/LANGUAGE_GUIDE.md) · [توافق الماسحات](docs/SCANNER_COMPATIBILITY.md) · [تقرير البيئة](ENVIRONMENT_REPORT.md)
 
 ## الموجود فعليًا
 

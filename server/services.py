@@ -9,6 +9,7 @@ import re
 
 from . import barcode as bc
 from .auth import ROLES, Auth, can, require
+import datetime as _dt
 from .core import (Conflict, Forbidden, ShopError, add_days, allocate, cumulative_share, integer,
                    iso_date, now_iso, text, today, weighed_amount)
 
@@ -22,6 +23,10 @@ DEFAULT_SETTINGS = {
     "gtin_equivalence": False, "tax_mode": "unverified", "recipe_component_tolerance_permille": 50,
     "receipt_footer": "", "receipt_width_mm": 80,
 }
+
+
+def dt_date(text_value):
+    return _dt.date.fromisoformat(text_value)
 
 
 class Shop:
@@ -1083,7 +1088,19 @@ class Shop:
         for line in lines:
             running += line["amount"]
             line["balance"] = running
-        return {"customer": customer, "lines": lines, "balance": running}
+        open_sales = []
+        for sale in self.store.all("SELECT id, no, at FROM sales WHERE customer_id=? ORDER BY id", (customer_id,)):
+            left = self._sale_outstanding(sale["id"])
+            if left > 0:
+                open_sales.append({"id": sale["id"], "no": sale["no"], "at": sale["at"], "open": left})
+        unallocated = []
+        for e in self.store.all("""SELECT e.id, e.amount, e.at FROM customer_entries e WHERE e.customer_id=? AND e.kind='payment'
+                AND NOT EXISTS(SELECT 1 FROM customer_entries r WHERE r.reverses=e.id)""", (customer_id,)):
+            free = -e["amount"] - self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM credit_allocations WHERE entry_id=?", (e["id"],))
+            if free > 0:
+                unallocated.append({"id": e["id"], "at": e["at"], "free": free})
+        return {"customer": customer, "lines": lines, "balance": running, "account": self.account_check(customer_id),
+                "open_sales": open_sales, "unallocated_collections": unallocated}
 
     def supplier_statement(self, actor, supplier_id):
         if not (can(actor, "supplier_pay") or can(actor, "receive")):
@@ -1097,7 +1114,134 @@ class Shop:
         for line in lines:
             running += line["amount"]
             line["balance"] = running
-        return {"supplier": supplier, "lines": lines, "balance": running}
+        return {"supplier": supplier, "lines": lines, "balance": running,
+                "open_returns": self.supplier_open_returns(supplier_id)}
+
+    # =============== supplier returns and credit notes ===============
+    RETURN_REASONS = ("damaged", "wrong_item", "weight_dispute", "expired", "quality", "other")
+
+    def supplier_return(self, actor, key, supplier_id, lot_id, location_id, qty, reason, note=None):
+        """Goods leave the shop to the supplier at their stock cost. The debt does
+        NOT change here: it changes when the supplier's credit note arrives, which
+        may be later and for another amount. Not a waste, not an expense."""
+        require(actor, "receive")
+        integer(supplier_id, 1), integer(lot_id, 1), integer(location_id, 1), integer(qty, 1)
+        if reason not in self.RETURN_REASONS:
+            raise ShopError("bad_reason")
+        note = text(note, "bad_note", 300, optional=True)
+
+        def work(op):
+            if not self.store.scalar("SELECT 1 FROM suppliers WHERE id=?", (supplier_id,)):
+                raise ShopError("unknown_supplier")
+            origin = self.store.one("""SELECT r.supplier_id FROM lots l JOIN receipt_lines rl ON rl.lot_id=l.id
+                JOIN receipts r ON r.id=rl.receipt_id WHERE l.id=?""", (lot_id,))
+            if not origin or origin["supplier_id"] != supplier_id:
+                raise ShopError("lot_not_from_supplier")
+            self._location(location_id)
+            self._check_free(lot_id, location_id, qty)           # packed stock leaves with its pack only
+            cost = self._consume(op, "supplier_return", lot_id, location_id, qty, reason, check=False)
+            rid = self.store.db.execute(
+                """INSERT INTO supplier_returns(op_id,supplier_id,lot_id,location_id,qty,cost,reason,user_id,at,note)
+                VALUES(?,?,?,?,?,?,?,?,?,?)""", (op, supplier_id, lot_id, location_id, qty, cost, reason, actor["id"], now_iso(), note)).lastrowid
+            result = {"supplier_return": rid, "qty": qty, "awaiting_credit_note": True}
+            if can(actor, "see_cost"):
+                result["cost"] = cost
+            return result
+        return self.store.command("supplier_return", key, [supplier_id, lot_id, location_id, qty, reason, note], actor, work)
+
+    def supplier_credit_note(self, actor, key, return_id, amount, reference):
+        """The supplier's credit note for a return: reduces what we owe. May be
+        partial, late or differ from our cost; the difference stays visible."""
+        require(actor, "supplier_pay")
+        integer(return_id, 1), integer(amount, 1)
+        reference = text(reference, "reference_required", 80)
+
+        def work(op):
+            ret = self.store.one("SELECT * FROM supplier_returns WHERE id=?", (return_id,))
+            if not ret:
+                raise ShopError("unknown_supplier_return")
+            if self.store.scalar("SELECT 1 FROM supplier_credit_notes WHERE supplier_id=? AND reference=?", (ret["supplier_id"], reference)):
+                raise ShopError("duplicate_credit_note")
+            self.store.db.execute("INSERT INTO supplier_credit_notes(op_id,return_id,supplier_id,amount,reference,user_id,at) VALUES(?,?,?,?,?,?,?)",
+                                  (op, return_id, ret["supplier_id"], amount, reference, actor["id"], now_iso()))
+            self.store.db.execute("INSERT INTO supplier_entries(supplier_id,op_id,kind,amount,at) VALUES(?,?,'credit_note',?,?)",
+                                  (ret["supplier_id"], op, -amount, now_iso()))
+            return {"balance": self.supplier_balance(ret["supplier_id"]), "difference_from_cost": amount - ret["cost"]}
+        return self.store.command("supplier_credit_note", key, [return_id, amount, reference], actor, work)
+
+    def supplier_open_returns(self, supplier_id):
+        rows = self.store.all("""SELECT r.id, r.qty, r.cost, r.reason, r.at, l.lot_no, p.name_ar, p.name_en, p.measure,
+            COALESCE((SELECT SUM(amount) FROM supplier_credit_notes n WHERE n.return_id=r.id),0) credited
+            FROM supplier_returns r JOIN lots l ON l.id=r.lot_id JOIN products p ON p.id=l.product_id
+            WHERE r.supplier_id=? ORDER BY r.id""", (supplier_id,))
+        for r in rows:
+            r["open"] = r["credited"] == 0
+        return rows
+
+    def aging(self, actor):
+        """Open balances by age: customers by the sale date of the open debt,
+        suppliers by invoice date after payments and credit notes settle the
+        oldest invoices first."""
+        require(actor, "reports")
+        day = dt_date(today())
+
+        def bucket(date_text):
+            age = (day - dt_date(date_text[:10])).days
+            return "d0_30" if age <= 30 else "d31_60" if age <= 60 else "d61_plus"
+        customers = {}
+        for sale in self.store.all("SELECT id, customer_id, at FROM sales WHERE customer_id IS NOT NULL ORDER BY id"):
+            left = self._sale_outstanding(sale["id"])
+            if left > 0:
+                row = customers.setdefault(sale["customer_id"], {"d0_30": 0, "d31_60": 0, "d61_plus": 0})
+                row[bucket(sale["at"])] += left
+        suppliers = {}
+        for sup in self.store.all("SELECT id FROM suppliers"):
+            invoices = [[e["amount"], e["at"]] for e in self.store.all(
+                "SELECT amount, at FROM supplier_entries WHERE supplier_id=? AND kind='invoice' ORDER BY id", (sup["id"],))]
+            settled = -self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM supplier_entries WHERE supplier_id=? AND kind IN ('payment','credit_note')",
+                                         (sup["id"],))
+            for inv in invoices:
+                take = min(settled, inv[0])
+                inv[0] -= take
+                settled -= take
+            row = {"d0_30": 0, "d31_60": 0, "d61_plus": 0}
+            for amount, at in invoices:
+                if amount > 0:
+                    row[bucket(at)] += amount
+            if any(row.values()):
+                suppliers[sup["id"]] = row
+        names_c = {r["id"]: r["name"] for r in self.store.all("SELECT id, name FROM customers")}
+        names_s = {r["id"]: r["name"] for r in self.store.all("SELECT id, name FROM suppliers")}
+        return {"customers": [dict(id=k, name=names_c[k], **v) for k, v in customers.items()],
+                "suppliers": [dict(id=k, name=names_s[k], **v) for k, v in suppliers.items()]}
+
+    def period_report(self, actor, start, end):
+        """Daily series for a date range: invoices, returns, collections by
+        method, refunds, waste, with totals. Facts only; no profit claim."""
+        require(actor, "reports")
+        start, end = iso_date(start), iso_date(end)
+        if start > end or (dt_date(end) - dt_date(start)).days > 366:
+            raise ShopError("bad_period")
+        days = {}
+
+        def put(day, key_, value):
+            days.setdefault(day, {"sales": 0, "sales_total": 0, "returns": 0, "waste_cost": 0})[key_] += value
+        for r in self.store.all("""SELECT substr(at,1,10) d, COUNT(*) n, SUM(total) t FROM sales
+                WHERE substr(at,1,10) BETWEEN ? AND ? GROUP BY d""", (start, end)):
+            put(r["d"], "sales", r["n"]); put(r["d"], "sales_total", r["t"])
+        for r in self.store.all("""SELECT substr(at,1,10) d, SUM(amount) t FROM returns
+                WHERE substr(at,1,10) BETWEEN ? AND ? GROUP BY d""", (start, end)):
+            put(r["d"], "returns", r["t"])
+        if can(actor, "see_cost"):
+            for r in self.store.all("""SELECT substr(at,1,10) d, SUM(-cost) c FROM stock_entries WHERE kind='waste'
+                    AND substr(at,1,10) BETWEEN ? AND ? GROUP BY d""", (start, end)):
+                put(r["d"], "waste_cost", r["c"])
+        series = [dict(day=d, **v, net_sales=v["sales_total"] - v["returns"]) for d, v in sorted(days.items())]
+        totals = {k: sum(x[k] for x in series) for k in ("sales", "sales_total", "returns", "net_sales", "waste_cost")}
+        by_method = self.store.all("""SELECT p.method, p.eff_state state, SUM(p.amount) amount FROM payment_states p JOIN sales s ON s.id=p.sale_id
+            WHERE substr(s.at,1,10) BETWEEN ? AND ? GROUP BY p.method, p.eff_state""", (start, end))
+        return {"start": start, "end": end, "series": series, "totals": totals, "by_method": by_method,
+                "notes": ["sales_not_cash", "margin_before_expenses"]}
 
     # =============== returns ===============
     def sale_detail(self, actor, sale_id):
@@ -1480,6 +1624,28 @@ class Shop:
         free = self._balance(lot_id, location_id)[0] - self._packed(lot_id, location_id)
         if qty > free:
             raise ShopError("stock_reserved_by_packs", {"free": max(free, 0)})
+
+    def list_packs(self, actor, lot_id, location_id=None):
+        """Printed packs still on a lot (for un-packing before cutting again)."""
+        if not any(can(actor, p) for p in ("produce", "cutting", "transfer", "waste", "sell")):
+            raise Forbidden("forbidden", {"permission": "cutting"})
+        return self.store.all("""SELECT code, net_g, price, expires, location_id FROM packs WHERE lot_id=? AND status='available'
+            AND removed_op IS NULL AND (? IS NULL OR location_id=?) ORDER BY id""", (integer(lot_id, 1), location_id, location_id))
+
+    def pack_label(self, actor, code):
+        """Label data for REPRINTING a pack: no stock, no new code, only an audit row."""
+        if not any(can(actor, p) for p in ("produce", "cutting", "transfer", "sell")):
+            raise Forbidden("forbidden", {"permission": "produce"})
+        pack = self.store.one("""SELECT k.*, p.name_ar, p.name_en, l.allergens, l.lot_no FROM packs k JOIN products p ON p.id=k.product_id
+            JOIN lots l ON l.id=k.lot_id WHERE k.code=?""", (text(code, "bad_code", 20),))
+        if not pack:
+            raise ShopError("unknown_pack")
+        if pack["removed_op"] is not None or pack["status"] != "available":
+            raise ShopError("pack_not_available")
+        self.store.tx(lambda: self.store.audit(actor, "pack.label_reprint", pack["code"]))
+        return {"code": pack["code"], "name_ar": pack["name_ar"], "name_en": pack["name_en"], "net_g": pack["net_g"],
+                "meat_g": pack["meat_g"], "meat_basis": pack["meat_basis"], "price": pack["price"], "expires": pack["expires"],
+                "allergens": pack["allergens"], "lot_no": pack["lot_no"], "reprint": True}
 
     def waste_pack(self, actor, key, code, reason, note=None):
         """Write off one labelled pack: its stock leaves and the pack can never sell."""
@@ -1913,6 +2079,21 @@ class Shop:
                                         (location_id, cutoff, actor["id"], now_iso())).lastrowid
             self.store.audit(actor, "count.open", str(cid))
             return {"count": cid}
+        return self.store.tx(work)
+
+    def cancel_count(self, actor, count_id, reason):
+        """Close an open count without any adjustment (counted lines stay as evidence)."""
+        require(actor, "count")
+        reason = text(reason, "reason_required", 200)
+
+        def work():
+            count = self.store.one("SELECT * FROM counts WHERE id=?", (integer(count_id, 1),))
+            if not count or count["status"] != "open":
+                raise ShopError("count_not_open")
+            self.store.db.execute("UPDATE counts SET status='cancelled', approved_by=?, approved_at=? WHERE id=?",
+                                  (actor["id"], now_iso(), count_id))
+            self.store.audit(actor, "count.cancel", str(count_id), {"reason": reason})
+            return {"cancelled": count_id}
         return self.store.tx(work)
 
     def count_sheet(self, actor, count_id):
