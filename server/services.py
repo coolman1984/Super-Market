@@ -850,7 +850,7 @@ class Shop:
             line_discount = integer(raw.get("line_discount", 0))
             promo, promo_id = 0, None
             if not pack and prod["measure"] == "unit":       # buy X get Y, set by a manager (row 26)
-                offer = self._promotion_for(prod["id"], today())
+                offer = self._promotion_for(prod["id"], self._offer_day(actor))
                 if offer:
                     promo = self._promo_free(qty, offer["buy_qty"], offer["free_qty"]) * unit_price
                     promo_id = offer["id"] if promo else None
@@ -1686,6 +1686,13 @@ class Shop:
     @staticmethod
     def _promo_free(qty, buy, free):
         return qty // (buy + free) * free
+
+    def _offer_day(self, actor):
+        """The shop's business day (not the calendar date): an offer that ends 'today' lasts until the shop's day ends (L2)."""
+        try:
+            return self.store.business_day_for(actor["id"] if actor else None)
+        except ShopError:
+            return today()
 
     def _promotion_for(self, product_id, day):
         return self.store.one("""SELECT * FROM promotions WHERE product_id=? AND ended_op IS NULL AND starts<=?

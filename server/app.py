@@ -168,10 +168,15 @@ class App:
         self.routes.append((method, re.compile("^" + pattern + "$"), fn, auth, lock))
 
     # ---------- handlers ----------
-    def state(self, actor, q, body):
+    def state(self, actor, q, body, client="127.0.0.1"):
+        """Public part: version, mode, setup_needed (+ clock warning, training logins). The shop's name, day,
+        instance id and LAN flag only for this PC or a signed-in user (review L5)."""
         s = self.shop.settings()
+        private = actor or ipaddress.ip_address(client).is_loopback
         return {"version": VERSION, "mode": self.store.mode, "setup_needed": not self.auth.has_users(),
-                "user": actor, "shop_name": s["shop_name"], "business_day": self.store.current_business_day(), "instance": s.get("instance_id"), "lan": self.lan,
+                "user": actor, "shop_name": s["shop_name"] if private else "",
+                "business_day": self.store.current_business_day() if private else None,
+                "instance": s.get("instance_id") if private else None, "lan": self.lan if private else None,
                 "lan_addresses": self._lan_addresses() if self.lan and actor else None,
                 "clock_behind": ({"closed": self.store.clock_behind(), "today": today()} if self.store.clock_behind() else None),
                 "training_login": {"users": [u for u, _, _ in training.TRAINING_USERS], "password": training.TRAINING_PASSWORD}
@@ -619,7 +624,9 @@ def make_handler(app, allowed_lan):
                     # sees rows of a transaction that may still roll back
                     lock = app.store.lock if take_lock else contextlib.nullcontext()
                     with lock:
-                        if fn == app.setup:
+                        if fn == app.state:
+                            result = fn(actor, query, body, client=self.client_address[0])
+                        elif fn == app.setup:
                             result = fn(actor, query, body, client=self.client_address[0])
                         elif fn == app.local_stop:
                             result = fn(actor, query, body, client=self.client_address[0], key=self.headers.get("X-SM-Stop"), server=self.server)

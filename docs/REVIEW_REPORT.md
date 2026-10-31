@@ -168,10 +168,10 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 ## 5. LOW
 
 - [x] **L1** `server/domain.py` is dead code (tests `test_domain.py` only). Delete or wire it; update CLAUDE.md.
-- [ ] **L2** Promotions use calendar `today()` rather than the business day (`services.py` promotion lookup) — a promo ending "today" stops at midnight though the shop's day continues until `day_start_hour`. Use `self.store.business_day_for(...)`.
+- [x] **L2** Promotions use calendar `today()` rather than the business day (`services.py` promotion lookup) — a promo ending "today" stops at midnight though the shop's day continues until `day_start_hour`. Use `self.store.business_day_for(...)`.
 - [ ] **L3** Plain `http://` request to the live Worker returns 500 instead of redirect/400 (`cloudflare-sync` Worker). Return 400/redirect to https; enable "Always Use HTTPS".
 - [x] **L4** Pre-upgrade copy folder uses minute resolution; two upgrades in one minute would collide (`before-<version>`). Include seconds.
-- [ ] **L5** `GET /api/state` is unauthenticated and returns shop name + instance id (needed by launcher). Return only `version/mode/setup_needed` unless the caller is local (127.0.0.1) or logged in.
+- [x] **L5** `GET /api/state` is unauthenticated and returns shop name + instance id (needed by launcher). Return only `version/mode/setup_needed` unless the caller is local (127.0.0.1) or logged in.
 - [x] **L6** PBKDF2 iterations 240,000 (`auth.py:14`) < OWASP 2023 600,000 for PBKDF2-SHA256. Raise to ≥600k; hashes carry `pw_iter` so existing users re-hash on next login (verify the rehash-on-login path exists, else add).
 - [ ] **L7** Four server error codes lack Arabic `err.*` text: `download_mismatch`, `no_copies`, `not_found`, `rejected` (cloud restore). Add to `ar.js`/`en.js` (+ a test comparing `ShopError` codes to `err.*` keys, `tests/errorcodes.py` could be extended).
 - [ ] **L8** `add_party` has no duplicate check (double click creates two customers) and phone isn't validated (`services.py:~221`). Normalize phone (Egyptian mobile pattern) and warn on same name+phone.

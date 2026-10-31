@@ -469,3 +469,48 @@ class LanSafety(ShopFixture, unittest.TestCase):
     def test_m1_the_shop_pc_alone_never_idle_locks(self):
         httpd = self.start(lan=False)
         self.assertIsNone(httpd.app.auth.idle_lock_s)
+
+
+class PromotionDay(ShopFixture, unittest.TestCase):
+    """L2 - an offer that ends 'today' lasts to the end of the SHOP's day, not to midnight."""
+
+    def test_offer_ending_on_the_business_day_still_applies_after_midnight(self):
+        import datetime as dt
+        from helpers import CAIRO
+        self.make_shop()
+        core.set_clock(dt.datetime(2026, 10, 30, 20, 0, tzinfo=CAIRO))
+        p = self.grocery(price=1000)
+        self.receive(p, 10, 500, expires=None)
+        self.shop.add_promotion(self.manager, key(), p, 2, 1, "2026-10-01", "2026-10-30")
+        self.open_shift(self.cash1, 0)
+        core.set_clock(dt.datetime(2026, 10, 31, 1, 30, tzinfo=CAIRO))       # after midnight, same shop day
+        q = self.shop.quote(self.cash1, {"lines": [{"product_id": p, "qty": 3}]})
+        self.assertEqual(q["total"], 2000)                                   # buy 2 get 1 free still applies
+        self.shop.close_shift(self.cash1, key(), self.shop.shift_expected(self.store.scalar("SELECT id FROM shifts")))
+        core.set_clock(dt.datetime(2026, 10, 31, 10, 0, tzinfo=CAIRO))
+        self.open_shift(self.cash1, 0)
+        q = self.shop.quote(self.cash1, {"lines": [{"product_id": p, "qty": 3}]})
+        self.assertEqual(q["total"], 3000)                                   # a new business day: the offer is over
+
+
+class StatePrivacy(ShopFixture, unittest.TestCase):
+    """L5 - the anonymous state tells a stranger on the shop network only what the login screen needs."""
+
+    def test_remote_anonymous_sees_no_shop_name_or_instance(self):
+        from server.app import App
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        app = App(tmp.name)
+        self.addCleanup(app.hub.stop)
+        self.addCleanup(app.store.close)
+        app.store.tx(lambda: app.auth.create_user("boss", "Boss", "owner", PASSWORD))
+        app.store.tx(lambda: app.store.db.execute("INSERT INTO settings VALUES('shop_name',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", ('"Secret Shop"',)))
+        remote = app.state(None, {}, {}, client="192.168.1.50")
+        self.assertEqual((remote["shop_name"], remote["instance"], remote["business_day"], remote["lan"]), ("", None, None, None))
+        self.assertIn("version", remote)
+        local = app.state(None, {}, {}, client="127.0.0.1")
+        self.assertEqual(local["shop_name"], "Secret Shop")
+        self.assertTrue(local["instance"])
+        signed_in = app.state({"id": 1}, {}, {}, client="192.168.1.50")
+        self.assertEqual(signed_in["shop_name"], "Secret Shop")
