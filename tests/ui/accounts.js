@@ -49,11 +49,13 @@ const out = process.argv[3] || '.';
   await p2.screenshot({ path: out + '/forced-password-ar-phone.png' });
   const pw = p2.locator('input[type=password]');
   await pw.nth(0).fill('temp-pass-1'); await pw.nth(1).fill('my-pass-123'); await pw.nth(2).fill('my-pass-123');
-  await Promise.all([
+  const [changed] = await Promise.all([
     p2.waitForResponse((r) => r.url().includes('/api/account/password') && r.request().method() === 'POST'),
     p2.click('button[type=submit]'),
   ]);
-  await p2.waitForSelector('.sidebar');
+  if (!changed.ok()) throw new Error('password change failed ' + changed.status() + ' ' + await changed.text());
+  // the shell appears after the server answers; a scanner wait on the same process can hold the lock
+  await p2.waitForSelector('.sidebar', { timeout: 60000 });
   res.after_change_in = await p2.locator('.sidebar').count() === 1;
   // owner stops him: his open page is out at the next request
   const uid = (await page.evaluate(() => SM.api('GET', '/api/users'))).find(u => u.username === 'newcash').id;
