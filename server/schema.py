@@ -464,3 +464,95 @@ def m003(conn):
 
 MIGRATIONS.append((3, "review 2026-10-31: pack unpacking, uncollected cancellation, supplier returns, legacy collections", m003))
 SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+# ---------------------------------------------------------------- migration 4
+# The eight open rows of the 40-case matrix (docs/MARKET_COVERAGE_20261031.md):
+# supplier invoice before goods (2), dated cost correction after sale (3), gifts
+# and samples (5), later supplier rebate (6), carton size change (9), thawing (14),
+# buy-X-get-Y with fair partial returns (26), day close with dated corrections (38).
+# Adds only; no posted row is changed. Old receipt lines read their carton factor
+# from the packaging, which is frozen from this migration on.
+M004 = r"""
+CREATE TABLE supplier_invoices(
+  id INTEGER PRIMARY KEY, op_id INTEGER NOT NULL UNIQUE REFERENCES ops(id),
+  supplier_id INTEGER NOT NULL REFERENCES suppliers(id), number TEXT NOT NULL, invoice_date TEXT NOT NULL,
+  total INTEGER NOT NULL CHECK(typeof(total)='integer' AND total>=0), user_id INTEGER NOT NULL, at TEXT NOT NULL, note TEXT,
+  closed_op INTEGER REFERENCES ops(id), closed_reason TEXT, UNIQUE(supplier_id, number, invoice_date));
+CREATE TABLE supplier_invoice_lines(
+  id INTEGER PRIMARY KEY, invoice_id INTEGER NOT NULL REFERENCES supplier_invoices(id),
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  qty INTEGER NOT NULL CHECK(typeof(qty)='integer' AND qty>0), free_qty INTEGER NOT NULL CHECK(free_qty>=0),
+  line_cost INTEGER NOT NULL CHECK(typeof(line_cost)='integer' AND line_cost>=0), UNIQUE(invoice_id, product_id));
+ALTER TABLE receipts ADD COLUMN invoice_id INTEGER REFERENCES supplier_invoices(id);
+ALTER TABLE receipt_lines ADD COLUMN line_kind TEXT NOT NULL DEFAULT 'purchase' CHECK(line_kind IN ('purchase','gift','sample'));
+ALTER TABLE receipt_lines ADD COLUMN factor_num INTEGER;
+ALTER TABLE receipt_lines ADD COLUMN factor_den INTEGER;
+CREATE TABLE supplier_adjustments(
+  id INTEGER PRIMARY KEY, op_id INTEGER NOT NULL UNIQUE REFERENCES ops(id), supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+  receipt_id INTEGER REFERENCES receipts(id), kind TEXT NOT NULL CHECK(kind IN ('invoice_correction','rebate')),
+  amount INTEGER NOT NULL CHECK(typeof(amount)='integer' AND amount<>0), reference TEXT NOT NULL,
+  user_id INTEGER NOT NULL, at TEXT NOT NULL, note TEXT, UNIQUE(supplier_id, reference));
+CREATE TABLE cost_adjustments(
+  adjustment_id INTEGER NOT NULL REFERENCES supplier_adjustments(id), receipt_line_id INTEGER NOT NULL REFERENCES receipt_lines(id),
+  lot_id INTEGER NOT NULL REFERENCES lots(id), amount INTEGER NOT NULL, to_stock INTEGER NOT NULL, to_cost_of_sales INTEGER NOT NULL,
+  CHECK(to_stock + to_cost_of_sales = amount), PRIMARY KEY(adjustment_id, receipt_line_id));
+ALTER TABLE packagings ADD COLUMN retired_op INTEGER REFERENCES ops(id);
+CREATE TABLE packaging_changes(
+  id INTEGER PRIMARY KEY, op_id INTEGER NOT NULL UNIQUE REFERENCES ops(id), old_id INTEGER NOT NULL REFERENCES packagings(id),
+  new_id INTEGER NOT NULL REFERENCES packagings(id), moved_barcodes TEXT NOT NULL, reason TEXT NOT NULL,
+  user_id INTEGER NOT NULL, at TEXT NOT NULL);
+CREATE TABLE thaws(
+  id INTEGER PRIMARY KEY, op_id INTEGER NOT NULL UNIQUE REFERENCES ops(id), parent_lot INTEGER NOT NULL REFERENCES lots(id),
+  child_lot INTEGER NOT NULL UNIQUE REFERENCES lots(id), from_location INTEGER NOT NULL REFERENCES locations(id),
+  to_location INTEGER NOT NULL REFERENCES locations(id), qty INTEGER NOT NULL CHECK(qty>0),
+  policy_days INTEGER NOT NULL CHECK(policy_days>0), user_id INTEGER NOT NULL, at TEXT NOT NULL);
+CREATE TABLE promotions(
+  id INTEGER PRIMARY KEY, op_id INTEGER NOT NULL UNIQUE REFERENCES ops(id), product_id INTEGER NOT NULL REFERENCES products(id),
+  buy_qty INTEGER NOT NULL CHECK(typeof(buy_qty)='integer' AND buy_qty>0),
+  free_qty INTEGER NOT NULL CHECK(typeof(free_qty)='integer' AND free_qty>0),
+  starts TEXT NOT NULL, ends TEXT, user_id INTEGER NOT NULL, at TEXT NOT NULL, ended_op INTEGER REFERENCES ops(id));
+ALTER TABLE sale_lines ADD COLUMN promo_discount INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE sale_lines ADD COLUMN promotion_id INTEGER REFERENCES promotions(id);
+CREATE TABLE day_closes(
+  day TEXT PRIMARY KEY, op_id INTEGER NOT NULL UNIQUE REFERENCES ops(id), user_id INTEGER NOT NULL, at TEXT NOT NULL,
+  snapshot TEXT NOT NULL, snapshot_hash TEXT NOT NULL);
+CREATE TABLE day_corrections(
+  id INTEGER PRIMARY KEY, day TEXT NOT NULL REFERENCES day_closes(day), op_id INTEGER NOT NULL REFERENCES ops(id),
+  kind TEXT NOT NULL, ref TEXT NOT NULL, reason TEXT NOT NULL, user_id INTEGER NOT NULL, at TEXT NOT NULL);
+CREATE TRIGGER packagings_frozen BEFORE UPDATE ON packagings
+WHEN NEW.product_id IS NOT OLD.product_id OR NEW.factor_num IS NOT OLD.factor_num OR NEW.factor_den IS NOT OLD.factor_den
+  OR NEW.name_ar IS NOT OLD.name_ar OR NEW.name_en IS NOT OLD.name_en OR NEW.created_at IS NOT OLD.created_at
+  OR OLD.retired_op IS NOT NULL
+BEGIN SELECT RAISE(ABORT,'posted_is_immutable'); END;
+CREATE TRIGGER packagings_no_delete BEFORE DELETE ON packagings BEGIN SELECT RAISE(ABORT,'posted_is_immutable'); END;
+CREATE TRIGGER supplier_invoices_frozen BEFORE UPDATE ON supplier_invoices
+WHEN NEW.supplier_id IS NOT OLD.supplier_id OR NEW.number IS NOT OLD.number OR NEW.invoice_date IS NOT OLD.invoice_date
+  OR NEW.total IS NOT OLD.total OR NEW.op_id IS NOT OLD.op_id OR OLD.closed_op IS NOT NULL
+BEGIN SELECT RAISE(ABORT,'posted_is_immutable'); END;
+CREATE TRIGGER supplier_invoices_no_delete BEFORE DELETE ON supplier_invoices BEGIN SELECT RAISE(ABORT,'posted_is_immutable'); END;
+CREATE TRIGGER promotions_frozen BEFORE UPDATE ON promotions
+WHEN NEW.product_id IS NOT OLD.product_id OR NEW.buy_qty IS NOT OLD.buy_qty OR NEW.free_qty IS NOT OLD.free_qty
+  OR NEW.starts IS NOT OLD.starts OR NEW.ends IS NOT OLD.ends OR NEW.op_id IS NOT OLD.op_id OR OLD.ended_op IS NOT NULL
+BEGIN SELECT RAISE(ABORT,'posted_is_immutable'); END;
+CREATE TRIGGER promotions_no_delete BEFORE DELETE ON promotions BEGIN SELECT RAISE(ABORT,'posted_is_immutable'); END;
+CREATE TRIGGER ops_after_day_close BEFORE INSERT ON ops
+WHEN substr(NEW.at,1,10) <= (SELECT MAX(day) FROM day_closes)
+BEGIN SELECT RAISE(ABORT,'day_closed'); END;
+CREATE INDEX receipts_invoice ON receipts(invoice_id);
+CREATE INDEX promotions_product ON promotions(product_id);
+CREATE INDEX day_corrections_day ON day_corrections(day);
+"""
+
+
+def m004(conn):
+    run_script(conn, M004)
+    for table in ("supplier_invoice_lines", "supplier_adjustments", "cost_adjustments", "packaging_changes",
+                  "thaws", "day_closes", "day_corrections"):
+        for action in ("UPDATE", "DELETE"):
+            conn.execute(f"CREATE TRIGGER {table}_no_{action.lower()} BEFORE {action} ON {table} "
+                         f"BEGIN SELECT RAISE(ABORT,'posted_is_immutable'); END")
+
+
+MIGRATIONS.append((4, "matrix rows 2,3,5,6,9,14,26,38: invoices, cost corrections, gifts, rebates, cartons, thaw, promotions, day close", m004))
+SCHEMA_VERSION = MIGRATIONS[-1][0]

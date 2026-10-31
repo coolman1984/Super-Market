@@ -166,9 +166,11 @@
     const totalBox = h('div', { class: 'pay-total' });
     function showTotal(note) {
       SM.put(totalBox, t('sell.total'), ' ', SM.num(SM.moneyText(tot.total)), ' ', h('span', { class: 'badge ok', text: t('pay.server_price') }),
+        quote.promo ? h('div', { class: 'badge ok', text: t('pay.promo', { amount: SM.money(quote.promo) }) }) : null,
         note ? h('div', { class: 'badge warn', text: note }) : null);
     }
-    showTotal(estimate.total !== quote.total ? t('pay.price_updated', { old: SM.money(estimate.total), now: SM.money(quote.total) }) : null);
+    // a buy-X-get-Y offer is applied by the server: it is not a price change
+    showTotal(estimate.total - (quote.promo || 0) !== quote.total ? t('pay.price_updated', { old: SM.money(estimate.total), now: SM.money(quote.total) }) : null);
     function update() {
       let nonCash = 0, bad = false;
       for (const o of others) { const v = SM.parseMoney(o.amount.value || '0'); if (v === null) bad = true; else nonCash += v; }
@@ -271,7 +273,8 @@
       h('hr'),
       (r.lines || []).map(l => h('div', { class: 'rc-item' }, h('div', { text: lang === 'ar' ? l.name_ar : l.name_en }),
         L(SM.qty(l.qty, l.measure) + ' × ' + SM.money(l.unit_price), SM.money(l.gross)),
-        l.discount ? L(t('receipt.discount'), '-' + SM.money(l.discount)) : null)),
+        l.promo ? L(t('receipt.promo'), '-' + SM.money(l.promo)) : null,
+        l.discount - (l.promo || 0) ? L(t('receipt.discount'), '-' + SM.money(l.discount - (l.promo || 0))) : null)),
       h('hr'),
       r.discount ? L(t('receipt.discount'), '-' + SM.money(r.discount)) : null,
       L(t('sell.total'), SM.money(r.total)),

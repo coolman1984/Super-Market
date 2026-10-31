@@ -53,6 +53,23 @@
         { label: t('party.credited'), num: true, render: r => SM.num(SM.money(r.credited)) },
         { label: '', render: r => SM.can('supplier_pay') ? h('button', { class: 'btn sm', text: t('party.credit_note'), onclick: () => creditNoteDialog(r, () => { d.close(); after(); }) }) : null }], open)));
     }
+    const invoices = await SM.api('GET', '/api/supplier-invoices?supplier=' + s.id).catch(() => []);
+    if (invoices.length) {
+      parts.push(h('div', { class: 'card' }, h('h3', { text: t('party.open_invoices') }), SM.table([
+        { label: t('recv.invoice'), render: i => h('span', { class: 'ltr', text: i.number + ' — ' + i.invoice_date }) },
+        { label: t('recv.invoice_left'), render: i => i.lines.filter(l => l.qty_left).map(l => SM.name(l) + ': ' + SM.qty(l.qty_left, l.measure)).join('، ') },
+        { label: '', render: i => h('button', { class: 'btn sm', text: t('party.close_invoice'), onclick: SM.guard(async () => {
+          const reason = prompt(t('party.close_invoice_q')); if (!reason) return;
+          try { await SM.command('/api/supplier-invoices/close', SM.newKey(), undefined, { invoice_id: i.id, reason }); SM.toast(t('saved')); d.close(); after(); }
+          catch (e) { SM.fail(e); }
+        }) }) }], invoices)));
+    }
+    if (SM.can('supplier_pay')) {
+      const receipts = st.lines.filter(l => l.receipt_id && l.kind === 'invoice');
+      parts.push(h('div', { class: 'toolbar' },
+        receipts.length ? h('button', { class: 'btn', text: t('adj.correction'), onclick: () => adjustDialog('invoice_correction', s, receipts, () => { d.close(); after(); }) }) : null,
+        h('button', { class: 'btn', text: t('adj.rebate'), onclick: () => adjustDialog('rebate', s, receipts, () => { d.close(); after(); }) })));
+    }
     if (SM.can('supplier_pay')) {
       const amount = h('input', { class: 'input', inputmode: 'decimal' });
       const note = h('input', { class: 'input', maxlength: '200' });
@@ -67,6 +84,28 @@
         }) })));
     }
     const d = SM.drawer({ title: st.supplier.name, body: parts });
+  }
+
+  /* Rows 3 and 6: the final invoice differs, or the supplier gives a rebate later. Nothing old is
+     rewritten: the goods still in stock take their share; the rest is a dated cost line. */
+  function adjustDialog(kind, supplier, receipts, after) {
+    const rc = SM.select(receipts.map(r => ({ value: r.receipt_id, label: (r.supplier_invoice || '#' + r.receipt_id) + ' — ' + r.at.slice(0, 10) + ' — ' + SM.money(r.amount) })),
+      null, kind === 'rebate' ? t('adj.no_receipt') : t('choose'));
+    const dir = SM.select([{ value: '1', label: t('adj.more') }, { value: '-1', label: t('adj.less') }]);
+    const amount = h('input', { class: 'input', inputmode: 'decimal' }), ref = h('input', { class: 'input', maxlength: '80', autocomplete: 'off' });
+    const note = h('input', { class: 'input', maxlength: '300' });
+    const key = SM.newKey();
+    const d = SM.dialog({ title: t('adj.' + (kind === 'rebate' ? 'rebate' : 'correction')), body: [h('p', { class: 'tip', text: t('adj.help_' + kind) }),
+      SM.field(t('adj.receipt'), rc), kind === 'invoice_correction' ? SM.field(t('adj.direction'), dir) : null,
+      SM.field(t('cash.amount'), amount), SM.field(t('party.credit_ref'), ref), SM.field(t('cash.note'), note)],
+      actions: [h('button', { class: 'btn primary', text: t('save'), onclick: SM.guard(async () => {
+        const v = SM.parseMoney(amount.value); if (!v) return SM.toast(t('err.bad_amount'), 'bad');
+        try {
+          const r = await SM.command('/api/supplier-adjustments', key, { kind, supplier_id: supplier.id, receipt_id: rc.value ? parseInt(rc.value, 10) : undefined,
+            amount: kind === 'rebate' ? v : v * parseInt(dir.value, 10), reference: ref.value, note: note.value || undefined });
+          d.close(); SM.toast(SM.can('see_cost') ? t('adj.done', { stock: SM.money(r.to_stock), sold: SM.money(r.to_cost_of_sales) }) : t('saved')); after();
+        } catch (e) { SM.fail(e); }
+      }) })] });
   }
 
   function creditNoteDialog(ret, after) {

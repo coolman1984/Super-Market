@@ -149,10 +149,11 @@
         const reason = SM.select(['quality', 'change_of_mind', 'wrong_item', 'other'].map(r => ({ value: r, label: t('ret.r.' + r) })));
         const method = SM.select(['original', 'cash', 'credit_note'].map(r => ({ value: r, label: t('ret.m.' + r) })));
         SM.put(box, h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('ret.sale', { no: sale.no }) }), h('span', { class: 'ltr muted', text: sale.at.slice(0, 16) })),
-          SM.table([{ label: t('sell.item'), render: l => SM.name(l) }, { label: t('ret.sold'), render: l => SM.num(SM.qty(l.qty, l.measure)) },
+          SM.table([{ label: t('sell.item'), render: l => h('span', {}, SM.name(l), l.promo_discount ? h('span', { class: 'badge', title: t('ret.promo_note'), text: t('receipt.promo') }) : null) }, { label: t('ret.sold'), render: l => SM.num(SM.qty(l.qty, l.measure)) },
             { label: t('ret.returned'), render: l => SM.num(SM.qty(l.returned_qty, l.measure)) }, { label: t('sell.amount'), num: true, render: l => SM.num(SM.money(l.net)) },
             { label: t('ret.qty'), render: l => qtys[sale.lines.indexOf(l)] },
             { label: t('ret.restock'), render: l => l.kind === 'grocery' ? h('label', { class: 'row' }, restock[sale.lines.indexOf(l)], t('ret.restock_ok')) : h('span', { class: 'badge warn', text: t('ret.quarantine_always') }) }], sale.lines),
+          sale.lines.some(l => l.promo_discount) ? h('p', { class: 'tip', text: t('ret.promo_note') }) : null,
           h('div', { class: 'grid cols-2' }, SM.field(t('ret.reason'), reason, t('ret.reason_help')), SM.field(t('ret.method'), method)),
           h('div', { class: 'form-actions' }, h('button', { class: 'btn primary', text: t('ret.post'), onclick: async () => {
             const lines = [];
@@ -190,12 +191,29 @@
         if (!r) return;
         const kv = (k, v, why) => [h('dt', {}, k, why ? h('div', { class: 'help', text: why }) : null), h('dd', {}, SM.num(v))];
         const rec = await SM.api('GET', '/api/reconcile').catch(() => null);
-        SM.put(box, h('div', { class: 'grid cols-2' },
+        const closed = await SM.api('GET', '/api/days/' + day.value).catch(() => null);
+        /* row 38: a closed day shows its kept figures and every later correction under it */
+        const closeCard = h('div', { class: 'card' }, h('h3', { text: t('close.title') }),
+          closed && closed.closed ? [h('p', {}, h('span', { class: 'badge ' + (closed.snapshot_ok ? 'ok' : 'bad'), text: closed.snapshot_ok ? t('close.closed') : t('close.tampered') }),
+              ' ', h('span', { class: 'muted ltr', text: closed.at.slice(0, 16) })),
+            h('p', { class: 'muted', text: t('close.kept') + ' ' + SM.money(closed.snapshot.net_sales) }),
+            h('h4', { text: t('close.corrections') }),
+            closed.corrections.length ? h('ul', { class: 'help-list' }, closed.corrections.map(c => h('li', {}, t('close.kind.' + c.kind), ' — ', h('span', { class: 'ltr', text: c.ref + ' — ' + c.at.slice(0, 16) }), ' — ', c.reason)))
+              : h('p', { class: 'muted', text: t('none') })]
+            : [h('p', { class: 'muted', text: t('close.help') }),
+              SM.can('close_day') ? h('button', { class: 'btn', text: t('close.btn'), onclick: SM.guard(async () => {
+                if (!(await SM.confirm(t('close.btn'), t('close.confirm', { day: day.value })))) return;
+                try { await SM.command('/api/days/close', SM.newKey(), undefined, { day: day.value }); SM.toast(t('close.done')); load(); } catch (e) { SM.fail(e); }
+              }) }) : null]);
+        SM.put(box, closeCard, h('div', { class: 'grid cols-2' },
           h('div', { class: 'card' }, h('h3', { text: t('rep.sales') }), h('dl', { class: 'kv' },
             kv(t('rep.sales_total'), SM.money(r.sales_total)), kv(t('rep.discounts'), SM.money(r.discounts)), kv(t('rep.returns'), SM.money(r.returns)),
             kv(t('rep.net_sales'), SM.money(r.net_sales), t('rep.net_sales_hint')),
             r.cost_of_sales !== undefined ? [kv(t('rep.cost'), SM.money(r.cost_of_sales)), kv(t('rep.margin'), SM.money(r.gross_margin), t('rep.margin_hint')),
-              kv(t('rep.losses'), SM.money(r.losses), t('rep.losses_hint')), kv(t('rep.after_losses'), SM.money(r.margin_after_recorded_losses), t('rep.after_losses_hint'))] : null)),
+              kv(t('rep.losses'), SM.money(r.losses), t('rep.losses_hint')), kv(t('rep.after_losses'), SM.money(r.margin_after_recorded_losses), t('rep.after_losses_hint')),
+              r.cost_adjustments ? kv(t('rep.cost_adjustments'), SM.money(r.cost_adjustments), t('rep.cost_adjustments_hint')) : null,
+              r.supplier_rebates ? kv(t('rep.supplier_rebates'), SM.money(r.supplier_rebates), t('rep.supplier_rebates_hint')) : null] : null,
+            r.gift_lines ? kv(t('rep.gift_lines'), String(r.gift_lines), t('rep.gift_lines_hint')) : null)),
           h('div', { class: 'card' }, h('h3', { text: t('rep.by_method') }), h('p', { class: 'muted', text: t('rep.sales_not_cash') }),
             h('dl', { class: 'kv' }, r.by_method.map(m => kv(t('pay.m.' + m.method) + (m.state !== 'settled' ? ' (' + t('state.' + m.state) + ')' : ''), SM.money(m.amount)))),
             r.refunds_by_method && r.refunds_by_method.length ? [h('h4', { text: t('rep.refunds') }), h('dl', { class: 'kv' }, r.refunds_by_method.map(m => kv(t('refund.' + m.method), SM.money(m.amount))))] : null),

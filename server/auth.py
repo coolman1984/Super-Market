@@ -22,7 +22,7 @@ PERMISSIONS = {
     "produce", "cutting", "recipes", "count", "count_approve", "waste", "transfer",
     "release_hold", "recall", "catalog", "prices", "users", "settings",
     "see_cost", "reports", "export", "backup", "confirm_payments", "credit_sale",
-    "scanner_setup", "approve_variance", "safe",
+    "scanner_setup", "approve_variance", "safe", "close_day",
 }
 
 ROLES = {

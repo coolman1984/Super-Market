@@ -4,7 +4,7 @@
 (function () {
   const { h, t, icon } = SM;
   const cache = {};
-  async function locations() { return cache.loc || (cache.loc = await SM.api('GET', '/api/locations')); }
+  async function locations(fresh) { return (!fresh && cache.loc) || (cache.loc = await SM.api('GET', '/api/locations')); }   // fresh: a place added meanwhile counts
   const locName = (l) => SM.name(l);
   function select(options, value, placeholder) {
     const s = h('select', { class: 'input' }, placeholder ? h('option', { value: '', text: placeholder }) : null,
@@ -20,8 +20,20 @@
     async mount(root) {
       const locs = await locations();
       const suppliers = await SM.api('GET', '/api/parties?kind=supplier').catch(() => []);
+      const invoices = await SM.api('GET', '/api/supplier-invoices').catch(() => []);
       const lines = [];
       const sup = select(suppliers.map(s => ({ value: s.id, label: s.name })), null, t('recv.no_supplier'));
+      /* rows 1-2: goods against an invoice registered before they arrived; the invoice prices them */
+      const preInv = select(invoices.map(i => ({ value: i.id, label: i.supplier + ' — ' + i.number + ' — ' + i.invoice_date })), null, t('recv.no_pre_invoice'));
+      const invLeft = h('div');
+      const onInvoice = () => {
+        const i = invoices.find(x => String(x.id) === preInv.value);
+        [sup, inv, invDate].forEach(el => { el.disabled = !!i; });
+        if (i) { sup.value = String(i.supplier_id); inv.value = i.number; invDate.value = i.invoice_date; }
+        SM.put(invLeft, i ? h('p', { class: 'tip', text: t('recv.invoice_left') + ' ' + i.lines.map(l => SM.name(l) + ': ' + SM.qty(l.qty_left, l.measure)).join('، ') }) : null);
+        draw();
+      };
+      preInv.addEventListener('change', onInvoice);
       const inv = h('input', { class: 'input', maxlength: '60' });
       const invDate = h('input', { class: 'input', type: 'date', value: SM.today() });
       const invDisc = h('input', { class: 'input', inputmode: 'decimal', placeholder: '0' });
@@ -42,6 +54,7 @@
           free: h('input', { class: 'input', inputmode: 'numeric', placeholder: '0' }), rejected: h('input', { class: 'input', inputmode: 'numeric', placeholder: '0' }),
           cost: h('input', { class: 'input', inputmode: 'decimal' }), expires: h('input', { class: 'input', type: 'date' }),
           lot: h('input', { class: 'input', maxlength: '60' }), hold: h('input', { type: 'checkbox' }),
+          kind: select(['purchase', 'gift', 'sample'].map(k => ({ value: k, label: t('recv.kind.' + k) })), 'purchase'),
           loc: select(locs.map(x => ({ value: x.id, label: locName(x) })), (locs.find(x => x.kind === (product.measure === 'g' ? 'prep_fridge' : 'shelf')) || locs[0]).id) };
         if (l.packaging) { l.packs = h('input', { class: 'input', inputmode: 'numeric', value: '1' }); }
         if (scan && scan.expiry_hint) l.expires.value = scan.expiry_hint;
@@ -56,8 +69,9 @@
             l.packs ? SM.field(t('recv.packs', { name: SM.name(l.packaging) }), l.packs) :
               l.product.measure === 'g' ? [SM.field(t('recv.gross_kg'), l.gross, t('recv.gross_help')), SM.field(t('recv.tare_kg'), l.tare)] :
                 SM.field(t('recv.qty_units'), l.qty),
+            SM.field(t('recv.line_kind'), l.kind, t('recv.line_kind_help')),
             SM.field(t('recv.free'), l.free), SM.field(t('recv.rejected'), l.rejected),
-            SM.field(t('recv.line_cost'), l.cost, t('recv.line_cost_help')),
+            preInv.value ? h('p', { class: 'muted', text: t('recv.cost_from_invoice') }) : SM.field(t('recv.line_cost'), l.cost, t('recv.line_cost_help')),
             SM.field(t('recv.expires'), l.expires, l.product.needs_expiry ? t('recv.expiry_required') : t('recv.expiry_optional')),
             SM.field(t('recv.supplier_lot'), l.lot), SM.field(t('recv.location'), l.loc),
             h('label', { class: 'row' }, l.hold, t('recv.hold'))))))
@@ -73,10 +87,11 @@
       post.onclick = async () => {
         try {
           const money = (el) => el.value ? SM.parseMoney(el.value) : 0;
-          const payload = { supplier_id: sup.value ? parseInt(sup.value, 10) : undefined, supplier_invoice: inv.value || undefined,
+          const payload = { invoice_id: preInv.value ? parseInt(preInv.value, 10) : undefined,
+            supplier_id: sup.value ? parseInt(sup.value, 10) : undefined, supplier_invoice: preInv.value ? undefined : inv.value || undefined,
             invoice_date: invDate.value || undefined, invoice_discount: money(invDisc), extra_cost: money(extra), paid_now: money(paid),
             lines: lines.map(l => {
-              const line = { product_id: l.product.id, line_cost: money(l.cost), free_qty: SM.parseInt(l.free.value || '0'),
+              const line = { product_id: l.product.id, line_kind: l.kind.value, line_cost: l.kind.value === 'purchase' ? money(l.cost) : 0, free_qty: SM.parseInt(l.free.value || '0'),
                 rejected_qty: SM.parseInt(l.rejected.value || '0'), expires: l.expires.value || undefined, supplier_lot: l.lot.value || undefined,
                 location_id: parseInt(l.loc.value, 10), hold: l.hold.checked };
               if (l.packs) { line.packaging_id = l.packaging.id; line.packs = SM.parseInt(l.packs.value); }
@@ -95,8 +110,10 @@
           lines.length = 0; key.value = SM.newKey(); draw();
         } catch (e) { SM.fail(e); }
       };
+      const register = h('button', { class: 'btn', onclick: () => invoiceDialog(suppliers, () => SM.go('receive')) }, icon('plus'), t('recv.register_invoice'));
       SM.put(root, 
-        h('div', { class: 'card' }, h('div', { class: 'grid cols-3' }, SM.field(t('recv.supplier'), sup), SM.field(t('recv.invoice'), inv), SM.field(t('recv.invoice_date'), invDate))),
+        h('div', { class: 'card' }, h('div', { class: 'grid cols-3' }, SM.field(t('recv.pre_invoice'), preInv, t('recv.pre_invoice_help')), register), invLeft,
+          h('div', { class: 'grid cols-3' }, SM.field(t('recv.supplier'), sup), SM.field(t('recv.invoice'), inv), SM.field(t('recv.invoice_date'), invDate))),
         h('div', { class: 'scan-bar card' }, icon('scan', 'lg'), scan, pick),
         table,
         h('div', { class: 'card' }, h('div', { class: 'grid cols-3' }, SM.field(t('recv.invoice_discount'), invDisc), SM.field(t('recv.extra_cost'), extra, t('recv.extra_help')),
@@ -105,6 +122,38 @@
     },
     unmount() { SM.scanner.handler = null; },
   };
+
+  /* Rows 1-2: the supplier's invoice before the goods. No stock, no debt until goods arrive. */
+  async function invoiceDialog(suppliers, after) {
+    const products = await SM.api('GET', '/api/products?limit=300').catch(() => []);
+    const sup = select(suppliers.map(x => ({ value: x.id, label: x.name })), null, t('choose'));
+    const no = h('input', { class: 'input', maxlength: '60' }), date = h('input', { class: 'input', type: 'date', value: SM.today() });
+    const rows = h('div', { class: 'stack' });
+    const lines = [];
+    const addRow = () => {
+      const l = { p: select(products.map(r => ({ value: r.id, label: SM.name(r) + ' (' + r.code + ')' })), null, t('choose')),
+        qty: h('input', { class: 'input', inputmode: 'decimal' }), free: h('input', { class: 'input', inputmode: 'numeric', placeholder: '0' }),
+        cost: h('input', { class: 'input', inputmode: 'decimal' }) };
+      lines.push(l);
+      rows.appendChild(h('div', { class: 'grid cols-4' }, SM.field(t('stock.product'), l.p), SM.field(t('recv.invoice_qty'), l.qty, t('recv.invoice_qty_help')),
+        SM.field(t('recv.free'), l.free), SM.field(t('recv.line_cost'), l.cost)));
+    };
+    addRow();
+    const key = SM.newKey();
+    const d = SM.dialog({ title: t('recv.register_invoice'), wide: true, body: [h('p', { class: 'tip', text: t('recv.register_help') }),
+      h('div', { class: 'grid cols-3' }, SM.field(t('recv.supplier'), sup), SM.field(t('recv.invoice'), no), SM.field(t('recv.invoice_date'), date)), rows,
+      h('button', { class: 'btn ghost', onclick: addRow }, icon('plus'), t('recv.add_product'))],
+      actions: [h('button', { class: 'btn primary', text: t('save'), onclick: SM.guard(async () => {
+        try {
+          const payload = { supplier_id: parseInt(sup.value, 10), number: no.value, invoice_date: date.value, lines: lines.filter(l => l.p.value).map(l => {
+            const prod = products.find(r => String(r.id) === l.p.value);
+            return { product_id: prod.id, qty: prod.measure === 'g' ? SM.parseKg(l.qty.value) : SM.parseInt(l.qty.value),
+              free_qty: SM.parseInt(l.free.value || '0'), line_cost: SM.parseMoney(l.cost.value || '0') };
+          }) };
+          await SM.command('/api/supplier-invoices', key, payload); d.close(); SM.toast(t('recv.invoice_saved')); after();
+        } catch (e) { SM.fail(e); }
+      }) })] });
+  }
 
   /* ---------------- stock & lots ---------------- */
   async function lotDrawer(lotId, after) {
@@ -171,6 +220,7 @@
       const actions = h('div', { class: 'toolbar' }, filter, seg,
         SM.can('waste') ? h('button', { class: 'btn', onclick: () => moveDialog('waste', rows, load) }, t('stock.waste')) : null,
         SM.can('transfer') ? h('button', { class: 'btn', onclick: () => moveDialog('transfer', rows, load) }, t('stock.transfer')) : null,
+        SM.can('transfer') ? h('button', { class: 'btn', onclick: () => thawDialog(rows, load) }, t('thaw.btn')) : null,
         SM.can('waste') ? h('button', { class: 'btn', onclick: () => wastePackDialog(load) }, t('stock.waste_pack')) : null,
         SM.can('receive') ? h('button', { class: 'btn', onclick: () => supplierReturnDialog(rows, load) }, t('stock.supplier_return')) : null,
         SM.can('cutting') || SM.can('produce') ? h('button', { class: 'btn ghost', onclick: () => reprintDialog() }, t('prep.reprint')) : null,
@@ -223,9 +273,9 @@
       actions: [h('button', { class: 'btn primary', text: t('prep.reprint'), onclick: SM.guard(async () => {
         const l = await SM.api('GET', '/api/packs/' + encodeURIComponent(code.value.trim()) + '/label').catch(e => { SM.fail(e); return null; });
         if (!l) return;
-        SM.put(out, SM.packLabel({ code: l.code, net_g: l.net_g, meat_g: l.meat_g, meat_basis: l.meat_basis, price: l.price }, { name_ar: l.name_ar, name_en: l.name_en, expires: l.expires, allergens: l.allergens }));
+        SM.put(out, SM.packLabel({ code: l.code, net_g: l.net_g, meat_g: l.meat_g, meat_basis: l.meat_basis, price: l.price }, { name_ar: l.name_ar, name_en: l.name_en, expires: l.expires, allergens: l.allergens, thawed: l.thawed }));
         const area = document.getElementById('print') || document.body.appendChild(h('div', { id: 'print' }));
-        area.className = 'labels-print'; SM.put(area, SM.packLabel({ code: l.code, net_g: l.net_g, meat_g: l.meat_g, meat_basis: l.meat_basis, price: l.price }, { name_ar: l.name_ar, name_en: l.name_en, expires: l.expires, allergens: l.allergens }));
+        area.className = 'labels-print'; SM.put(area, SM.packLabel({ code: l.code, net_g: l.net_g, meat_g: l.meat_g, meat_basis: l.meat_basis, price: l.price }, { name_ar: l.name_ar, name_en: l.name_en, expires: l.expires, allergens: l.allergens, thawed: l.thawed }));
         window.print();
       }) })] });
   }
@@ -243,6 +293,29 @@
           try { await SM.command('/api/recalls/lift', SM.newKey(), undefined, { recall_id: r.id, reason }); SM.toast(t('recall.lifted_toast')); d.close(); after(); }
           catch (e) { SM.fail(e); }
         }) }) }], rows) : h('p', { text: t('none') }) });
+  }
+
+  /* Row 14: out of the freezer; the thawed part keeps the EARLIER date and never goes back. */
+  async function thawDialog(rows, after) {
+    const locs = await locations(true);
+    const frozen = rows.filter(r => { const l = locs.find(x => x.id === r.location_id); return l && l.kind === 'freezer'; });
+    if (!frozen.length) return SM.toast(t('thaw.none'), 'bad');
+    const lot = select(frozen.map(r => ({ value: r.lot_id + ':' + r.location_id, label: SM.name(r) + ' — ' + r.lot_no + ' — ' + SM.qty(r.qty, r.measure) })), null, t('choose'));
+    const qty = h('input', { class: 'input', inputmode: 'decimal' });
+    const places = locs.filter(l => !['freezer', 'waste'].includes(l.kind));
+    const chilled = places.find(l => l.kind === 'prep_fridge') || places.find(l => l.kind === 'display_fridge');   // thaw in the cold, not on a shelf
+    const to = select(places.map(l => ({ value: l.id, label: locName(l) })), chilled ? chilled.id : undefined);
+    const key = SM.newKey();
+    const d = SM.dialog({ title: t('thaw.btn'), body: [h('p', { class: 'tip', text: t('thaw.help') }), SM.field(t('stock.lot'), lot), SM.field(t('stock.qty_help'), qty), SM.field(t('stock.to'), to)],
+      actions: [h('button', { class: 'btn primary', text: t('save'), onclick: SM.guard(async () => {
+        const [lotId, locId] = lot.value.split(':').map(Number);
+        const row = frozen.find(r => r.lot_id === lotId && r.location_id === locId);
+        if (!row) return;
+        try {
+          const r = await SM.command('/api/thaw', key, undefined, { lot_id: lotId, from: locId, to: parseInt(to.value, 10), qty: row.measure === 'g' ? SM.parseKg(qty.value) : SM.parseInt(qty.value) });
+          d.close(); SM.toast(t('thaw.done', { lot: r.lot_no, date: r.expires })); after();
+        } catch (e) { SM.fail(e); }
+      }) })] });
   }
 
   async function moveDialog(kind, rows, after) {
@@ -398,7 +471,8 @@
     return h('div', { class: 'pack-label' }, h('b', { text: SM.name(out) || '' }),
       h('div', {}, t('label.net'), ' ', SM.num(SM.qty(p.net_g, 'g'))), p.meat_g ? h('div', {}, t(p.meat_basis === 'estimated' ? 'label.meat_estimated' : 'label.meat'), ' ', SM.num(SM.qty(p.meat_g, 'g'))) : null,
       h('div', {}, t('label.price'), ' ', SM.num(SM.moneyText(p.price))), h('div', {}, t('label.expires'), ' ', h('span', { class: 'ltr', text: out.expires })),
-      out.allergens ? h('div', {}, t('lots.allergens'), ': ', out.allergens) : null, SM.ean13(p.code), h('div', { class: 'ltr mono', text: p.code }));
+      out.allergens ? h('div', {}, t('lots.allergens'), ': ', out.allergens) : null,
+      out.thawed ? h('div', { class: 'label-warn', text: t('label.thawed') }) : null, SM.ean13(p.code), h('div', { class: 'ltr mono', text: p.code }));
   };
   const EAN = { L: ['0001101', '0011001', '0010011', '0111101', '0100011', '0110001', '0101111', '0111011', '0110111', '0001011'],
     G: ['0100111', '0110011', '0011011', '0100001', '0011101', '0111001', '0000101', '0010001', '0001001', '0010111'],
