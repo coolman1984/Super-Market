@@ -393,6 +393,7 @@ class ApprovalLock(ShopFixture, unittest.TestCase):
         path = self.store.folder
         self.store.close()
         self.store = Store(path, "shop")
+        self.addCleanup(self.store.close)
         self.shop = Shop(self.store)
         with self.assertRaises(ShopError) as c:
             self.guess(self.actor("cash1"), PASSWORD)

@@ -96,6 +96,7 @@ class ClockBehind(ShopFixture, unittest.TestCase):
         core.set_clock(at(30, 22))
         self.shop.close_day(self.owner, key(), "2026-10-30")
         app = App(self.folder / "data")
+        self.addCleanup(app.store.close)      # Windows cannot delete a folder whose database is still open
         self.addCleanup(app.hub.stop)
         self.assertIsNone(app.state(None, {}, {})["clock_behind"])
         core.set_clock(at(29, 12))
