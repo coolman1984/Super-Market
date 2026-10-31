@@ -77,6 +77,13 @@ const out = process.argv[3] || '.';
     res.M4_zero_price_asks_first = await owner.locator('.dialog h2:has-text("' + await T(owner, 'cat.zero_price_title') + '")').count() === 1;
     await owner.keyboard.press('Escape');
   } else res.M9_program_window_not_prompt = 'no product drawer found';
+  // review PR #18: cancelling the zero-price question keeps the new-item form and what was typed
+  await owner.evaluate(() => SM.go('catalog')); await owner.waitForTimeout(600);
+  await owner.click('[data-guide="cat.add"]'); await owner.waitForSelector('.dialog [data-guide="cat.name_ar"]');
+  await owner.fill('.dialog [data-guide="cat.name_ar"]', 'صنف بسعر صفر'); await owner.fill('.dialog [data-guide="cat.price"]', '0');
+  await owner.click('.dialog footer .btn.primary'); await owner.waitForSelector('#confirm-yes');
+  await owner.keyboard.press('Escape'); await owner.waitForTimeout(300);
+  res.zero_price_cancel_keeps_the_form = await owner.locator('#overlay .dialog [data-guide="cat.name_ar"]').inputValue().catch(() => '') === 'صنف بسعر صفر';
   await owner.evaluate(() => SM.go('scanner')); await owner.waitForSelector('#scale-sticker');
   await owner.fill('#scale-sticker', '2100123012503'); await owner.fill('#scale-printed', '1.250');
   await owner.click('#scale-detect'); await owner.waitForTimeout(600);
@@ -84,6 +91,12 @@ const out = process.argv[3] || '.';
   await owner.locator('#scale-stickers').screenshot({ path: out + '/d-scale-sticker.png' });
   await owner.locator('#scale-answer button.primary').first().click(); await owner.waitForTimeout(800);
   res.scale_sticker_saved = await owner.locator('#scale-stickers .badge.ok').count() >= 1;
+  // review PR #18: a scale on a second till gets its own id and keeps the first till's scale
+  await owner.evaluate(() => SM.api('POST', '/api/scanner/devices', { devices: [{ id: 'scale1', type: 'serial', role: 'scale', port: 'COM7', poll: 'none', workstation: 'other-till' }] }));
+  await owner.evaluate(() => SM.go('today')); await owner.evaluate(() => SM.go('scanner')); await owner.waitForSelector('#scale-save');
+  await owner.click('#scale-save'); await owner.waitForTimeout(800);
+  const devs = await owner.evaluate(() => SM.api('GET', '/api/settings').then(s => s.scanner_devices.filter(d => d.role === 'scale').map(d => d.id + '@' + d.workstation)));
+  res.second_till_scale_keeps_the_first = devs.length === 2 && devs.includes('scale1@other-till');
 
   // L1: an ended session says so on the sign-in screen
   await owner.context().clearCookies();

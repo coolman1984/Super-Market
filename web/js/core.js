@@ -268,11 +268,23 @@ SM.ask = (question, opts = {}) => new Promise((resolve) => {
   setTimeout(() => input.focus(), 30);
 });
 
+/* Yes/no on its own layer above any open window (review PR #18): cancelling never loses the form underneath. */
 SM.confirm = (title, text) => new Promise((resolve) => {
+  let layer = document.getElementById('ask-layer');
+  if (!layer) { layer = h('div', { id: 'ask-layer' }); document.body.append(layer); }
+  const previous = document.activeElement;
   let done = false;
-  const d = SM.dialog({ title, body: h('p', { text }), onClose: () => { if (!done) resolve(false); },
-    actions: [h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => d.close() }),
-      h('button', { class: 'btn primary', text: t('confirm'), onclick: () => { done = true; d.close(); resolve(true); } })] });
+  const finish = (v) => { if (done) return; done = true; layer.classList.remove('on'); SM.put(layer); if (previous && previous.focus) previous.focus(); resolve(v); };
+  const yes = h('button', { class: 'btn primary', id: 'confirm-yes', text: t('confirm'), onclick: () => finish(true) });
+  const dlg = h('div', { class: 'dialog', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': title },
+    h('header', {}, h('h2', { text: title }), h('button', { class: 'icon-btn', 'aria-label': t('close'), onclick: () => finish(false) }, icon('x'))),
+    h('div', { class: 'body' }, h('p', { text })),
+    h('footer', {}, h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => finish(false) }), yes));
+  dlg.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); finish(false); } });
+  SM.put(layer, dlg);
+  layer.classList.add('on');
+  layer.onclick = (ev) => { if (ev.target === layer) finish(false); };
+  setTimeout(() => yes.focus(), 30);
 });
 
 /* A simple random temporary password (no look-alike letters), shown to the owner so he can read it out: one click, no thinking. */

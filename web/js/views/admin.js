@@ -503,7 +503,9 @@
     const cabled = h('div', { class: 'card', id: 'scale-cabled', 'data-guide': 'scale.cabled' }, h('h3', { text: t('scale.cable_title') }), h('p', { class: 'muted', text: t('scale.cable_help') }),
       h('div', { class: 'grid cols-3' }, SM.field(t('scale.port'), port, ports.serial.length ? null : t('scale.no_ports')), SM.field(t('scale.sends'), poll, t('scale.sends_help')), SM.field(t('scale.speed'), baud)),
       canSave ? h('button', { class: 'btn primary', id: 'scale-save', text: t('scale.connect'), onclick: SM.guard(async () => {
-        const dev = { id: mine.id || 'scale1', type: 'serial', role: 'scale', port: port.value, poll: poll.value, baud: parseInt(baud.value, 10), parity: 'none', bits: 8, stop: 1, enabled: true, workstation: SM.workstation() };
+        const used = new Set((settings.scanner_devices || []).map(d => d.id));
+        let free = 1; while (used.has('scale' + free)) free++;
+        const dev = { id: mine.id || ('scale' + free), type: 'serial', role: 'scale', port: port.value, poll: poll.value, baud: parseInt(baud.value, 10), parity: 'none', bits: 8, stop: 1, enabled: true, workstation: SM.workstation() };
         const others = (settings.scanner_devices || []).filter(d => d.id !== dev.id);
         try { await SM.api('POST', '/api/scanner/devices', { devices: [...others, dev] }); SM.toast(t('scale.connected_ok')); SM.go('scanner'); } catch (e) { SM.fail(e); }
       }) }) : h('p', { class: 'muted', text: t('scn.need_manager') }),

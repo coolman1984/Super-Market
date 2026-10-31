@@ -136,6 +136,19 @@ class Reader(unittest.TestCase):
         os.write(master, b"US,GS,+  0.800kg\r\n")
         self.assertTrue(self.wait(lambda: hub.weight("till-1")["stable"] is False))
 
+    def test_overload_or_error_drops_the_last_good_weight_at_once(self):
+        # review PR #18: a stable 1.250 kg followed by an overload must not stay offered for two seconds
+        r = scale.ScaleReader({"id": "s1", "type": "serial"}, lambda cfg: None)
+        r.status = "connected"
+        r.feed([b"ST,GS,+ 1.250kg"])
+        self.assertEqual(r.reading()["grams"], 1250)
+        r.feed([b"OL"])
+        self.assertIsNone(r.reading()["grams"])
+        r.feed([b"ST,GS,+ 0.500kg", b"ST,GS,+------kg"])
+        self.assertIsNone(r.reading()["grams"])
+        r.feed([b"ST,GS,+ 0.500kg", b"garbage line"])
+        self.assertEqual(r.reading()["grams"], 500, "noise that is not an error keeps the weight")
+
     def test_an_old_reading_is_not_offered(self):
         r = scale.ScaleReader({"id": "s1", "type": "serial"}, lambda cfg: None)
         r.latest = {"grams": 900, "stable": True, "at": time.monotonic() - 10}

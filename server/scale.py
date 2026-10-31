@@ -89,6 +89,7 @@ def detect_label_layout(code, printed=None, item_code=None):
 # ------------------------------------------------------------------ scales on a COM port
 POLL = {"none": b"", "W": b"W", "W_CR": b"W\r", "ENQ": b"\x05", "P": b"P", "S_CR": b"S\r\n"}
 # a whole number only: never a piece cut out of a longer one ("1.23456" is not "1.2345" or "6")
+_ERROR = re.compile(r"\bOL\b|-{3,}|\bERR", re.I)
 _NUM = re.compile(r"([+-]?)\s*(?<![\d.,])(\d{1,6}(?:[.,]\d{1,3})?)(?![\d.,]\d)\s*(kg|KG|Kg|g|G|lb|LB|oz)?")
 
 
@@ -101,7 +102,7 @@ def parse_weight(frame):
         frame = frame.decode("latin-1", "replace")
     text = frame.replace("\x02", " ").replace("\x03", " ").strip()
     text = text.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩٫", "0123456789."))
-    if not text or re.search(r"\bOL\b|-{3,}|\bERR", text, re.I):
+    if not text or _ERROR.search(text):
         return None
     found = list(_NUM.finditer(text))
     # the weight is the number with a unit, else the last number (CAS-style lines put their flags first)
@@ -146,6 +147,8 @@ class ScaleReader:
             r = parse_weight(f)
             if r is not None:
                 self.latest = dict(r, at=time.monotonic())
+            elif _ERROR.search(f.decode("latin-1", "replace") if isinstance(f, bytes) else f):
+                self.latest = None      # overload or error: the last good weight must not stay offered (review PR #18)
 
     def run(self):
         backoff = 0.5
