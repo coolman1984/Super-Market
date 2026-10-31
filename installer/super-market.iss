@@ -121,8 +121,9 @@ begin
   if WizardIsTaskSelected('lan') then Result := 'lan' else Result := '';
 end;
 
-{ The Windows account that started Setup - not the administrator whose password was typed in the UAC window
-  ({username} is the account running Setup after elevation; review on PR #13). }
+// The Windows account that started Setup - not the administrator whose password was typed in the UAC window
+// (the username constant is the account running Setup after elevation; review on PR #13).
+// Never put curly braces inside a brace comment: the first closing brace ends the comment.
 function OperatorAccount(): String;
 var
   Code: Integer;
