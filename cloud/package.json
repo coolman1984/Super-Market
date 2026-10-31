@@ -1,0 +1,6 @@
+{
+  "name": "super-market-cloud",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test --no-warnings test/cloud.test.js", "dev": "node --no-warnings dev/server.js" }
+}

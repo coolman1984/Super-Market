@@ -8,6 +8,7 @@ tracebacks, LAN access is limited to private addresses.
 
 import argparse
 import contextlib
+import hmac
 import ipaddress
 import json
 import logging
@@ -24,7 +25,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import guidebook, backup, training
 from .auth import Auth, can, require
-from .core import ShopError, integer, text
+from .core import Forbidden, ShopError, integer, text
 from .db import Store
 from .scanner import ScannerHub, list_serial_ports
 from .services import Shop
@@ -55,6 +56,7 @@ class App:
         r = self.route
         r("GET", r"/api/state", self.state)
         r("POST", r"/api/setup", self.setup, auth=False)
+        r("POST", r"/api/local/stop", self.local_stop, auth=False)
         r("POST", r"/api/login", self.login, auth=False)
         r("POST", r"/api/logout", self.logout)
         r("GET", r"/api/guide/state", lambda a, q, b: guidebook.state(self.store, a))
@@ -148,6 +150,8 @@ class App:
         r("POST", r"/api/users", self.add_user)
         r("POST", r"/api/backup", self.make_backup)
         r("GET", r"/api/backups", lambda a, q, b: require(a, "backup") and backup.list_backups(self.backup_folder))
+        r("GET", r"/api/cloud", self.cloud_status, lock=False)
+        r("POST", r"/api/cloud/now", self.cloud_now, lock=False)
         r("GET", r"/api/reconcile", lambda a, q, b: require(a, "reports") and self.shop.reconcile())
 
     def route(self, method, pattern, fn, auth=True, lock=True):
@@ -160,6 +164,29 @@ class App:
                 "user": actor, "shop_name": s["shop_name"], "business_day": self.store.current_business_day(), "instance": s.get("instance_id"), "lan": self.lan,
                 "training_login": {"users": [u for u, _, _ in training.TRAINING_USERS], "password": training.TRAINING_PASSWORD}
                 if self.store.mode == "training" else None}
+
+    stop_key = None
+    cloud = None      # server.cloud.Cloud, set by the launcher of the real shop
+
+    def cloud_status(self, actor, q, body):
+        require(actor, "backup")
+        return self.cloud.status() if self.cloud else {"enabled": False}
+
+    def cloud_now(self, actor, q, body):
+        require(actor, "backup")
+        if not self.cloud or not self.cloud.enabled:
+            raise ShopError("cloud_off", status=409)
+        self.store.tx(lambda: self.store.audit(actor, "cloud_backup_now"))
+        return self.cloud.now_please()
+
+    def local_stop(self, actor, q, body, client=None, key=None, server=None):
+        """Stop the program from this PC only, with the key the launcher wrote into the data
+        folder (only someone who can read that folder can stop it); every saved sale stays."""
+        if not client or not ipaddress.ip_address(client).is_loopback or not self.stop_key or not key \
+                or not hmac.compare_digest(str(key), self.stop_key):
+            raise Forbidden("forbidden")
+        threading.Thread(target=server.shutdown, daemon=True).start()
+        return {"stopping": True}
 
     def setup(self, actor, q, body, client=None):
         if self.auth.has_users():
@@ -510,6 +537,8 @@ def make_handler(app, allowed_lan):
                     with lock:
                         if fn == app.setup:
                             result = fn(actor, query, body, client=self.client_address[0])
+                        elif fn == app.local_stop:
+                            result = fn(actor, query, body, client=self.client_address[0], key=self.headers.get("X-SM-Stop"), server=self.server)
                         elif fn in (app.logout, app.change_password, app.lock, app.unlock):
                             result = fn(actor, query, body, token=token)
                         else:
