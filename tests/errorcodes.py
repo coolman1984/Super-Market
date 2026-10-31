@@ -12,8 +12,6 @@ HELPERS = {"integer": 2, "text": 1, "iso_date": 1}   # helper -> index of the po
 def server_codes():
     codes = set()
     for path in SERVER.glob("*.py"):
-        if path.name == "domain.py":      # the first prototype core, not part of the product
-            continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):

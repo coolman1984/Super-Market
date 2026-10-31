@@ -167,7 +167,7 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 
 ## 5. LOW
 
-- [ ] **L1** `server/domain.py` is dead code (tests `test_domain.py` only). Delete or wire it; update CLAUDE.md.
+- [x] **L1** `server/domain.py` is dead code (tests `test_domain.py` only). Delete or wire it; update CLAUDE.md.
 - [ ] **L2** Promotions use calendar `today()` rather than the business day (`services.py` promotion lookup) — a promo ending "today" stops at midnight though the shop's day continues until `day_start_hour`. Use `self.store.business_day_for(...)`.
 - [ ] **L3** Plain `http://` request to the live Worker returns 500 instead of redirect/400 (`cloudflare-sync` Worker). Return 400/redirect to https; enable "Always Use HTTPS".
 - [x] **L4** Pre-upgrade copy folder uses minute resolution; two upgrades in one minute would collide (`before-<version>`). Include seconds.
