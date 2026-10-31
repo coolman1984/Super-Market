@@ -4,7 +4,7 @@
 
 **المطلوب:** سير الإصدار كان يكمّل إذا غابت شهادة التوقيع ويكتب أن المثبّت بلا توقيع. صار الغياب أو التوقيع غير الصالح يوقف البناء قبل رفع الملف وقبل مسودة الإصدار.
 
-**التنفيذ:** `.github/workflows/release.yml` يوقّع ثم يتحقق بـ `signtool verify /pa` و`Get-AuthenticodeSignature`. السران هما الموجودان أصلًا: `SM_SIGN_PFX_BASE64` و`SM_SIGN_PFX_PASSWORD`. تجربة `workflow_dispatch` تبني ملف العميل نفسه فتخضع لنفس الشرط. ملف CI-TEST في `windows-portable.yml` كما هو. لم تُشترَ شهادة.
+**التنفيذ:** `.github/workflows/release.yml` يوقّع ثم يتحقق بـ `signtool verify /pa` و`Get-AuthenticodeSignature`. السران هما الموجودان أصلًا: `SM_SIGN_PFX_BASE64` و`SM_SIGN_PFX_PASSWORD`. المسار الوحيد بلا توقيع هو `N.N.N-pilot`: يتخطى الخطوتين، ووسمه مسودة prerelease مكتوب فيها أن SmartScreen سيحذّر. غير ذلك يفشل، بما فيه `workflow_dispatch` لنسخة ليست pilot. ملف CI-TEST في `windows-portable.yml` كما هو. لم تُشترَ شهادة.
 
 **التحقق:** سكربت الخطوتين استُخرج من ملف السير وشُغّل على PowerShell 7.5.4 (لينكس) بـ `signtool` وهمي. غياب السر، والشهادة التالفة، وملف CI-TEST، وفشل التوقيع، وحالة `NotSigned` كلها تخرج برمز ١. حالة `Valid` تخرج برمز ٠. لم يُشغَّل سير ويندوز الحقيقي.
 

@@ -1,15 +1,17 @@
 name: release
 # A tag `vX.Y.Z` builds the customer installer on a real Windows machine and attaches it to a DRAFT GitHub Release
-# (the owner publishes it himself after trying it). Required repository secrets: SM_ENROLL_TOKEN (the cloud build
-# token; docs/RELEASE.md) and the code-signing pair SM_SIGN_PFX_BASE64 + SM_SIGN_PFX_PASSWORD.
-# SIG-02: this job fails closed when those signing secrets are missing or the customer installer is not
-# Authenticode-signed (signtool verify /pa and Get-AuthenticodeSignature Status Valid). It must not upload or
-# publish an unsigned SuperMarket-Setup exe. workflow_dispatch builds the same customer-named installer (artifact
-# only, no GitHub Release), so the same gate applies. The CI-TEST installer is windows-portable.yml and is not this job.
+# (the owner publishes it himself after trying it). Required repository secret: SM_ENROLL_TOKEN (the cloud build
+# token; docs/RELEASE.md). Commercial versions also require SM_SIGN_PFX_BASE64 + SM_SIGN_PFX_PASSWORD.
+# SIG-02: a commercial version (anything other than exactly N.N.N-pilot) fails closed when the signing
+# secrets are missing or the installer is not Authenticode-signed (signtool verify /pa and
+# Get-AuthenticodeSignature Status Valid). N.N.N-pilot is the only unsigned path: sign and verify are
+# skipped, and a tag of that version is a draft prerelease whose notes say SmartScreen will warn.
+# workflow_dispatch creates no GitHub Release; it uses the same pilot rule from server/version.py.
+# The CI-TEST installer is windows-portable.yml and is not this job.
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:        # dry run: same customer installer and the same signing gate; creates no release
+  workflow_dispatch:        # dry run: no GitHub Release; sign+verify run unless VERSION is exactly N.N.N-pilot
 
 permissions:
   contents: write
@@ -29,11 +31,15 @@ jobs:
         with:
           node-version: "22"
       - name: The tag matches the program's version
+        id: ver
         shell: pwsh
         run: |
           $v = python -c "from server.version import VERSION; print(VERSION)"
           Write-Host "program version: $v, ref: $env:GITHUB_REF_NAME"
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$v") { throw "tag $env:GITHUB_REF_NAME does not match server/version.py ($v)" }
+          $pilot = ($v -match '^\d+\.\d+\.\d+-pilot$');
+          "pilot=$($pilot.ToString().ToLower())" | Out-File -Append -Encoding ascii $env:GITHUB_OUTPUT
+          Write-Host "SIG-02 pilot=$($pilot.ToString().ToLower())"
       - name: All tests
         run: python tools/ci_tests.py
       - name: Cloud Worker tests
@@ -58,6 +64,7 @@ jobs:
           python tools/journey_exe.py first $h build\launcher.dist\SuperMarket.exe
           if ($LASTEXITCODE -ne 0) { throw 'the built program failed the journey' }
       - name: Sign the customer installer (fails when the certificate secrets are missing)
+        if: steps.ver.outputs.pilot != 'true'
         shell: pwsh
         env:
           PFX: ${{ secrets.SM_SIGN_PFX_BASE64 }}
@@ -108,6 +115,7 @@ jobs:
             if (Test-Path $pfx) { Remove-Item $pfx -Force }
           }
       - name: Verify the Authenticode signature (SIG-02)
+        if: steps.ver.outputs.pilot != 'true'
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
@@ -174,7 +182,14 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          PILOT: ${{ steps.ver.outputs.pilot }}
         run: |
-          $notes = "Customer installer of Super Market $env:GITHUB_REF_NAME.`n`nDownload SuperMarket-Setup-*.exe, run it, open Super Market and sell: the program connects to its cloud copy by itself.`nSHA-256 checksums are in SHA256SUMS.txt.`nDraft: published by the owner after a trial installation."
-          $notes | Out-File -Encoding utf8 release-notes.md
-          gh release create $env:GITHUB_REF_NAME --draft --verify-tag --title "Super Market $env:GITHUB_REF_NAME" --notes-file release-notes.md (Get-ChildItem dist\SuperMarket-Setup-*.exe).FullName dist\SHA256SUMS.txt
+          if ($env:PILOT -eq 'true') {
+            $notes = "UNSIGNED pilot of Super Market $env:GITHUB_REF_NAME.`n`nThis installer is not Authenticode-signed. Windows SmartScreen will warn on first download.`n`nDownload SuperMarket-Setup-*.exe, run it, open Super Market and sell: the program connects to its cloud copy by itself.`nSHA-256 checksums are in SHA256SUMS.txt.`nDraft prerelease: not a commercial customer build. The owner publishes it after a trial installation."
+            $notes | Out-File -Encoding utf8 release-notes.md
+            gh release create $env:GITHUB_REF_NAME --draft --prerelease --verify-tag --title "Super Market $env:GITHUB_REF_NAME" --notes-file release-notes.md (Get-ChildItem dist\SuperMarket-Setup-*.exe).FullName dist\SHA256SUMS.txt
+          } else {
+            $notes = "Customer installer of Super Market $env:GITHUB_REF_NAME.`n`nDownload SuperMarket-Setup-*.exe, run it, open Super Market and sell: the program connects to its cloud copy by itself.`nSHA-256 checksums are in SHA256SUMS.txt.`nDraft: published by the owner after a trial installation."
+            $notes | Out-File -Encoding utf8 release-notes.md
+            gh release create $env:GITHUB_REF_NAME --draft --verify-tag --title "Super Market $env:GITHUB_REF_NAME" --notes-file release-notes.md (Get-ChildItem dist\SuperMarket-Setup-*.exe).FullName dist\SHA256SUMS.txt
+          }
