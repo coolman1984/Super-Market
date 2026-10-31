@@ -1,0 +1,6 @@
+{"case": "E01", "observed": {"customer_owes_after_full_return": 10000, "cash_refunded_twice": 20000}}
+{"case": "E02", "observed": {"old_lot_stock": 0, "old_available_packs": 1000, "reconcile": false}}
+{"case": "E03", "observed": {"ingredient_kind": "ingredient", "claimed_meat_g": 1000}}
+{"case": "E04", "observed": {"shown_line_prices": [10000, 20000], "charged_line_prices": [20000, 10000], "total_unchanged": 30000}}
+{"case": "E05", "observed": {"goods_cannot_be_returned": "refund_exceeds_paid_by_method", "stock": 0}}
+{"case": "E06", "observed": {"customer_balance": 0, "sale_outstanding": 10000, "cash_refund_capacity": 0}}
