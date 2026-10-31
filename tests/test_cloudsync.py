@@ -281,6 +281,27 @@ class Layout(ShopFixture, unittest.TestCase):
         self.assertEqual(sig, cloudsync.sign("s3cret", "POST", "/v1/push", 1700000000, "n" * 32, b'{"a":1}', "st", "dev"))
         self.assertNotEqual(sig, cloudsync.sign("s3cret", "POST", "/v1/push", 1700000001, "n" * 32, b'{"a":1}', "st", "dev"))
 
+    def test_every_call_names_itself_because_cloudflare_blocks_the_default_agent(self):
+        from unittest import mock
+        seen = {}
+
+        class Reply:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b"{}"
+
+        def fake(req, timeout=None):
+            seen.update({k.lower(): v for k, v in req.header_items()})
+            return Reply()
+        with mock.patch("urllib.request.urlopen", fake):
+            cloudsync.Cloud({"url": "https://x.example", "store_id": "s", "device_id": "d", "secret": "k"}).summary()
+        self.assertTrue(seen["user-agent"].startswith("SuperMarket-"))
+
 
 if __name__ == "__main__":
     unittest.main()

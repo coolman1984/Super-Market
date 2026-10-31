@@ -37,6 +37,7 @@ NEVER_SYNCED = {"sessions", "stock_balances", "outbox", "sync_changes", "sync_me
 LOCAL_SETTINGS = {"last_app_version"}
 BATCH_KEYS = 200
 BATCH_TIMEOUT = 40
+USER_AGENT = "SuperMarket-CloudCopy/1"
 RESTORE_LAST = ("barcodes", "day_closes", "day_corrections")   # triggers there need the other tables first
 
 
@@ -211,7 +212,8 @@ class Cloud:
 
 
 def _request(method, url, body, headers, timeout):
-    req = urllib.request.Request(url, data=body, method=method, headers=headers)
+    # Cloudflare's edge rejects the default "Python-urllib" agent with a 403, so every call names itself.
+    req = urllib.request.Request(url, data=body, method=method, headers={"User-Agent": USER_AGENT, **headers})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read() or b"{}")
