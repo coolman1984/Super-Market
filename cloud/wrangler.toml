@@ -1,0 +1,15 @@
+name = "super-market-sync"
+main = "src/worker.js"
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "super-market-sync"
+database_id = "REPLACE-WITH-THE-ID-FROM-wrangler-d1-create"
+
+[triggers]
+crons = ["23 3 * * *"]
+
+# Secrets (never written in this file; deploy.mjs creates them once and never prints them):
+#   MASTER_KEY   derives every device's signing secret. Never rotate it casually: every paired device would be locked out.
+#   ADMIN_KEY    lets the owner create stores and one-time pairing codes (tools/syncctl.py).

@@ -136,6 +136,24 @@ def backup_loop(store, folder, stop, interval=1800):
             logging.getLogger("supermarket").exception("scheduled backup failed")
 
 
+def start_cloud_sync(data, mode, stop):
+    """Only when the owner connected the shop (tools/syncctl.py join); training never syncs.
+    Runs on its own database connection in a background thread; a failure here never reaches the till."""
+    if mode != "shop":
+        return None
+    import logging
+    try:
+        from server import cloudsync
+        if not cloudsync.load_config(data):
+            return None
+        sync = cloudsync.CloudSync(data)
+    except Exception:
+        logging.getLogger("supermarket").exception("cloud sync not started")
+        return None
+    threading.Thread(target=sync.run_forever, args=(stop,), daemon=True).start()
+    return sync
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     training = "training" in argv
@@ -188,6 +206,7 @@ def main(argv=None):
     threading.Timer(0.8, webbrowser.open, (url,)).start()
     stop_backups = threading.Event()
     threading.Thread(target=backup_loop, args=(httpd.app.store, ROOT / ("backups-" + mode), stop_backups), daemon=True).start()
+    start_cloud_sync(data, mode, stop_backups)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

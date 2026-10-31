@@ -63,3 +63,16 @@ sh ui/run.sh <مجلد الصور>      # متصفح كروميوم وPlaywright
 ## ما لم يُتحقق منه بعد
 
 الطابعة الحرارية، والميزان، والماسحات الفعلية، وجهاز ويندوز عميل نظيف، والترخيص، والمتطلبات الضريبية والغذائية. انظر [جدول التغطية](MARKET_COVERAGE_20261031.md) و`docs/05-DELIVERY-PLAN.md`.
+
+## النسخة السحابية (Cloudflare)
+
+الشرح الكامل في [CLOUD_SYNC.md](CLOUD_SYNC.md). الأوامر:
+
+```text
+python tools\syncctl.py status --data shop-data     المتبقي للرفع وتطابق الأعداد (complete: true)
+python tools\syncctl.py push --data shop-data       رفع ما ينتظر الآن
+python tools\syncctl.py leave --data shop-data      إيقاف التسجيل وحذف سر الجهاز (السحابة تحتفظ بنسختها)
+python tools\syncctl.py restore --url ... --store ... --code ... مجلد-جديد   استعادة بعد ضياع الجهاز
+```
+
+أعطال شائعة: «ساعة الجهاز خاطئة» (حتى ٥ دقائق فرق مقبول) · HTTP 401 بعد الإلغاء `admin revoke` · الرفع بطيء عند أول نسخة كبيرة (يستكمل). السجل في `shop-data\server.log`.

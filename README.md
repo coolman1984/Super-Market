@@ -23,10 +23,11 @@ start.bat                 المحل الحقيقي (http://127.0.0.1:8765)
 start-training.bat        التدريب المنفصل (http://127.0.0.1:8766)
 python -m server.app [--training] [--lan] [--data FOLDER]
 python tools/shopctl.py backup | verify | restore
+python tools/syncctl.py status | join | restore   النسخة السحابية الاختيارية (docs/CLOUD_SYNC.md)
 cd tests && python -m unittest      ثم  tests/ui/run.sh
 ```
 
-[دليل صاحب المحل](docs/USER_GUIDE.md) · [دليل الدعم الفني](docs/SUPPORT_GUIDE.md) · [تغطية الحالات](docs/MARKET_COVERAGE_20261031.md) · [إغلاق المراجعة](docs/MARKET_FIXES_20261031.md) · [دليل اللغة](docs/LANGUAGE_GUIDE.md) · [توافق الماسحات](docs/SCANNER_COMPATIBILITY.md) · [تقرير البيئة](ENVIRONMENT_REPORT.md)
+[النسخة السحابية](docs/CLOUD_SYNC.md) · [دليل صاحب المحل](docs/USER_GUIDE.md) · [دليل الدعم الفني](docs/SUPPORT_GUIDE.md) · [تغطية الحالات](docs/MARKET_COVERAGE_20261031.md) · [إغلاق المراجعة](docs/MARKET_FIXES_20261031.md) · [دليل اللغة](docs/LANGUAGE_GUIDE.md) · [توافق الماسحات](docs/SCANNER_COMPATIBILITY.md) · [تقرير البيئة](ENVIRONMENT_REPORT.md)
 
 ## الموجود فعليًا
 

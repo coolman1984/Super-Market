@@ -16,7 +16,7 @@ DB_NAME = "shop.db"
 
 
 class Store:
-    def __init__(self, folder, mode="shop", timeout=10):
+    def __init__(self, folder, mode="shop", timeout=10, upto=None):
         self.folder = pathlib.Path(folder)
         self.folder.mkdir(parents=True, exist_ok=True)
         self.path = self.folder / DB_NAME
@@ -30,8 +30,10 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
         try:
-            self.migrate()
+            self.migrate([m for m in schema.MIGRATIONS if m[0] <= upto] if upto else None)
             self._check_mode()
+            from . import cloudsync
+            cloudsync.ensure_capture(self.db)   # no-op unless the owner connected the cloud copy
         except BaseException:
             self.db.close()  # never leave the file locked (Windows) after a refusal
             raise

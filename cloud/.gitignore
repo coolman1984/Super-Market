@@ -1,0 +1,4 @@
+.admin-key
+dist/
+node_modules/
+.wrangler/

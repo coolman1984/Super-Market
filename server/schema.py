@@ -609,3 +609,21 @@ def m007(conn):
 
 MIGRATIONS.append((7, "business day for shifts past midnight", m007))
 SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+# ---------------------------------------------------------------- migration 8
+# Cloud copy (docs/CLOUD_SYNC.md). Adds only two small tables and changes nothing that exists.
+# sync_changes stays EMPTY until the owner connects the shop to the cloud (server/cloudsync.py then adds
+# row-change triggers); a shop that never connects pays nothing. sync_meta keeps the local sync state.
+M008 = r"""
+CREATE TABLE sync_changes(seq INTEGER PRIMARY KEY AUTOINCREMENT, t TEXT NOT NULL, r INTEGER NOT NULL);
+CREATE TABLE sync_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+"""
+
+
+def m008(conn):
+    run_script(conn, M008)
+
+
+MIGRATIONS.append((8, "cloud copy: change log for the optional Cloudflare sync", m008))
+SCHEMA_VERSION = MIGRATIONS[-1][0]
