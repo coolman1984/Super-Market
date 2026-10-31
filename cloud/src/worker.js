@@ -6,8 +6,11 @@
 //   phone (role "mobile")   GET  /v1/reports/... reads the REPORTS the shop PC published (read-only, signed)
 //                           POST /v1/commands    only {kind:"ping"}; every other command is refused
 //                           (a phone cannot push, pull raw rows, or change anything)
-//   owner (admin key)       POST /admin/stores, /admin/pairing, /admin/revoke, GET /admin/stores/:id
-//   new device              POST /v1/pair        trades a one-time code for its own secret
+//   first run of an installed program  POST /v1/enroll   makes its own store + device, no human step (build token, rate limited)
+//   replacement PC          POST /v1/recover     the store's recovery code trades for a new device (old devices are cut off)
+//   owner (admin key)       POST /admin/stores, /admin/pairing, /admin/revoke, /admin/recovery, /admin/stores/status,
+//                           /admin/builds/revoke, GET /admin/stores/:id        (support fallback; not needed day to day)
+//   new device              POST /v1/pair        trades a one-time code for its own secret (admin fallback)
 //
 // The shop PC's database is the only source of truth. The cloud never merges or recalculates money:
 // it keeps the latest row per (table, id), refuses to let an older version overwrite a newer one, and
@@ -16,7 +19,7 @@
 // are kept only as hashes, and nothing sensitive is ever logged.
 
 const enc = new TextEncoder();
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const MAX_BODY = 900 * 1024;
 const MAX_RECORDS = 200;
 const MAX_RECORD_JSON = 200 * 1024;
@@ -33,6 +36,13 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_PENDING = 500;
 const ROLES = new Set(['shop', 'mobile']);
 const DAY = 86400;
+const BUILD_RE = /^[A-Za-z0-9._-]{1,32}$/;
+const INSTALL_RE = /^[0-9a-f]{32}$/;
+const TRIAL_DAYS = 30;
+// A store made by a first run starts 'pending' (trial). Until a licence activates it, its writes per day are capped
+// so one abusive install cannot use up the free D1 allowance (100k row writes a day for the whole account).
+const DAILY_ROWS = { pending: 20000, active: 60000 };
+const ENROLL_PER_IP_HOUR = 6, ENROLL_PER_IP_DAY = 20, ENROLL_ALL_DAY = 400, RECOVER_PER_IP_HOUR = 10;
 
 const HEADERS = {
   'X-Content-Type-Options': 'nosniff',
@@ -105,6 +115,12 @@ function parseJson(buf) {
   } catch { throw new Fail(400, 'Not a JSON object'); }
 }
 
+// Adds `add` to a counter and says whether it went over `max` (used for the daily row budget of a store).
+async function budgetOver(env, key, add, max, span) {
+  const w = Math.floor(now() / span) * span;
+  const r = await env.DB.prepare('INSERT INTO rate(key, window, count) VALUES(?, ?, ?) ON CONFLICT(key, window) DO UPDATE SET count = count + ? RETURNING count').bind(key, w, add, add).first();
+  return r.count > max;
+}
 async function limitedSpan(env, key, max, span) {
   const w = Math.floor(now() / span) * span;
   const r = await env.DB.prepare('INSERT INTO rate(key, window, count) VALUES(?, ?, 1) ON CONFLICT(key, window) DO UPDATE SET count = count + 1 RETURNING count').bind(key, w).first();
@@ -132,14 +148,15 @@ async function authenticate(env, request, url, bodyBytes) {
   const method = request.method;
   const expected = await hmacHex(secret, [method, url.pathname + url.search, time, nonce, await sha256Hex(bodyBytes), store, device].join('\n'));
   if (!same(expected, sig)) throw new Fail(401, 'Bad signature');
-  const dev = await env.DB.prepare('SELECT role, revoked_at FROM devices WHERE store_id = ? AND id = ?').bind(store, device).first();
+  const dev = await env.DB.prepare('SELECT d.role AS role, d.revoked_at AS revoked_at, m.status AS status FROM devices d LEFT JOIN store_meta m ON m.store_id = d.store_id WHERE d.store_id = ? AND d.id = ?').bind(store, device).first();
   if (!dev || dev.revoked_at) throw new Fail(401, 'Device is not allowed');
+  if (dev.status === 'suspended') throw new Fail(403, 'Store is suspended');
   if (method !== 'GET') {
     // Every write is idempotent already; the nonce only stops a captured request from being replayed.
     const r = await env.DB.prepare('INSERT OR IGNORE INTO nonces(nonce, at) VALUES(?, ?)').bind(store + device + nonce, now()).run();
     if (!(r.meta && r.meta.changes)) throw new Fail(401, 'Replay');
   }
-  return { store, device, role: dev.role };
+  return { store, device, role: dev.role, status: dev.status || 'active' };
 }
 function need(auth, role) { if (auth.role !== role) throw new Fail(403, 'This device may not do that'); }
 
@@ -175,13 +192,124 @@ async function adminStore(env, id) {
   const s = await env.DB.prepare('SELECT id, name, created_at, seq, last_push FROM stores WHERE id = ?').bind(id).first();
   if (!s) throw new Fail(404, 'No such store');
   const devices = (await env.DB.prepare('SELECT id, name, role, created_at, last_seen, revoked_at FROM devices WHERE store_id = ? ORDER BY created_at').bind(id).all()).results;
-  return { store: s, devices };
+  const meta = await env.DB.prepare('SELECT status, build_id, trial_until, created_via FROM store_meta WHERE store_id = ?').bind(id).first();
+  return { store: s, devices, meta: meta || { status: 'active', created_via: 'admin' } };
 }
 async function adminRevoke(env, body) {
   const store = String(body.store_id || ''), device = String(body.device_id || '');
   if (!STORE_RE.test(store) || !DEVICE_RE.test(device)) throw new Fail(400, 'store_id and device_id are required');
   const r = await env.DB.prepare('UPDATE devices SET revoked_at = ? WHERE store_id = ? AND id = ? AND revoked_at IS NULL').bind(now(), store, device).run();
   return { revoked: (r.meta && r.meta.changes) || 0 };
+}
+
+// ---------------------------------------------------------------- first run: the installed program enrolls itself
+// Nobody types anything. The build carries a token `<build>.<signature>` that only this service can have signed;
+// a build can be revoked here at any time. On top of that: per-address and global limits per hour/day, a store that
+// starts 'pending' (trial, capped writes), and idempotency by a random install id so a lost answer never makes two stores.
+async function enrollToken(env, token) {
+  const key = secretOk(env.ENROLL_KEY);
+  if (!key) throw new Fail(503, 'Enrolment is not configured');
+  const text = String(token || '');
+  const cut = text.lastIndexOf('.');
+  const build = text.slice(0, Math.max(cut, 0)), sig = text.slice(cut + 1);
+  if (!BUILD_RE.test(build || '') || !/^[0-9a-f]{32}$/.test(sig || '')) throw new Fail(403, 'Bad build token');
+  const want = (await hmacHex(key, 'SM-ENROLL1|' + build)).slice(0, 32);
+  if (!same(await hmacHex('SM-CMP', sig), await hmacHex('SM-CMP', want))) throw new Fail(403, 'Bad build token');
+  return build;
+}
+async function recoveryCode(env, store) {
+  const master = secretOk(env.MASTER_KEY);
+  if (!master) throw new Fail(503, 'Server is not configured');
+  const bytes = (await hmacHex(master, 'SM-REC1|' + store)).match(/../g).slice(0, 20).map((h) => parseInt(h, 16));
+  const s = bytes.map((x) => CODE_ALPHABET[x % 32]).join('');
+  return [s.slice(0, 5), s.slice(5, 10), s.slice(10, 15), s.slice(15, 20)].join('-');       // 100 bits, written on paper by the owner
+}
+const recoveryHash = (code) => sha256Hex('SM-REC1H|' + normCode(code));
+async function newDevice(env, store, name, t) {
+  const device = randomHex(8);
+  await env.DB.prepare("INSERT INTO devices(store_id, id, name, role, created_at, last_seen) VALUES(?, ?, ?, 'shop', ?, ?)").bind(store, device, name, t, t).run();
+  return device;
+}
+async function credentials(env, store, device, status) {
+  return { store_id: store, device_id: device, secret: await deviceSecret(env, store, device), role: 'shop', status, recovery_code: await recoveryCode(env, store) };
+}
+async function enroll(env, request, body) {
+  const ip = clientIp(request);
+  const build = await enrollToken(env, body.token);
+  if (await limitedSpan(env, 'enroll|' + ip, ENROLL_PER_IP_HOUR, 3600) || await limitedSpan(env, 'enrollday|' + ip, ENROLL_PER_IP_DAY, DAY)) throw new Fail(429, 'Too many tries from this address');
+  const install = String(body.install_id || '');
+  if (!INSTALL_RE.test(install)) throw new Fail(400, 'install_id is required');
+  const name = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : '';
+  const hash = await sha256Hex('SM-INST1|' + install);
+  const t = now();
+  const old = await env.DB.prepare('SELECT e.store_id AS store_id, e.device_id AS device_id, m.status AS status FROM enrollments e LEFT JOIN store_meta m ON m.store_id = e.store_id WHERE e.install_hash = ?').bind(hash).first();
+  if (old) {
+    const dev = await env.DB.prepare('SELECT revoked_at FROM devices WHERE store_id = ? AND id = ?').bind(old.store_id, old.device_id).first();
+    if (dev && !dev.revoked_at) return credentials(env, old.store_id, old.device_id, old.status || 'active');   // a retry after a lost answer
+    throw new Fail(403, 'This installation was cut off; use the recovery code');
+  }
+  if (await limitedSpan(env, 'enrollall|' + DAY, ENROLL_ALL_DAY, DAY)) throw new Fail(429, 'The service is busy; the program tries again later');
+  if (await env.DB.prepare('SELECT 1 FROM builds WHERE build_id = ? AND revoked_at IS NOT NULL').bind(build).first()) throw new Fail(403, 'This build is no longer allowed; update the program');
+  const store = randomHex(16), device = randomHex(8);
+  const label = name || 'Shop';
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO stores(id, name, created_at) VALUES(?, ?, ?)').bind(store, label + ' ' + store.slice(0, 6), t),
+    env.DB.prepare("INSERT INTO store_meta(store_id, status, build_id, trial_until, created_via, recovery_hash) VALUES(?, 'pending', ?, ?, 'enroll', ?)")
+      .bind(store, build, t + TRIAL_DAYS * DAY, await recoveryHash(await recoveryCode(env, store))),
+    env.DB.prepare("INSERT INTO devices(store_id, id, name, role, created_at, last_seen) VALUES(?, ?, ?, 'shop', ?, ?)").bind(store, device, label, t, t),
+    env.DB.prepare('INSERT INTO enrollments(install_hash, store_id, device_id, created_at) VALUES(?, ?, ?, ?)').bind(hash, store, device, t),
+  ]);
+  return credentials(env, store, device, 'pending');
+}
+
+// A replacement PC: the recovery code (kept by the owner) is the proof. All older devices of the store are cut off
+// (a lost or stolen PC stops at once). Wrong codes are counted per address; the code has 100 bits so it cannot be guessed.
+async function recover(env, request, body) {
+  const ip = clientIp(request);
+  await enrollToken(env, body.token);
+  if (await limitedSpan(env, 'recover|' + ip, RECOVER_PER_IP_HOUR, 3600)) throw new Fail(429, 'Too many tries from this address');
+  const code = normCode(body.code);
+  const install = String(body.install_id || '');
+  if (code.length !== 20 || !INSTALL_RE.test(install)) throw new Fail(400, 'code and install_id are required');
+  const name = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : 'Shop PC';
+  const row = await env.DB.prepare('SELECT store_id, status FROM store_meta WHERE recovery_hash = ?').bind(await recoveryHash(code)).first();
+  if (!row) throw new Fail(403, 'The recovery code is wrong');
+  const hash = await sha256Hex('SM-INST1|' + install);
+  const again = await env.DB.prepare('SELECT store_id, device_id FROM enrollments WHERE install_hash = ?').bind(hash).first();
+  if (again) {
+    if (again.store_id !== row.store_id) throw new Fail(409, 'This installation belongs to another shop');
+    const dev = await env.DB.prepare('SELECT revoked_at FROM devices WHERE store_id = ? AND id = ?').bind(again.store_id, again.device_id).first();
+    if (dev && !dev.revoked_at) return credentials(env, again.store_id, again.device_id, row.status);   // a retry after a lost answer
+  }
+  const t = now();
+  const device = randomHex(8);
+  await env.DB.batch([
+    env.DB.prepare("UPDATE devices SET revoked_at = ? WHERE store_id = ? AND role = 'shop' AND revoked_at IS NULL").bind(t, row.store_id),
+    env.DB.prepare("INSERT INTO devices(store_id, id, name, role, created_at, last_seen) VALUES(?, ?, ?, 'shop', ?, ?)").bind(row.store_id, device, name, t, t),
+    env.DB.prepare('INSERT OR REPLACE INTO enrollments(install_hash, store_id, device_id, created_at) VALUES(?, ?, ?, ?)').bind(hash, row.store_id, device, t),
+  ]);
+  return credentials(env, row.store_id, device, row.status);
+}
+
+async function adminRecovery(env, body) {
+  const store = String(body.store_id || '');
+  if (!STORE_RE.test(store)) throw new Fail(400, 'store_id is required');
+  const meta = await env.DB.prepare('SELECT recovery_hash FROM store_meta WHERE store_id = ?').bind(store).first();
+  if (!meta) throw new Fail(404, 'This store has no recovery code (it was made by hand: use /admin/pairing)');
+  return { recovery_code: await recoveryCode(env, store) };
+}
+async function adminStatus(env, body) {
+  const store = String(body.store_id || ''), status = String(body.status || '');
+  if (!STORE_RE.test(store) || !['pending', 'active', 'suspended'].includes(status)) throw new Fail(400, 'store_id and status (pending|active|suspended) are required');
+  const r = await env.DB.prepare('UPDATE store_meta SET status = ? WHERE store_id = ?').bind(status, store).run();
+  if (!(r.meta && r.meta.changes)) throw new Fail(404, 'No such enrolled store');
+  return { store_id: store, status };
+}
+async function adminBuildRevoke(env, body) {
+  const build = String(body.build_id || '');
+  if (!BUILD_RE.test(build)) throw new Fail(400, 'build_id is required');
+  await env.DB.prepare('INSERT INTO builds(build_id, revoked_at) VALUES(?, ?) ON CONFLICT(build_id) DO UPDATE SET revoked_at = excluded.revoked_at').bind(build, now()).run();
+  return { build_id: build, revoked: true };
 }
 
 // A new device trades the one-time code for its own device id + secret. The code is single-use and short-lived;
@@ -224,6 +352,9 @@ async function push(env, auth, body) {
   if (body.records.length > MAX_RECORDS) throw new Fail(413, 'At most ' + MAX_RECORDS + ' records per push');
   const recs = body.records.map(checkRecord);
   const n = recs.length;
+  if (await budgetOver(env, 'rows|' + auth.store, n, DAILY_ROWS[auth.status] || DAILY_ROWS.active, DAY)) {
+    throw new Fail(429, 'Daily copy limit reached for this shop; the copy continues tomorrow');
+  }
   const stmts = [env.DB.prepare('UPDATE stores SET seq = seq + ?, last_push = ? WHERE id = ?').bind(n, now(), auth.store)];
   // An older version never replaces a newer one (a retried or reordered push is harmless).
   const sql = 'INSERT INTO records(store_id, tbl, rid, v, seq, deleted, data) VALUES(?, ?, ?, ?, (SELECT seq FROM stores WHERE id = ?) - ? + ?, ?, ?) '
@@ -348,6 +479,11 @@ export async function cleanup(env) {
     env.DB.prepare('DELETE FROM pairings WHERE expires_at < ?').bind(t - DAY),
     env.DB.prepare("UPDATE commands SET status = 'expired', done_at = ? WHERE status = 'pending' AND created_at < ?").bind(t, t - 7 * DAY),
     env.DB.prepare("DELETE FROM commands WHERE status <> 'pending' AND done_at < ?").bind(t - 30 * DAY),
+    // an enrolled store that never sent a single row for 14 days holds no data: forget it (spam / abandoned installs)
+    env.DB.prepare("DELETE FROM devices WHERE store_id IN (SELECT m.store_id FROM store_meta m JOIN stores s ON s.id = m.store_id WHERE m.status = 'pending' AND s.last_push IS NULL AND s.created_at < ?)").bind(t - 14 * DAY),
+    env.DB.prepare("DELETE FROM enrollments WHERE store_id IN (SELECT m.store_id FROM store_meta m JOIN stores s ON s.id = m.store_id WHERE m.status = 'pending' AND s.last_push IS NULL AND s.created_at < ?)").bind(t - 14 * DAY),
+    env.DB.prepare("DELETE FROM stores WHERE id IN (SELECT m.store_id FROM store_meta m JOIN stores s ON s.id = m.store_id WHERE m.status = 'pending' AND s.last_push IS NULL AND s.created_at < ?)").bind(t - 14 * DAY),
+    env.DB.prepare("DELETE FROM store_meta WHERE store_id NOT IN (SELECT id FROM stores)"),
   ]);
 }
 
@@ -363,10 +499,15 @@ async function handle(request, env) {
     if (path === '/admin/stores' && request.method === 'POST') return reply(200, await adminCreateStore(env, body));
     if (path === '/admin/pairing' && request.method === 'POST') return reply(200, await adminPairing(env, body));
     if (path === '/admin/revoke' && request.method === 'POST') return reply(200, await adminRevoke(env, body));
+    if (path === '/admin/recovery' && request.method === 'POST') return reply(200, await adminRecovery(env, body));
+    if (path === '/admin/stores/status' && request.method === 'POST') return reply(200, await adminStatus(env, body));
+    if (path === '/admin/builds/revoke' && request.method === 'POST') return reply(200, await adminBuildRevoke(env, body));
     const m = path.match(/^\/admin\/stores\/([0-9a-f]{32})$/);
     if (m && request.method === 'GET') return reply(200, await adminStore(env, m[1]));
     throw new Fail(404, 'Not found');
   }
+  if (path === '/v1/enroll' && request.method === 'POST') return reply(200, await enroll(env, request, parseJson(await readBody(request, MAX_SMALL))));
+  if (path === '/v1/recover' && request.method === 'POST') return reply(200, await recover(env, request, parseJson(await readBody(request, MAX_SMALL))));
   if (path === '/v1/pair' && request.method === 'POST') return reply(200, await pair(env, request, parseJson(await readBody(request, MAX_SMALL))));
 
   if (path.startsWith('/v1/')) {

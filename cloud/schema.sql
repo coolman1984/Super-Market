@@ -54,3 +54,23 @@ CREATE TABLE IF NOT EXISTS commands (        -- device -> shop PC requests; the 
 CREATE INDEX IF NOT EXISTS commands_pending ON commands (store_id, status, id);
 CREATE TABLE IF NOT EXISTS nonces (nonce TEXT PRIMARY KEY, at INTEGER NOT NULL) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS rate (key TEXT NOT NULL, window INTEGER NOT NULL, count INTEGER NOT NULL, PRIMARY KEY (key, window)) WITHOUT ROWID;
+-- First-run enrolment (worker 1.2.0). New tables only, so this file stays safe to run again on a live database.
+CREATE TABLE IF NOT EXISTS store_meta (      -- extra facts about stores made by an installed program (stores made by hand have no row = active)
+  store_id      TEXT PRIMARY KEY,
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'suspended')),  -- pending = trial; the licence hub will activate
+  build_id      TEXT,
+  trial_until   INTEGER,
+  created_via   TEXT,
+  recovery_hash TEXT                         -- sha256 of the recovery code; the code itself is derived from MASTER_KEY, never stored
+) WITHOUT ROWID;
+CREATE UNIQUE INDEX IF NOT EXISTS store_meta_recovery ON store_meta (recovery_hash);
+CREATE TABLE IF NOT EXISTS enrollments (     -- one row per installation (hash of its random install id): a retry never makes a second store
+  install_hash TEXT PRIMARY KEY,
+  store_id     TEXT NOT NULL,
+  device_id    TEXT NOT NULL,
+  created_at   INTEGER NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS builds (          -- builds whose token is cut off (a leaked build token)
+  build_id   TEXT PRIMARY KEY,
+  revoked_at INTEGER
+) WITHOUT ROWID;

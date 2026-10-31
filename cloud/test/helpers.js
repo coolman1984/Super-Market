@@ -4,7 +4,9 @@ import { makeEnv } from '../dev/server.js';
 
 export const MASTER = 'master-key-for-tests-0123456789abcdef';
 export const ADMIN = 'admin-key-for-tests-0123456789abcdef';
-export const newEnv = (extra) => makeEnv({ MASTER_KEY: MASTER, ADMIN_KEY: ADMIN, ...(extra || {}) });
+export const ENROLL = 'enroll-key-for-tests-0123456789abcdef';
+export const newEnv = (extra) => makeEnv({ MASTER_KEY: MASTER, ADMIN_KEY: ADMIN, ENROLL_KEY: ENROLL, ...(extra || {}) });
+export async function buildToken(build = 'v0.1.0', key = ENROLL) { return build + '.' + (await hmacHex(key, 'SM-ENROLL1|' + build)).slice(0, 32); }
 
 export const call = (env, method, path, { body, headers } = {}) =>
   worker.fetch(new Request('http://sync.test' + path, { method, headers: { 'CF-Connecting-IP': '9.9.9.9', ...(headers || {}) }, body }), env);

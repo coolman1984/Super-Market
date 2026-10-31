@@ -6,7 +6,7 @@ import worker from '../src/worker.js';
 import { D1 } from './d1.js';
 
 export function makeEnv(extra = {}) {
-  return { DB: new D1(process.env.SYNC_DB || ':memory:'), MASTER_KEY: process.env.MASTER_KEY || '', ADMIN_KEY: process.env.ADMIN_KEY || '', ...extra };
+  return { DB: new D1(process.env.SYNC_DB || ':memory:'), MASTER_KEY: process.env.MASTER_KEY || '', ADMIN_KEY: process.env.ADMIN_KEY || '', ENROLL_KEY: process.env.ENROLL_KEY || '', ...extra };
 }
 
 export function serve(env, port = 0) {
