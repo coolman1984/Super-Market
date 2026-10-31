@@ -162,6 +162,9 @@ class App:
             if body.get("shop_name"):
                 self.store.db.execute("INSERT INTO settings VALUES('shop_name',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                                       (json.dumps(str(body["shop_name"])[:80]),))
+            # owner decision 31 Oct 2026: thawed meat keeps 2 days at most (still capped by its own expiry);
+            # changeable in settings, and an empty value stops thawing again
+            self.store.db.execute("INSERT OR IGNORE INTO settings VALUES('thaw_shelf_life_days','2')")
             for code, ar, en, kind, sellable in (("SH", "رفوف البقالة", "Grocery shelves", "shelf", 1),
                                                  ("FR", "ثلاجة العرض", "Display fridge", "display_fridge", 1),
                                                  ("PR", "ثلاجة التجهيز", "Prep fridge", "prep_fridge", 0),
