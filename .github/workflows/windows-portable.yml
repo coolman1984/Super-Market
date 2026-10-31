@@ -116,7 +116,10 @@ jobs:
           $acl = (icacls (Join-Path ${env:ProgramData} 'SuperMarket')) -join "`n"
           Write-Host $acl
           if ($acl -match 'BUILTIN\\Users' -or $acl -match 'Authenticated Users' -or $acl -match 'Everyone') { throw 'the data folder is open to other Windows accounts' }
-          $h = Join-Path ${env:RUNNER_TEMP} 'sm-installed'
+          $me = (whoami)
+          if ($acl -notmatch [regex]::Escape($me)) { throw "the operator account $me did not get access to the data folder" }
+          # the real, protected data folder - no SM_HOME override (review on PR #13)
+          $h = 'installed'
           python tools/journey_exe.py first $h $exe
           if ($LASTEXITCODE -ne 0) { throw 'the first journey failed' }
           (Start-Process -FilePath $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru).WaitForExit()
@@ -127,7 +130,7 @@ jobs:
           Start-Sleep -Seconds 3
           if (Test-Path $exe) { throw 'uninstall left the program behind' }
           if (-not (Test-Path (Join-Path ${env:ProgramData} 'SuperMarket'))) { throw 'uninstall removed the data folder' }
-          if (-not (Test-Path (Join-Path $h 'shop-data\shop.db'))) { throw 'uninstall removed the shop data' }
+          if (-not (Test-Path (Join-Path ${env:ProgramData} 'SuperMarket\shop-data\shop.db'))) { throw 'uninstall removed the shop data' }
           Write-Host 'installed, journeyed, updated, uninstalled: the data stayed'
           exit 0
       - uses: actions/upload-artifact@v4

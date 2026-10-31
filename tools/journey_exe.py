@@ -3,7 +3,8 @@
     python tools/journey_exe.py first <home> <exe>     set the shop up, add an item, receive it, sell it, stop
     python tools/journey_exe.py after <home> <exe>     after an update (or a restart): everything is still there
 
-<home> is SM_HOME (the data folder). The program runs in the background (no window, no message boxes).
+<home> is SM_HOME (the data folder); "installed" means no override: the program uses its real, protected
+%ProgramData%\SuperMarket. The program runs in the background (no window, no message boxes).
 """
 import http.client
 import json
@@ -31,8 +32,23 @@ def call(method, path, body=None, cookie=None):
     return resp.status, data, cookie
 
 
+def env_for(home, **extra):
+    env = dict(os.environ, SM_QUIET="1", **extra)
+    if home == "installed":
+        env.pop("SM_HOME", None)
+    else:
+        env["SM_HOME"] = home
+    return env
+
+
+def data_folder(home):
+    if home == "installed":
+        return os.path.join(os.environ.get("ProgramData", "C:\\ProgramData"), "SuperMarket")
+    return home
+
+
 def start(home, exe):
-    env = dict(os.environ, SM_HOME=home, SM_QUIET="1", SM_NO_WINDOW="1")
+    env = env_for(home, SM_NO_WINDOW="1")
     cmd = [exe, "--background"] if exe.lower().endswith(".exe") else [exe, "launcher.py", "--background"]
     proc = subprocess.Popen(cmd, env=env)
     for _ in range(90):
@@ -47,7 +63,7 @@ def start(home, exe):
 
 
 def stop(home, exe):
-    env = dict(os.environ, SM_HOME=home, SM_QUIET="1")
+    env = env_for(home)
     cmd = [exe, "stop"] if exe.lower().endswith(".exe") else [exe, "launcher.py", "stop"]
     if subprocess.call(cmd, env=env) != 0:
         raise SystemExit("stop failed")
@@ -90,7 +106,7 @@ def first(home, exe):
                                                    expected_total=quote["total"], quote_hash=quote["quote_hash"])}, c)
     assert status == 200 and sale["change"] == 3000, sale
     stop(home, exe)
-    assert os.path.exists(os.path.join(home, "shop-data", "shop.db")), "data was not written to SM_HOME"
+    assert os.path.exists(os.path.join(data_folder(home), "shop-data", "shop.db")), "data was not written to " + data_folder(home)
     print("first journey OK: sale", sale["no"])
 
 

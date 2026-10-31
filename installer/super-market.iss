@@ -86,8 +86,9 @@ Name: "autostart"; Description: "{cm:AutoStart}"
 Name: "lan"; Description: "{cm:Lan}"; Flags: unchecked
 
 [Dirs]
-; data, backups and logs: kept when the program is updated or removed. Access is narrowed in [Run] (icacls): SYSTEM, the
-; administrators and ONE operator account (the person who installs, or /OPERATOR=DOMAIN\name) - as in the Yousef app.
+; data, backups and logs: kept when the program is updated or removed. Access is narrowed in [Code] (icacls): SYSTEM, the
+; administrators and ONE operator account: the Windows account that STARTED Setup (found with ExecAsOriginalUser, so a
+; normal user who types an administrator's password in the UAC window still gets the access), or /OPERATOR=DOMAIN\name.
 Name: "{commonappdata}\SuperMarket"; Permissions: admins-full system-full; Flags: uninsneveruninstall
 
 [Files]
@@ -102,7 +103,6 @@ Name: "{autoprograms}\{cm:Recovery}"; Filename: "{cmd}"; Parameters: "/k ""{app}
 Name: "{commonstartup}\{#MyAppName}"; Filename: "{app}\SuperMarket.exe"; Parameters: "--background {code:LanArg}"; Tasks: autostart
 
 [Run]
-Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\SuperMarket"" /inheritance:r /grant:r ""*S-1-5-18:(OI)(CI)F"" ""*S-1-5-32-544:(OI)(CI)F"" ""{param:OPERATOR|{username}}:(OI)(CI)M"" /remove:g ""*S-1-5-32-545"" ""*S-1-5-11"""; Flags: runhidden; StatusMsg: "{cm:Protect}"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#MyAppName}"""; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""{#MyAppName}"" dir=in action=allow program=""{app}\SuperMarket.exe"" enable=yes profile=private,domain"; Flags: runhidden; Tasks: lan
 Filename: "{app}\SuperMarket.exe"; Parameters: "{code:LanArg}"; Description: "{cm:OpenNow}"; Flags: nowait postinstall skipifsilent runasoriginaluser
@@ -121,6 +121,23 @@ begin
   if WizardIsTaskSelected('lan') then Result := 'lan' else Result := '';
 end;
 
+{ The Windows account that started Setup - not the administrator whose password was typed in the UAC window
+  ({username} is the account running Setup after elevation; review on PR #13). }
+function OperatorAccount(): String;
+var
+  Code: Integer;
+  Out: String;
+  Raw: AnsiString;
+begin
+  Result := ExpandConstant('{param:OPERATOR|}');
+  if Result <> '' then exit;
+  Out := ExpandConstant('{tmp}\operator.txt');
+  if ExecAsOriginalUser(ExpandConstant('{cmd}'), '/c whoami > "' + Out + '"', '', SW_HIDE, ewWaitUntilTerminated, Code)
+     and LoadStringFromFile(Out, Raw) then
+    Result := Trim(String(Raw));
+  if Result = '' then Result := ExpandConstant('{username}');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Code: Integer;
@@ -128,4 +145,11 @@ begin
   { an update: stop the running program first so its files can be replaced; every saved sale stays }
   if CurStep = ssInstall then
     Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM SuperMarket.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  { the data folder: SYSTEM, administrators and the operator only; other Windows accounts are removed }
+  if CurStep = ssPostInstall then
+  begin
+    WizardForm.StatusLabel.Caption := CustomMessage('Protect');
+    Exec(ExpandConstant('{sys}\icacls.exe'), '"' + ExpandConstant('{commonappdata}\SuperMarket') + '" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "'
+      + OperatorAccount() + ':(OI)(CI)M" /remove:g "*S-1-5-32-545" "*S-1-5-11"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  end;
 end;
