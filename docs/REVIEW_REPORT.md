@@ -89,13 +89,15 @@ The **sales/stock/money core is strong**: 210 Python tests + 9 Worker tests pass
 - **Impact:** on LAN mode (or any local user) 5 bad tries per 5 minutes keep the owner/manager permanently locked out; reproduced: after 6 bad attempts the correct password returned `account_locked`.
 - **Fix:** key throttling by (username + client IP + workstation) and add a global per-IP limiter (HTTP 429, exponential back-off); do not lock the account itself for >60 s unless failures are from the same IP; allow the owner to unlock from the shop PC (`127.0.0.1`) via existing recovery. Test: 100 bad logins from IP B never block IP A.
 
-### [ ] H3 — Hardware & real-shop validation missing (SALE_READINESS gates 6, 8)
+### [x] H3 (code part) — Hardware & real-shop validation missing (SALE_READINESS gates 6, 8)
+- **Status:** a printer test (58 / 80 mm, Arabic) is on the scanner screen. Real hardware validation is still the owner's task; nothing here claims the hardware works.
 - **Where:** `docs/SALE_READINESS.md`, `docs/FIELD_TEST.md`.
 - **Problem:** Arabic thermal receipt printing, barcode scanner behaviour (keyboard-wedge speed, prefixes), label scale/weighed barcodes, cash drawer — only simulated. No non-technical person ran a full day.
 - **Impact:** first customer finds printing/scanning problems; reputation risk.
 - **Fix:** (owner/hardware task, not code) run `docs/FIELD_TEST.md` on the shop PC with the real printer/scanner/scale; record results in a new `docs/FIELD_TEST_RESULTS.md`; Claude: add a one-screen "device test" page with print-test receipt (Arabic + 58/80 mm), scanner test, and scale-barcode test, whose result is stored.
 
-### [ ] H4 — Egyptian tax/e-receipt compliance undefined (gate 7)
+### [x] H4 (documentation part) — Egyptian tax/e-receipt compliance undefined (gate 7)
+- **Status:** `docs/ETA_QUESTIONS.md` lists the questions for the accountant; a test keeps the "not a tax invoice" wording. ETA compliance itself is NOT implemented.
 - **Where:** receipts say "ليس فاتورة ضريبية"; `tax_mode` only allows `"unverified"` (`services.py` `SETTING_RULES`).
 - **Impact:** a shop that must issue ETA e-receipts/e-invoices cannot legally use the program as its till; blocks sale to registered shops.
 - **Fix:** owner/accountant must confirm obligations (Egyptian Tax Authority e-receipt rules for retail). Then implement as a separate module (receipt number sequence per ETA, tax lines/VAT rates per product, export). Until then, ship with a clear contract/UI statement that the program is an internal management system, not an ETA-compliant invoicing system. (Do not guess tax rules in code.)

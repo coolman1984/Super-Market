@@ -254,7 +254,31 @@
       }
       const sheet = h('div', { class: 'card' }, h('h3', { text: t('scn.sheet') }), h('p', { class: 'muted', text: t('scn.sheet_help') }),
         h('div', { class: 'labels' }, ['6220000000013', '0012345678905', '2112345012506'].map(c => h('div', { class: 'pack-label' }, SM.ean13(c), h('div', { class: 'ltr mono', text: c })))));
-      SM.put(root, h('p', { class: 'tip', text: t('scn.intro') }), h('div', { class: 'toolbar' }, seg), body, sheet);
+      /* H3: a device test the owner can run on the real shop PC; the answer is kept on this PC, never claimed for the hardware */
+      const deviceTest = () => {
+        const last = SM.prefs.get('device_test', {});
+        const lastBox = h('p', { class: 'muted' });
+        const showLast = () => SM.put(lastBox, ...(last.print ? [t('dev.last_print', { mm: last.print.mm, result: t(last.print.ok ? 'dev.ok' : 'dev.bad'), at: last.print.at })] : [t('dev.none_yet')]));
+        const remember = (mm, ok) => { last.print = { mm, ok, at: new Date().toLocaleString('en-GB', { timeZone: 'Africa/Cairo' }) }; SM.prefs.set('device_test', last); showLast(); };
+        const test = {
+          no: 'TEST-0001', at: new Date().toISOString(), cashier: t('dev.cashier'), shop_name: SM.state.settings.shop_name || t('app.name'),
+          lines: [{ name_ar: 'لبن كامل الدسم ١ لتر — جرّب الحروف: أ إ آ ؤ ئ ة ى', name_en: 'Full-cream milk 1 L', qty: 2, measure: 'piece', unit_price: 4550, gross: 9100, discount: 0 },
+            { name_ar: 'جبنة رومي — ٢٥٠ جم', name_en: 'Roumy cheese 250 g', qty: 1, measure: 'piece', unit_price: 12075, gross: 12075, discount: 0 }],
+          discount: 0, total: 21175, payments: [{ method: 'cash', amount: 21175, state: 'settled' }], cash_tendered: 25000, change: 3825, footer: t('dev.footer') };
+        const run = async (mm) => {
+          let area = document.getElementById('print');
+          if (!area) { area = h('div', { id: 'print' }); document.body.append(area); }
+          area.className = 'w' + mm;
+          SM.put(area, SM.receipt(test));
+          window.print();
+          const ok = await SM.confirm(t('dev.print_q_title'), t('dev.print_q', { mm }));
+          remember(mm, ok);
+        };
+        showLast();
+        return h('div', { class: 'card', 'data-guide': 'dev.card' }, h('h3', { text: t('dev.title') }), h('p', { class: 'muted', text: t('dev.help') }),
+          h('div', { class: 'toolbar' }, [58, 80].map(mm => h('button', { class: 'btn', text: t('dev.print', { mm }), onclick: SM.guard(() => run(mm)) }))), lastBox);
+      };
+      SM.put(root, h('p', { class: 'tip', text: t('scn.intro') }), h('div', { class: 'toolbar' }, seg), body, sheet, deviceTest());
       draw();
     },
   };
