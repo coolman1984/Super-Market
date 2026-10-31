@@ -18,13 +18,11 @@ import argparse
 import json
 import os
 import pathlib
-import socket
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from server import cloudsync  # noqa: E402
 from server.core import ShopError  # noqa: E402
-from server.db import Store  # noqa: E402
 
 
 def admin_key(args):
@@ -44,27 +42,25 @@ def run_admin(args):
     if args.what == "new-store":
         return cloudsync.admin_call(args.url, key, "POST", "/admin/stores", {"name": args.name})
     if args.what == "pairing":
-        return cloudsync.admin_call(args.url, key, "POST", "/admin/pairing", {"store_id": args.store, "role": args.role})
+        out = cloudsync.admin_call(args.url, key, "POST", "/admin/pairing", {"store_id": args.store, "role": args.role})
+        if out.get("code"):      # the one string the shop owner types in «ربط بالسحابة» (valid 15 minutes, once)
+            out["connection_code"] = cloudsync.CONNECT_PREFIX + "%s-%s" % (args.store, out["code"])
+        return out
     if args.what == "devices":
         return cloudsync.admin_call(args.url, key, "GET", "/admin/stores/" + args.store)
     return cloudsync.admin_call(args.url, key, "POST", "/admin/revoke", {"store_id": args.store, "device_id": args.device})
 
 
-def device_name():
-    return "PC " + (socket.gethostname() or "shop")[:40]
+def ids(args):
+    if args.store:
+        return args.store, args.code
+    return cloudsync.parse_connect_code(args.code)
 
 
 def run_join(args):
-    config = cloudsync.pair(args.url, args.store, args.code, device_name())
-    if config["role"] != "shop":
-        raise ShopError("sync_not_connected")
-    store = Store(args.data, "shop")
-    try:
-        cloudsync.enable(store.db, store.mode)
-    finally:
-        store.close()
-    cloudsync.save_config(args.data, config)
-    return {"connected": True, "store_id": config["store_id"], "device_id": config["device_id"],
+    store, code = ids(args)
+    out = cloudsync.join(args.data, args.url, store, code)
+    return {"connected": True, **out,
             "next": "restart the program: it now sends a copy of the shop to the cloud by itself"}
 
 
@@ -85,19 +81,13 @@ def run_push(args):
 
 
 def run_leave(args):
-    store = Store(args.data, "shop")
-    try:
-        cloudsync.disable(store.db)
-    finally:
-        store.close()
-    path = pathlib.Path(args.data) / cloudsync.CONFIG_NAME
-    if path.exists():
-        path.unlink()
+    cloudsync.leave(args.data)
     return {"left": True, "note": "the cloud keeps its copy; revoke this PC with 'admin revoke' if it is lost"}
 
 
 def run_restore(args):
-    config = cloudsync.pair(args.url, args.store, args.code, device_name())
+    store, code = ids(args)
+    config = cloudsync.pair(args.url, store, code, cloudsync.device_name())
     report = cloudsync.restore_from_cloud(cloudsync.Cloud(config), args.target, progress=lambda n: print("  ...%d rows" % n, file=sys.stderr))
     cloudsync.save_config(args.target, config)
     report["next"] = ("start the program on this folder, give every user a new password with owner-recovery.bat, "
@@ -111,7 +101,7 @@ def main(argv=None):
     sub = p.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("admin")
     a.add_argument("what", choices=["new-store", "pairing", "devices", "revoke"])
-    a.add_argument("--url", required=True)
+    a.add_argument("--url", default=cloudsync.BUILT_IN_URL)
     a.add_argument("--name")
     a.add_argument("--store")
     a.add_argument("--role", choices=["shop", "mobile"], default="mobile")
@@ -119,8 +109,8 @@ def main(argv=None):
     a.add_argument("--key-file")
     for name in ("join", "restore"):
         j = sub.add_parser(name)
-        j.add_argument("--url", required=True)
-        j.add_argument("--store", required=True)
+        j.add_argument("--url", default=cloudsync.BUILT_IN_URL)
+        j.add_argument("--store", help="not needed when --code is the whole SMC2-... connection code")
         j.add_argument("--code", required=True)
         if name == "join":
             j.add_argument("--data", default=str(root / "shop-data"))

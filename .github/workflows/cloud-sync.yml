@@ -6,9 +6,9 @@
 name: Cloud copy
 on:
   push:
-    paths: ["cloud/**", "server/cloudsync.py", "tests/test_cloudsync.py", ".github/workflows/cloud-sync.yml"]
+    paths: ["cloud/**", "server/cloudsync.py", "launcher.py", "tests/test_cloudsync.py", "tests/test_cloud_wiring.py", ".github/workflows/cloud-sync.yml"]
   pull_request:
-    paths: ["cloud/**", "server/cloudsync.py", "tests/test_cloudsync.py", ".github/workflows/cloud-sync.yml"]
+    paths: ["cloud/**", "server/cloudsync.py", "launcher.py", "tests/test_cloudsync.py", "tests/test_cloud_wiring.py", ".github/workflows/cloud-sync.yml"]
   workflow_dispatch:
     inputs:
       deploy:
@@ -36,7 +36,7 @@ jobs:
         working-directory: cloud
         run: npm test
       - name: Client tests against the real cloud code
-        run: cd tests && python -m unittest test_cloudsync -v
+        run: cd tests && python -m unittest test_cloudsync test_cloud_wiring -v
   deploy:
     needs: test
     if: github.event_name == 'workflow_dispatch' && inputs.deploy

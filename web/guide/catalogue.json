@@ -1647,7 +1647,9 @@
     "err.duplicate_credit_note",
     "err.unknown_receipt",
     "err.lot_not_from_supplier",
-    "err.unknown_supplier_return"
+    "err.unknown_supplier_return",
+    "err.cost_trace_incomplete",
+    "err.supplier_return_closed"
    ],
    "guide": "pay-supplier"
   },
@@ -1671,7 +1673,8 @@
     "err.output_expiry_out_of_bounds",
     "err.prepared_needs_recipe",
     "err.bad_cost_method",
-    "err.meat_is_weighed"
+    "err.meat_is_weighed",
+    "err.cutting_needs_raw_meat"
    ],
    "guide": "cut-meat"
   },
@@ -1810,15 +1813,17 @@
     "err.backup_integrity_failed",
     "err.backup_manifest_missing",
     "err.backup_other_product",
-    "err.restore_target_not_empty",
+    "err.bad_connect_code",
     "err.cloud_copy_empty",
     "err.cloud_copy_newer_than_app",
-    "err.sync_not_connected",
-    "err.sync_shop_only",
-    "err.wrong_data_folder",
+    "err.cloud_off",
     "err.database_newer_than_app",
     "err.pre_upgrade_copy_failed",
-    "err.training_only"
+    "err.restore_target_not_empty",
+    "err.sync_not_connected",
+    "err.sync_shop_only",
+    "err.training_only",
+    "err.wrong_data_folder"
    ],
    "guide": "backup-now"
   },

@@ -22,7 +22,9 @@ import logging
 import os
 import pathlib
 import secrets
+import socket
 import sqlite3
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -41,6 +43,38 @@ REPORT_DAYS = 14                 # how many business days of daily figures phone
 REPORT_EVERY = 60                # seconds between publications while the shop is busy
 REPORT_REFRESH = 600             # and at least this often (expiry states move with the date)
 USER_AGENT = "SuperMarket-CloudCopy/1"
+
+# The owner's cloud, built into the installed program: nobody types an address. It is public, not a secret
+# (every call is signed with a per-device secret that only exists after the one-time pairing).
+# SM_CLOUD_URL points a test somewhere else; SM_CLOUD_URL=off (or empty) turns the cloud off.
+BUILT_IN_URL = "https://super-market-sync.mflma2040.workers.dev"
+CONNECT_PREFIX = "SMC2-"       # one string the vendor hands over: SMC2-<store id>-<one-time code>
+
+
+def cloud_url(compiled):
+    """Address of the cloud for this run. The installed program (compiled) uses the built-in one;
+    a run from source never talks to the cloud unless SM_CLOUD_URL is set (tests and the portable
+    folder stay silent by default)."""
+    env = os.environ.get("SM_CLOUD_URL")
+    if env is not None:
+        env = env.strip()
+        return "" if env.lower() in ("", "off") else env.rstrip("/")
+    return BUILT_IN_URL if compiled else ""
+
+
+def parse_connect_code(text):
+    """Accepts `SMC2-<store>-<code>` (what the vendor reads out) or `<store> <code>`. Returns (store_id, code)."""
+    text = (text or "").strip()
+    if text.upper().startswith(CONNECT_PREFIX):
+        rest = text[len(CONNECT_PREFIX):]
+        store, _, code = rest.partition("-")
+    else:
+        parts = text.replace(":", " ").split()
+        store, code = (parts + ["", ""])[:2]
+    store, code = store.strip(), code.strip()
+    if not store or not code:
+        raise ShopError("bad_connect_code")
+    return store, code
 RESTORE_LAST = ("barcodes", "day_closes", "day_corrections")   # triggers there need the other tables first
 
 
@@ -235,6 +269,19 @@ def _request(method, url, body, headers, timeout):
         raise CloudError(0, "cannot reach the cloud: %s" % getattr(exc, "reason", exc)) from None
 
 
+def error_kind(exc):
+    """The plain-language class the settings screen shows (keys `cloud.<kind>` in the dictionaries)."""
+    if exc.status == 0:
+        return "certificate" if "CERTIFICATE_VERIFY_FAILED" in str(exc) else "offline"
+    if exc.status == 401:
+        return "clock" if "server_time" in exc.detail else "rejected_device"
+    if exc.status in (429, 503, 502, 504, 1015):
+        return "busy"
+    if exc.status == 507:
+        return "pc_full"
+    return "other"
+
+
 def pair(url, store_id, code, name):
     """Trade a one-time pairing code for this device's own secret."""
     answer = _request("POST", url.rstrip("/") + "/v1/pair", json.dumps({"store_id": store_id, "code": code, "name": name}).encode(),
@@ -264,6 +311,40 @@ def save_config(folder, config):
     except OSError:
         pass
     os.replace(tmp, path)
+
+
+def device_name():
+    return "PC " + (socket.gethostname() or "shop")[:40]
+
+
+def join(folder, url, store_id, code, name=None):
+    """Connect THIS shop folder to the cloud with a one-time pairing code (role shop): pairs, turns change
+    capture on (queues every existing row once) and saves this PC's device secret in `sync.json`.
+    Nothing is saved if pairing fails. Returns the public part of the answer."""
+    from .db import Store
+    config = pair(url, store_id, code, name or device_name())
+    if config["role"] != "shop":
+        raise ShopError("sync_not_connected")
+    store = Store(folder, "shop")
+    try:
+        enable(store.db, store.mode)
+    finally:
+        store.close()
+    save_config(folder, config)
+    return {"store_id": config["store_id"], "device_id": config["device_id"]}
+
+
+def leave(folder):
+    """Stop copying: triggers off, device secret deleted. The cloud keeps what it has."""
+    from .db import Store
+    store = Store(folder, "shop")
+    try:
+        disable(store.db)
+    finally:
+        store.close()
+    path = pathlib.Path(folder) / CONFIG_NAME
+    if path.exists():
+        path.unlink()
 
 
 # ---------------------------------------------------------------- reports for phones (read-only)
@@ -320,7 +401,10 @@ class CloudSync:
         self.db = sqlite3.connect(str(self.folder / "shop.db"), timeout=10, isolation_level=None, check_same_thread=False)
         self.db.execute("PRAGMA busy_timeout=10000")
         self.last_error = None
+        self.last_error_kind = None
         self.last_ok = None
+        self.wake = threading.Event()
+        self.busy = False
         self._store = None
         self._published = {}
         self._pub_version = 0
@@ -451,20 +535,46 @@ class CloudSync:
         """Background loop: retry with growing waits when the internet is down; never raises."""
         wait = interval
         while not stop.is_set():
+            self.busy = True
             try:
                 self.cycle()
                 wait = interval
+                self.last_error_kind = None
             except CloudError as exc:
                 self.last_error = "%s (HTTP %s)" % (exc, exc.status) if exc.status else str(exc)
+                self.last_error_kind = error_kind(exc)
                 if exc.status == 401 and "server_time" in exc.detail:
                     self.last_error = "this PC's clock is off by %d seconds" % abs(int(time.time()) - exc.detail["server_time"])
                 wait = min(max_wait, wait * 2)
                 log.warning("cloud sync: %s; next try in %ds", self.last_error, wait)
             except Exception:       # a sync problem must never reach the till
                 self.last_error = "unexpected error (see server.log)"
+                self.last_error_kind = "other"
                 log.exception("cloud sync failed")
                 wait = min(max_wait, wait * 2)
-            stop.wait(wait)
+            finally:
+                self.busy = False
+            deadline = time.time() + wait
+            while not stop.is_set() and not self.wake.is_set() and time.time() < deadline:
+                stop.wait(1)
+            self.wake.clear()
+
+    # what the owner's settings screen shows: no network call, never the secret or the address
+    enabled = True
+
+    def now_please(self):
+        self.wake.set()
+        return {"started": True}
+
+    def status_light(self):
+        try:
+            pending = self.pending()
+        except sqlite3.Error:
+            pending = None
+        return {"enabled": True, "connected": True, "queued": pending or 0,
+                "last_ok_at": (time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(self.last_ok)) if self.last_ok else None),
+                "last_copy": None, "error": self.last_error_kind, "busy": self.busy,
+                "pc": str(self.cloud.device_id)[:6]}
 
     def status(self):
         cloud = self.cloud.summary()

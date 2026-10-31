@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # Arabic in a failure must not crash the report
     suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT / "tests"))
     result = unittest.TextTestRunner(verbosity=1).run(suite)
     for test, trace in result.failures + result.errors:

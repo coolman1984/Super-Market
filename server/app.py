@@ -8,6 +8,7 @@ tracebacks, LAN access is limited to private addresses.
 
 import argparse
 import contextlib
+import hmac
 import ipaddress
 import json
 import logging
@@ -24,7 +25,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import guidebook, backup, training
 from .auth import Auth, can, require
-from .core import ShopError, integer, text
+from .core import Forbidden, ShopError, integer, text
 from .db import Store
 from .scanner import ScannerHub, list_serial_ports
 from .services import Shop
@@ -55,6 +56,7 @@ class App:
         r = self.route
         r("GET", r"/api/state", self.state)
         r("POST", r"/api/setup", self.setup, auth=False)
+        r("POST", r"/api/local/stop", self.local_stop, auth=False)
         r("POST", r"/api/login", self.login, auth=False)
         r("POST", r"/api/logout", self.logout)
         r("GET", r"/api/guide/state", lambda a, q, b: guidebook.state(self.store, a))
@@ -93,6 +95,7 @@ class App:
         r("GET", r"/api/suppliers/(\d+)/statement", lambda a, q, b, sid: self.shop.supplier_statement(a, int(sid)))
         r("POST", r"/api/supplier-returns", lambda a, q, b: self.shop.supplier_return(a, b.get("key"), b.get("supplier_id"), b.get("lot_id"), b.get("location_id"), b.get("qty"), b.get("reason"), b.get("note")))
         r("POST", r"/api/supplier-credit-notes", lambda a, q, b: self.shop.supplier_credit_note(a, b.get("key"), b.get("return_id"), b.get("amount"), b.get("reference")))
+        r('POST', r'/api/supplier-returns/close', lambda a, q, b: self.shop.close_supplier_return(a, b.get('key'), b.get('return_id'), b.get('reason')))
         r("GET", r"/api/aging", lambda a, q, b: self.shop.aging(a))
         r("GET", r"/api/supplier-invoices", lambda a, q, b: self.shop.supplier_invoices(a, _int(q.get("supplier"), None), q.get("all") != "1"))
         r("POST", r"/api/supplier-invoices", lambda a, q, b: self.shop.register_supplier_invoice(a, b.get("key"), b.get("payload")))
@@ -148,6 +151,8 @@ class App:
         r("POST", r"/api/users", self.add_user)
         r("POST", r"/api/backup", self.make_backup)
         r("GET", r"/api/backups", lambda a, q, b: require(a, "backup") and backup.list_backups(self.backup_folder))
+        r("GET", r"/api/cloud", self.cloud_status, lock=False)
+        r("POST", r"/api/cloud/now", self.cloud_now, lock=False)
         r("GET", r"/api/reconcile", lambda a, q, b: require(a, "reports") and self.shop.reconcile())
 
     def route(self, method, pattern, fn, auth=True, lock=True):
@@ -161,6 +166,30 @@ class App:
                 "training_login": {"users": [u for u, _, _ in training.TRAINING_USERS], "password": training.TRAINING_PASSWORD}
                 if self.store.mode == "training" else None}
 
+    stop_key = None
+    cloud = None      # server.cloudsync.CloudSync, set by the launcher of the real shop once it is connected
+    cloud_available = False   # the installed program can be connected (it knows the cloud's address)
+
+    def cloud_status(self, actor, q, body):
+        require(actor, "backup")
+        return self.cloud.status_light() if self.cloud else {"enabled": False, "available": bool(self.cloud_available)}
+
+    def cloud_now(self, actor, q, body):
+        require(actor, "backup")
+        if not self.cloud:
+            raise ShopError("cloud_off", status=409)
+        self.store.tx(lambda: self.store.audit(actor, "cloud_backup_now"))
+        return self.cloud.now_please()
+
+    def local_stop(self, actor, q, body, client=None, key=None, server=None):
+        """Stop the program from this PC only, with the key the launcher wrote into the data
+        folder (only someone who can read that folder can stop it); every saved sale stays."""
+        if not client or not ipaddress.ip_address(client).is_loopback or not self.stop_key or not key \
+                or not hmac.compare_digest(str(key), self.stop_key):
+            raise Forbidden("forbidden")
+        threading.Thread(target=server.shutdown, daemon=True).start()
+        return {"stopping": True}
+
     def setup(self, actor, q, body, client=None):
         if self.auth.has_users():
             raise ShopError("already_set_up", status=409)
@@ -172,9 +201,8 @@ class App:
             if body.get("shop_name"):
                 self.store.db.execute("INSERT INTO settings VALUES('shop_name',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                                       (json.dumps(str(body["shop_name"])[:80]),))
-            # owner decision 31 Oct 2026: thawed meat keeps 2 days at most (still capped by its own expiry);
-            # changeable in settings, and an empty value stops thawing again
-            self.store.db.execute("INSERT OR IGNORE INTO settings VALUES('thaw_shelf_life_days','2')")
+            # No teaching value is silently promoted into a new shop's food
+            # safety policy. Existing explicitly configured policies are retained.
             for code, ar, en, kind, sellable in (("SH", "رفوف البقالة", "Grocery shelves", "shelf", 1),
                                                  ("FR", "ثلاجة العرض", "Display fridge", "display_fridge", 1),
                                                  ("PR", "ثلاجة التجهيز", "Prep fridge", "prep_fridge", 0),
@@ -388,7 +416,9 @@ def _int(value, default):
 
 
 COST_KEYS = {"cost", "cost_total", "abnormal_loss_cost", "cost_of_sales", "gross_margin", "losses",
-             "margin_after_recorded_losses", "landed_cost", "line_cost", "input_cost"}
+             "margin_after_recorded_losses", "landed_cost", "line_cost", "input_cost", 'difference_from_cost', 'cost_difference',
+             'cost_adjustments', 'cost_adjustment_parts', 'supplier_return_adjustments', 'purchase_variance',
+             'to_stock', 'to_cost_of_sales', 'to_losses', 'to_supplier_returns', 'to_variance'}
 
 
 def redact_cost(value):
@@ -510,6 +540,8 @@ def make_handler(app, allowed_lan):
                     with lock:
                         if fn == app.setup:
                             result = fn(actor, query, body, client=self.client_address[0])
+                        elif fn == app.local_stop:
+                            result = fn(actor, query, body, client=self.client_address[0], key=self.headers.get("X-SM-Stop"), server=self.server)
                         elif fn in (app.logout, app.change_password, app.lock, app.unlock):
                             result = fn(actor, query, body, token=token)
                         else:

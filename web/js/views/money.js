@@ -217,6 +217,8 @@
             r.cost_of_sales !== undefined ? [kv(t('rep.cost'), SM.money(r.cost_of_sales)), kv(t('rep.margin'), SM.money(r.gross_margin), t('rep.margin_hint')),
               kv(t('rep.losses'), SM.money(r.losses), t('rep.losses_hint')), kv(t('rep.after_losses'), SM.money(r.margin_after_recorded_losses), t('rep.after_losses_hint')),
               r.cost_adjustments ? kv(t('rep.cost_adjustments'), SM.money(r.cost_adjustments), t('rep.cost_adjustments_hint')) : null,
+              r.purchase_variance ? kv(t('rep.purchase_variance'), SM.money(r.purchase_variance), t('rep.purchase_variance_hint')) : null,
+              r.supplier_return_adjustments ? kv(t('rep.supplier_return_adjustments'), SM.money(r.supplier_return_adjustments)) : null,
               r.supplier_rebates ? kv(t('rep.supplier_rebates'), SM.money(r.supplier_rebates), t('rep.supplier_rebates_hint')) : null] : null,
             r.gift_lines ? kv(t('rep.gift_lines'), String(r.gift_lines), t('rep.gift_lines_hint')) : null)),
           h('div', { class: 'card' }, h('h3', { text: t('rep.by_method') }), h('p', { class: 'muted', text: t('rep.sales_not_cash') }),

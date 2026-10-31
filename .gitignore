@@ -15,3 +15,8 @@ pre-upgrade/
 # Cloud copy: this PC's device secret and the admin key never go in the repo
 sync.json
 cloud/.admin-key
+build/
+cloud/node_modules/
+cloud/.wrangler/
+cloud.json
+cloud-queue/
