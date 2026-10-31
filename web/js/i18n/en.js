@@ -1106,5 +1106,9 @@ Object.assign(SM.i18n.en, {
   "err.unknown_promotion": "Unknown or ended offer.",
   "err.unknown_receipt": "Unknown receipt.",
   "err.unknown_supplier_invoice": "Unknown supplier invoice.",
-  "ret.promo_note": "This sale has a buy-and-get offer: the refund is what was paid minus the price of what the customer keeps, so returning the free piece refunds nothing."
+  "ret.promo_note": "This sale has a buy-and-get offer: the refund is what was paid minus the price of what the customer keeps, so returning the free piece refunds nothing.",
+  "err.use_thaw": "Stock leaves a freezer only through \"Thaw\", so it gets the shorter thawed date. Nothing was saved.",
+  "err.thaw_needs_fridge": "Thawing goes only to a prep or display fridge, never a shelf. Choose a fridge. Nothing was saved.",
+  "sell.draft_restored": "The unpaid cart is back ({n} lines). Prices and stock are checked again at payment.",
+  "sell.held_full": "{n} sales are on hold, the limit. Resume or delete one first; nothing was deleted."
 });

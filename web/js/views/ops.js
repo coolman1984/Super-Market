@@ -302,9 +302,9 @@
     if (!frozen.length) return SM.toast(t('thaw.none'), 'bad');
     const lot = select(frozen.map(r => ({ value: r.lot_id + ':' + r.location_id, label: SM.name(r) + ' — ' + r.lot_no + ' — ' + SM.qty(r.qty, r.measure) })), null, t('choose'));
     const qty = h('input', { class: 'input', inputmode: 'decimal' });
-    const places = locs.filter(l => !['freezer', 'waste'].includes(l.kind));
-    const chilled = places.find(l => l.kind === 'prep_fridge') || places.find(l => l.kind === 'display_fridge');   // thaw in the cold, not on a shelf
-    const to = select(places.map(l => ({ value: l.id, label: locName(l) })), chilled ? chilled.id : undefined);
+    const places = locs.filter(l => ['prep_fridge', 'display_fridge'].includes(l.kind));   // the server refuses anything else too
+    if (!places.length) return SM.toast(t('err.thaw_needs_fridge'), 'bad');
+    const to = select(places.map(l => ({ value: l.id, label: locName(l) })), (places.find(l => l.kind === 'prep_fridge') || places[0]).id);
     const key = SM.newKey();
     const d = SM.dialog({ title: t('thaw.btn'), body: [h('p', { class: 'tip', text: t('thaw.help') }), SM.field(t('stock.lot'), lot), SM.field(t('stock.qty_help'), qty), SM.field(t('stock.to'), to)],
       actions: [h('button', { class: 'btn primary', text: t('save'), onclick: SM.guard(async () => {

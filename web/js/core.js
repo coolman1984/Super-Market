@@ -82,9 +82,12 @@ SM.name = (row) => (SM.state.lang === 'ar' ? row.name_ar : row.name_en) || row.n
 const AR_DIGITS = { '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
   '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9', '٫': '.', '،': ',' };
 function asciiDigits(s) { return String(s).replace(/[٠-٩۰-۹٫،]/g, c => AR_DIGITS[c]); }
-/* "12.5" -> 1250 piastres; null when not a clean amount. Never uses float. */
+/* "12.5", "12,5" or "١٢٫٥" -> 1250 piastres; null when not a clean amount. Never uses float.
+   One separator (. , ، ٫) is the decimal point - in Egypt "2,5" means two and a half, never 25.
+   Two separators or more are refused rather than guessed ("1,000.5" -> null). */
 function parseScaled(text, decimals) {
-  const s = asciiDigits(text).trim().replace(/,/g, '');
+  const s = asciiDigits(text).trim().replace(/\s+/g, '').replace(/,/g, '.');
+  if ((s.match(/\./g) || []).length > 1) return null;
   const m = /^(\d{1,9})(?:\.(\d*))?$/.exec(s);
   if (!m) return null;
   const frac = (m[2] || '');
