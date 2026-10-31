@@ -131,9 +131,17 @@ class ZeroSetup(ShopFixture, unittest.TestCase):
         """What the launcher does at start-up, with the loop running in a thread."""
         app = mock.Mock(cloud=None)
         stop = threading.Event()
-        self.addCleanup(stop.set)
+        before = set(threading.enumerate())
         with self.env(SM_CLOUD_URL=url or self.url):
             auto = launcher.start_cloud(app, "shop", stop, data)
+        threads = [t for t in threading.enumerate() if t not in before and t.name == "cloud"]
+
+        def finish():                       # Windows cannot delete shop.db while the loop still has it open
+            stop.set()
+            auto.wake.set()
+            for t in threads:
+                t.join(15)
+        self.addCleanup(finish)
         return auto, stop
 
     def wait_for(self, check, seconds=30):
