@@ -1,0 +1,149 @@
+{
+  "concurrency": {
+    "attempts": 40,
+    "succeeded": 10,
+    "rejected": [
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      },
+      {
+        "status": 400,
+        "error": "insufficient_stock"
+      }
+    ],
+    "replays": 10,
+    "stock": 0,
+    "sales_total": 15000,
+    "reconcile": true
+  },
+  "promotion": {
+    "single_total": 3000,
+    "split_total": 4500
+  },
+  "raw_shelf": {
+    "accepted": true,
+    "location_kind": "shelf",
+    "sold_g": 500,
+    "total": 20000
+  },
+  "counter_stock_navigation": {
+    "advertised": false,
+    "view": "today",
+    "api_status": 403,
+    "screen": "اليوم\n\nالخطوات المطلوبة منك الآن، وما يحتاج إلى انتباه.\n\nهذه نسخة التدريب. أتمم التمارين المبيّنة في شاشة المساعدة؛ يتحقق النظام من إتمامها من واقع القيود.\nالخطوات التالية\nأجرِ جرد الثلاجات واللحوم",
+    "toast": ""
+  }
+}

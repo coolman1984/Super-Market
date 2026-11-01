@@ -1,0 +1,40 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> test
+> node --test --no-warnings test/sync.test.js test/enroll.test.js
+
+✔ first run: a program with a valid build token gets its own pending store, device and recovery code (33.195587ms)
+✔ enrol is idempotent by install id: a lost answer never makes a second store (10.071099ms)
+✔ enrol refuses: no token, forged token, wrong key, revoked build, bad install id (14.868479ms)
+✔ without ENROLL_KEY the service refuses enrolment (never opens) (2.030975ms)
+✔ rate limits: per address per hour, and a different address is not blocked (18.684563ms)
+✔ a pending store has a daily write budget; an active one a larger budget; a suspended one is cut off (659.874034ms)
+✔ recover: the recovery code gives a replacement PC the same store and cuts the old PC off (7.741683ms)
+✔ recover: wrong code refused and counted per address; token still needed; installs of another shop refused (12.990695ms)
+✔ admin fallback keeps working: pairing, and the support can read a store's recovery code (10.275177ms)
+✔ cleanup forgets an enrolled store that never sent anything for 14 days, keeps one that did (5.011493ms)
+✔ health answers without secrets (10.550858ms)
+✔ admin calls need the admin key (15.96252ms)
+✔ without ADMIN_KEY or MASTER_KEY the service refuses (never opens) (11.853133ms)
+✔ pairing: one-time, expires, wrong code refused, store must match (9.630549ms)
+✔ pairing is rate limited per address (16.203744ms)
+✔ signed requests: good, bad signature, other secret, clock, replay, unsigned (15.133354ms)
+✔ a signature for one path or body does not work for another (12.031211ms)
+✔ a device of one store cannot read another store (22.599105ms)
+✔ push stores rows, an older version never overwrites a newer one, tombstones (23.600407ms)
+✔ pull pages by change number and a device only sees what is new (18.913314ms)
+✔ bad pushes are refused whole (28.446736ms)
+✔ revoking a device cuts it off at once (8.523543ms)
+✔ commands: phone asks, shop PC applies; retries never duplicate; roles enforced (16.646132ms)
+✔ cleanup expires old commands and drops stale nonces (4.792863ms)
+✔ unknown paths and errors never leak details (4.671069ms)
+✔ a phone is read-only: no raw rows, no push, no summary, only ping (12.658368ms)
+✔ reports: phones read what the shop PC published, nothing is calculated here (22.708651ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 902.419787
