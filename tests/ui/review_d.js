@@ -11,9 +11,11 @@ const out = process.argv[3] || '.';
     const page = await (await browser.newContext({ viewport })).newPage();
     page.on('pageerror', e => errors.push(user + ': ' + e.message));
     page.on('dialog', d => { errors.push(user + ': browser dialog ' + d.type()); d.dismiss(); });     // M9: there must be none
-    await page.goto(base); await page.waitForSelector('input[autocomplete=username]');
-    await page.fill('input[autocomplete=username]', user); await page.fill('input[type=password]', 'training-only');
-    await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
+    await page.goto(base); await page.waitForSelector('[data-username="' + user + '"]');
+    const pins = { owner: '159382', manager: '470296', cashier: '3826', butcher: '2964', counter: '4702' };
+    await page.click('[data-username="' + user + '"]');
+    for (const d of pins[user]) await page.click('.pin-key[data-digit="' + d + '"]');
+    await page.waitForSelector('.sidebar');
     return page;
   };
   const T = (p, k, v) => p.evaluate(([k, v]) => SM.t(k, v), [k, v]);

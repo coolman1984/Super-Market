@@ -1,5 +1,5 @@
 // Accounts through the real screens (gap row 5): lock survives a reload, only the same
-// password opens it; a new employee must choose his own password; a stopped one is out.
+// PIN opens it; a new employee must choose his own password; a stopped one is out.
 const { chromium } = require('playwright');
 const base = process.argv[2] || 'http://127.0.0.1:8799';
 const out = process.argv[3] || '.';
@@ -10,37 +10,49 @@ const out = process.argv[3] || '.';
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   const res = {};
+  const PINS = { owner: '159382', manager: '470296', cashier: '3826', butcher: '2964', counter: '4702' };
+  const typePin = async (p, pin) => { for (const d of pin) await p.click('.pin-key[data-digit="' + d + '"]'); };
   const login = async (p, user, pass) => {
-    await p.goto(base); await p.reload(); await p.waitForSelector('.sidebar, input[type=password]');
+    await p.goto(base); await p.reload(); await p.waitForSelector('.sidebar, .who-list, input[type=password]');
     if (await p.locator('.side-foot .logout-btn').count()) await p.locator('.side-foot .logout-btn').click();
-    await p.waitForSelector('input[autocomplete=username]');
-    await p.fill('input[autocomplete=username]', user); await p.fill('input[type=password]', pass);
-    await Promise.all([
-      p.waitForResponse((r) => r.url().includes('/api/login') && r.request().method() === 'POST'),
-      p.click('button[type=submit]'),
-    ]);
-    // the login card is already on screen, so wait for the shell or the forced-password fields
+    await p.waitForSelector('[data-username="' + user + '"]');
+    await p.click('[data-username="' + user + '"]');
+    if (PINS[user] && await p.locator('.pin-pad').count()) {
+      const pin = PINS[user];
+      for (const d of pin.slice(0, -1)) await p.click('.pin-key[data-digit="' + d + '"]');
+      await Promise.all([
+        p.waitForResponse((r) => r.url().includes('/api/login') && r.request().method() === 'POST'),
+        p.click('.pin-key[data-digit="' + pin.slice(-1) + '"]'),
+      ]);
+    } else {
+      await p.fill('input[type=password]', pass);
+      await Promise.all([
+        p.waitForResponse((r) => r.url().includes('/api/login') && r.request().method() === 'POST'),
+        p.click('#login-go'),
+      ]);
+    }
     await p.waitForFunction(() => document.querySelector('.sidebar') || document.querySelector('[data-guide="account.old"]'));
   };
   await login(page, 'owner', 'training-only');
   const T = (k, v) => page.evaluate(([k, v]) => SM.t(k, v), [k, v]);
-  // lock, reload, still locked; wrong password refused; own password opens
+  // lock, reload, still locked; wrong PIN refused; own PIN opens
   await page.click('.side-foot [aria-label="' + await T('lock.btn') + '"]');
   await page.waitForSelector('.auth-card');
   await page.reload();
   await page.waitForSelector('.auth-card');
   res.locked_after_reload = await page.locator('.auth-card').count() === 1 && !(await page.locator('.sidebar').count());
   await page.screenshot({ path: out + '/lock-ar.png' });
-  await page.fill('input[type=password]', 'wrong-pass');
-  await Promise.all([
-    page.waitForResponse((r) => r.url().includes('/api/account/unlock') && r.request().method() === 'POST'),
-    page.click('button[type=submit]'),
-  ]);
+  await typePin(page, '111111');
+  await page.waitForFunction(() => {
+    const t = document.querySelector('.pin-block .field-error');
+    return t && t.textContent.trim().length > 0;
+  });
   res.wrong_refused = !(await page.locator('.sidebar').count());
-  await page.fill('input[type=password]', 'training-only');
+  const ownerPin = '159382';
+  for (const d of ownerPin.slice(0, -1)) await page.click('.pin-key[data-digit="' + d + '"]');
   await Promise.all([
     page.waitForResponse((r) => r.url().includes('/api/account/unlock') && r.request().method() === 'POST'),
-    page.click('button[type=submit]'),
+    page.click('.pin-key[data-digit="' + ownerPin.slice(-1) + '"]'),
   ]);
   await page.waitForSelector('.sidebar');
   res.unlocked = await page.locator('.sidebar').count() === 1;
@@ -73,8 +85,8 @@ const out = process.argv[3] || '.';
     page.click('#ask-ok'),
   ]);
   await p2.goto(base + '/#sell');
-  await p2.waitForSelector('input[autocomplete=username]');
-  res.stopped_is_out = await p2.locator('input[autocomplete=username]').count() === 1;
+  await p2.waitForSelector('.who-list');
+  res.stopped_is_out = await p2.locator('.who-list').count() === 1 && await p2.locator('[data-username=newcash]').count() === 0;
   res.users_state = (await page.evaluate(() => SM.api('GET', '/api/users'))).find(u => u.id === uid).active === 0;
   res.ok = ['locked_after_reload', 'wrong_refused', 'unlocked', 'forced_screen', 'after_change_in', 'stopped_is_out', 'users_state'].every(k => res[k] === true);
   console.log(JSON.stringify(Object.assign(res, { errors }), null, 1));

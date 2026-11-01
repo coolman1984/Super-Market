@@ -10,9 +10,10 @@ const out = process.argv[3] || '.';
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(base); await page.reload();
-  await page.waitForSelector('input[type=password]');
-  await page.fill('input[autocomplete=username]', 'manager'); await page.fill('input[type=password]', 'training-only');
-  await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
+  await page.waitForSelector('[data-username=manager]');
+  await page.click('[data-username=manager]');
+  for (const d of '470296') await page.click('.pin-key[data-digit="' + d + '"]');
+  await page.waitForSelector('.sidebar');
   // manager needs an open shift for a cash refund
   await page.goto(base + '/#cash'); await page.waitForSelector('.input.big');
   if (await page.locator('#view .narrow').count()) {
@@ -76,20 +77,23 @@ const out = process.argv[3] || '.';
   // ---- audit R17: a cart never passes to the next user ----
   const login = async (user) => {
     await page.goto(base); await page.reload();
-    await page.waitForSelector('.sidebar, input[type=password]');      // the app has rendered one or the other
+    await page.waitForSelector('.sidebar, .who-list');      // the app has rendered one or the other
     if (await page.locator('.side-foot .logout-btn').count()) { await page.click('.side-foot .logout-btn'); }
-    await page.waitForSelector('input[type=password]', { timeout: 8000 }).catch(async (e) => {
+    await page.waitForSelector('[data-username="' + user + '"]', { timeout: 8000 }).catch(async (e) => {
       await page.screenshot({ path: out + '/login-stuck.png' }); console.error('stuck', await page.textContent('body').then(x => x.slice(0, 300))); throw e; });
-    await page.fill('input[autocomplete=username]', user); await page.fill('input[type=password]', 'training-only');
-    await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
+    const pins = { owner: '159382', manager: '470296', cashier: '3826', butcher: '2964', counter: '4702' };
+    await page.click('[data-username="' + user + '"]');
+    for (const d of pins[user]) await page.click('.pin-key[data-digit="' + d + '"]');
+    await page.waitForSelector('.sidebar');
   };
   await login('cashier');
   await page.goto(base + '/#sell'); await page.waitForSelector('.scan-input');
   await scanCode(page, '6220000000013');
   const cashierCart = await page.textContent('.cart');
-  await page.click('.side-foot .logout-btn'); await page.waitForSelector('input[type=password]');
-  await page.fill('input[autocomplete=username]', 'manager'); await page.fill('input[type=password]', 'training-only');
-  await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
+  await page.click('.side-foot .logout-btn'); await page.waitForSelector('[data-username=manager]');
+  await page.click('[data-username=manager]');
+  for (const d of '470296') await page.click('.pin-key[data-digit="' + d + '"]');
+  await page.waitForSelector('.sidebar');
   await page.goto(base + '/#sell'); await page.waitForSelector('.scan-input');
   const managerCart = await page.textContent('.cart');
   // ---- audit S03: the sale is saved but the answer is lost ----

@@ -22,7 +22,7 @@ from server.services import Shop  # noqa: E402
 
 
 def recover(data, username, password):
-    """New owner password, typed on the shop computer itself. Changes nothing else."""
+    """New owner password, typed on the shop computer itself. The old PIN is cleared too."""
     store = Store(data, "shop")
     try:
         return Shop(store).auth.recover_owner(username, password)
@@ -32,7 +32,7 @@ def recover(data, username, password):
 
 def owner_recovery(data):
     import getpass
-    print("استعادة دخول صاحب المحل — تعمل على جهاز المحل فقط ولا تحذف أي بيانات.")
+    print("استعادة دخول صاحب المحل — تعمل على جهاز المحل فقط ولا تحذف أي بيانات. الرقم السري القديم يتوقف.")
     username = input("اسم دخول صاحب المحل: ").strip()
     first = getpass.getpass("كلمة المرور الجديدة (8 أحرف على الأقل): ")
     if first != getpass.getpass("اكتبها مرة ثانية: "):
