@@ -205,7 +205,7 @@
  "problem.sign-in.do.2": "بعد 5 مرات خاطئة انتظر، ثم أعد المحاولة.",
  "problem.sign-in.still": "المالك يضبط رقمًا جديدًا من الإعدادات.",
  "guide.set-pin.title": "اضبط الرقم السري",
- "guide.set-pin.why": "أمين الصندوق يدخل باسمه وبأربعة أرقام.",
+ "guide.set-pin.why": "الكاشير يدخل باسمه وبأربعة أرقام.",
  "guide.set-pin.ok": "يظهر أن الرقم السري مضبوط.",
  "guide.set-pin.1": "افتح صفحة [[nav.settings]].",
  "guide.set-pin.2": "اضغط [[set.pin_btn]].",
