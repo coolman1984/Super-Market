@@ -146,6 +146,8 @@ class App:
         r("POST", r"/api/counts/(\d+)/approve", lambda a, q, b, cid: self.shop.approve_count(a, b.get("key"), int(cid), b.get("owner_reason")))
         r("GET", r"/api/stock", lambda a, q, b: self.shop.stock_report(a, _int(q.get("product"), None)))
         r("GET", r"/api/reports/day", lambda a, q, b: self.shop.day_report(a, q.get("day")))
+        r("GET", r"/api/reports/gaps", lambda a, q, b: self.shop.open_gaps(a))
+        r("POST", r"/api/shifts/gap", lambda a, q, b: self.shop.handle_shift_gap(a, b.get("key"), b.get("shift_id"), b.get("note")))
         r("GET", r"/api/export/stock\.csv", self.export_stock)
         r("GET", r"/api/settings", lambda a, q, b: self.public_settings(a))
         r("POST", r"/api/settings", self.save_settings)

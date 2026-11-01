@@ -790,6 +790,41 @@ class Shop:
             return {"shift": shift["id"], "expected": expected, "counted": counted, "difference": diff}
         return self.store.command("shift_close", key, [counted, note, shift_id], actor, work)
 
+    def _shift_rows(self, where, args=()):
+        return self.store.all("""SELECT s.id, s.user_id, u.display_name cashier, s.opened_at, s.closed_at,
+            s.expected, s.counted, s.difference, s.close_note, s.gap_handled_at,
+            COALESCE(s.business_day, substr(s.opened_at,1,10)) business_day
+            FROM shifts s JOIN users u ON u.id=s.user_id
+            WHERE """ + where + " ORDER BY s.id", args)
+
+    def handle_shift_gap(self, actor, key, shift_id, note=None):
+        """A non-zero difference stays on Today across days until the owner or the manager marks it done."""
+        if not actor or actor.get("role") not in ("owner", "manager"):
+            raise Forbidden("forbidden")
+        integer(shift_id, 1)
+        note = text(note, "bad_note", 200, optional=True)
+        row = self.store.one("SELECT id, closed_at, difference, close_note, gap_handled_at FROM shifts WHERE id=?", (shift_id,))
+        if not row or row["closed_at"] is None or not row["difference"]:
+            raise ShopError("bad_request")
+        if row["gap_handled_at"]:
+            return {"shift": row["id"], "handled": True, "already": True}
+        if not row["close_note"] and not note:
+            raise ShopError("bad_note")
+
+        def work(op):
+            current = self.store.one("SELECT close_note, gap_handled_at FROM shifts WHERE id=?", (shift_id,))
+            if current["gap_handled_at"]:
+                return {"shift": shift_id, "handled": True, "already": True}
+            self.store.db.execute("UPDATE shifts SET close_note=COALESCE(close_note, ?), gap_handled_at=? WHERE id=?",
+                                  (note, now_iso(), shift_id))
+            return {"shift": shift_id, "handled": True}
+        return self.store.command("shift_gap", key, [shift_id, note], actor, work)
+
+    def open_gaps(self, actor):
+        """Closed shifts with a difference that nobody has explained or marked done, any business day."""
+        require(actor, "reports")
+        return {"gaps": self._shift_rows("s.closed_at IS NOT NULL AND s.difference <> 0 AND s.gap_handled_at IS NULL")}
+
     # =============== approvals ===============
     APPROVAL_WINDOW_S, APPROVAL_FAILS = 300, 5
     APPROVAL_LOCKS_S = (900, 3600, 4 * 3600, 24 * 3600)      # 15 min, 1 h, 4 h, 24 h: each new lock is longer (review M3)
@@ -2929,9 +2964,7 @@ class Shop:
             WHERE kind='rebate' AND receipt_id IS NULL AND op_id IN {OPS}"""), (day,))
         gifts = self.store.scalar(q("""SELECT COUNT(*) FROM receipt_lines rl JOIN receipts r ON r.id=rl.receipt_id
             WHERE rl.line_kind<>'purchase' AND r.op_id IN {OPS}"""), (day,))
-        shifts = self.store.all("""SELECT id, user_id, opened_at, closed_at, expected, counted, difference,
-            COALESCE(business_day, substr(opened_at,1,10)) business_day FROM shifts
-            WHERE COALESCE(business_day, substr(opened_at,1,10))=?""", (day,))
+        shifts = self._shift_rows("COALESCE(s.business_day, substr(s.opened_at,1,10))=?", (day,))
         rejected = self.store.all(q("""SELECT s.no, p.method, p.amount, c.at FROM payment_confirmations c
             JOIN payments p ON p.id=c.payment_id JOIN sales s ON s.id=p.sale_id
             WHERE c.outcome='rejected' AND c.op_id IN {OPS}"""), (day,))

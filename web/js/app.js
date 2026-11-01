@@ -405,7 +405,7 @@
     if (!SM.state.user || !document.getElementById('view')) return;
     // a side panel of the page being left (an item's details...) must not stay over the next page
     const panels = document.getElementById('panels');
-    if (panels) SM.put(panels);
+    if (panels) { panels._drawerGen = (panels._drawerGen || 0) + 1; SM.put(panels); }
     let v = (location.hash || '#today').slice(1);
     if (!SM.views[v] || !allowed(v)) v = SM.can('sell') && !SM.can('reports') ? 'sell' : 'today';
     if (current && current.unmount) { try { current.unmount(); } catch (e) { /* ignore */ } }
