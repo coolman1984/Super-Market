@@ -6,7 +6,7 @@ const base = process.argv[2] || 'http://127.0.0.1:8891';
 const out = process.argv[3] || '/tmp/auditd-browser';
 fs.mkdirSync(out, { recursive: true });
 const views = ['today','sell','returns','cash','receive','stock','prepare','count','reports','parties','catalog','scanner','settings','help'];
-const result = { source: '15985263e298dee1d6b4ef394423e4a4eed46a79', pages: [], roles: [], dialogs: [], errors: [], requests500: [], findings: [], interactions: [] };
+const result = { source: process.env.SM_AUDIT_SOURCE || 'c97d378f50ce1c76430ae93ba4f360a50385ce00', pages: [], roles: [], dialogs: [], errors: [], requests500: [], findings: [], interactions: [] };
 let browser;
 function save() { fs.writeFileSync(path.join(out,'browser-results.json'), JSON.stringify(result,null,2)); }
 async function login(role, username=role, password='training-only') {
