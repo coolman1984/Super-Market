@@ -1,0 +1,23 @@
+{
+  "version": "0.1.2-pilot",
+  "runtime_commit": "c97d378f50ce1c76430ae93ba4f360a50385ce00",
+  "validation_commit": "98dc62c1db5b8519027dddc2495773ef05fd00a7",
+  "windows_validation_run": 41275313240,
+  "customer_build_run": 41274885885,
+  "customer_artifact": 13070981600,
+  "cloud_tests_passed": 27,
+  "ui_scripts_passed": 17,
+  "browser_journeys": 15,
+  "dom_simulations": 2,
+  "portable_without_installed_python": true,
+  "installer_install_reinstall_update_uninstall_keeps_data": true,
+  "hardware_physically_tested": false,
+  "authenticode_signed": false,
+  "installer_name": "SuperMarket-Setup-0.1.2-pilot.exe",
+  "installer_size": 9913028,
+  "installer_sha256": "d6d9a2c60918181e6229ef0e4785ccae39a9a56e11f27278abbfec6f7d0ea6c8",
+  "windows_server_tests_discovered": 346,
+  "windows_server_tests_passed": 343,
+  "windows_server_tests_skipped": 3,
+  "linux_server_tests_passed": 346
+}
