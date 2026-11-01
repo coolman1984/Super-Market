@@ -73,6 +73,53 @@ def check_password_rules(password):
     return password
 
 
+# PIN length is fixed by role until the owner overrides it (Chief of Staff, SM-UX-LOGIN):
+# owner and manager use 6 digits; every other role uses 4. Hashed like a password.
+_PIN_EASTERN = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+
+
+def pin_digits(role):
+    return 6 if role in ("owner", "manager") else 4
+
+
+def normalize_pin(pin):
+    if not isinstance(pin, str):
+        return pin
+    return pin.strip().translate(_PIN_EASTERN)
+
+
+# Phone-pad columns and rows, plus their reverse. 2580 is the middle column.
+_KEYPAD = ("147", "741", "258", "852", "369", "963", "123", "321", "456", "654", "789", "987", "2580", "0852")
+
+
+def _weak_pin(pin):
+    """Repeated digits, a short run (1234, 1357, 654321), a repeated block (1212),
+    a phone-pad column (2580), or a 4-digit birth year."""
+    if len(set(pin)) == 1:
+        return True
+    steps = {int(b) - int(a) for a, b in zip(pin, pin[1:])}
+    if steps and (steps <= {1} or steps <= {-1} or steps <= {2} or steps <= {-2}):
+        return True
+    if any(n < len(pin) and pin == (pin[:n] * len(pin))[:len(pin)] for n in (2, 3)):
+        return True
+    for seq in _KEYPAD:
+        if pin == (seq * len(pin))[:len(pin)] or (len(seq) >= 4 and seq in pin):
+            return True
+    if len(pin) == 4 and 1900 <= int(pin) <= 2030:
+        return True
+    return False
+
+
+def check_pin_rules(pin, role):
+    pin = normalize_pin(pin)
+    need = pin_digits(role)
+    if not isinstance(pin, str) or not pin.isdigit() or len(pin) != need:
+        raise ShopError("bad_pin_length", {"digits": need})
+    if _weak_pin(pin):
+        raise ShopError("weak_pin")
+    return pin
+
+
 def _expired(expires_at):
     try:
         return dt.datetime.fromisoformat(expires_at) <= now()
@@ -139,6 +186,12 @@ class LoginGuard:
                 for k in [k for k in self.pairs if k[0] == name]:
                     self.pairs.pop(k, None)
 
+    def clear_name(self, name):
+        """Owner reset: the person can try again at once. The address-wide wait stays."""
+        with self.lock:
+            for k in [k for k in self.pairs if k[0] == name]:
+                self.pairs.pop(k, None)
+
 
 class Auth:
     def __init__(self, store):
@@ -194,19 +247,79 @@ class Auth:
             self.store.db.execute("UPDATE users SET " + sql + " WHERE id=?", args + (user["id"],))
         return user
 
-    def login(self, username, password, workstation, client=None):
-        workstation = text(workstation, "bad_workstation", 64)
-        with self.store.lock:  # autocommit: a failed attempt must stay counted
-            user = self.verify(username, password, client=client)
+    def _guard_name(self, user, username, user_id):
+        if user:
+            return user["username"]
+        if isinstance(username, str) and username.strip():
+            return username.strip()
+        return "id:%s" % user_id
+
+    def _login_row(self, user_id, username):
+        if user_id is not None and not isinstance(user_id, bool) and isinstance(user_id, int):
+            return self.store.one("SELECT * FROM users WHERE id=?", (user_id,))
+        if isinstance(username, str) and username.strip():
+            return self.store.one("SELECT * FROM users WHERE username=?", (username.strip(),))
+        return None
+
+    def verify_pin(self, user_id, username, pin, count_failures=True, client=None):
+        """Same lockout counter as a password: five wrong tries for this name and address, then the wait."""
+        pin = normalize_pin(pin) if isinstance(pin, str) else pin
+        if not isinstance(pin, str):
+            raise ShopError("bad_pin", status=401)
+        user = self._login_row(user_id, username)
+        name = self._guard_name(user, username, user_id)
+        if count_failures:
+            self.guard.check(name, client)
+        if not user or not user["active"] or not user.get("pin_hash"):
+            hash_password(pin or "0")
+            if count_failures:
+                self.guard.fail(name, client)
+            raise ShopError("bad_pin", status=401)
+        digest, _, _ = hash_password(pin, user["pin_salt"], user["pin_iter"])
+        if not hmac.compare_digest(digest, user["pin_hash"]):
+            if count_failures:
+                self.guard.fail(name, client)
+            raise ShopError("bad_pin", status=401)
+        if count_failures:
+            self.guard.succeeded(name, client)
+        updates = []
+        if user["failed"] or user["locked_until"]:
+            updates.append(("failed=0, locked_until=NULL", ()))
+        if user["pin_iter"] < PBKDF2_ITER:
+            new_hash, new_salt, new_iter = hash_password(pin)
+            updates.append(("pin_hash=?, pin_salt=?, pin_iter=?", (new_hash, new_salt, new_iter)))
+        for sql, args in updates:
+            self.store.db.execute("UPDATE users SET " + sql + " WHERE id=?", args + (user["id"],))
+        return user
+
+    def username_of(self, user_id):
+        if isinstance(user_id, bool) or not isinstance(user_id, int):
+            return None
+        return self.store.scalar("SELECT username FROM users WHERE id=? AND active=1", (user_id,))
+
+    def _start_session(self, user, workstation, via_pin):
         token = secrets.token_urlsafe(32)
         expires = (now() + dt.timedelta(hours=SESSION_HOURS)).isoformat(timespec="seconds")
 
         def work():
-            self.store.db.execute("INSERT INTO sessions(token_hash,user_id,workstation,created_at,expires_at) VALUES(?,?,?,?,?)",
-                                  (token_hash(token), user["id"], workstation, now_iso(), expires))
+            self.store.db.execute(
+                "INSERT INTO sessions(token_hash,user_id,workstation,created_at,expires_at,via_pin) VALUES(?,?,?,?,?,?)",
+                (token_hash(token), user["id"], workstation, now_iso(), expires, int(bool(via_pin))))
             self.store.audit({"id": user["id"], "workstation": workstation}, "login")
         self.store.tx(work)
         return token, self.public(user)
+
+    def login(self, username, password, workstation, client=None):
+        workstation = text(workstation, "bad_workstation", 64)
+        with self.store.lock:  # autocommit: a failed attempt must stay counted
+            user = self.verify(username, password, client=client)
+        return self._start_session(user, workstation, False)
+
+    def login_pin(self, user_id, username, pin, workstation, client=None):
+        workstation = text(workstation, "bad_workstation", 64)
+        with self.store.lock:
+            user = self.verify_pin(user_id, username, pin, client=client)
+        return self._start_session(user, workstation, True)
 
     def logout(self, token):
         self.store.tx(lambda: self.store.db.execute("DELETE FROM sessions WHERE token_hash=?",
@@ -220,7 +333,7 @@ class Auth:
         if not token:
             return None
         th = token_hash(token)
-        row = self.store.one("""SELECT u.*, s.workstation, s.expires_at, s.locked FROM sessions s
+        row = self.store.one("""SELECT u.*, s.workstation, s.expires_at, s.locked, s.via_pin FROM sessions s
             JOIN users u ON u.id=s.user_id WHERE s.token_hash=?""", (th,))
         # review report L13: compare moments, not text: "+03:00" and "+02:00" strings sort wrongly around the DST change
         if not row or not row["active"] or _expired(row["expires_at"]):
@@ -236,6 +349,7 @@ class Auth:
                 self._seen[th] = moment
         actor = self.public(row)
         actor["workstation"] = row["workstation"]
+        # A temporary password still has to be changed, even after a PIN sign-in.
         actor["must_change"] = bool(row["must_change"])
         actor["locked"] = locked
         return actor
@@ -309,9 +423,49 @@ class Auth:
         self.store.tx(lambda: self.store.db.execute("UPDATE sessions SET locked=1 WHERE token_hash=?", (token_hash(token),)))
         return {"locked": True}
 
-    def unlock_screen(self, actor, token, password, client=None):
+    def _store_pin(self, user_id, pin):
+        digest, salt, iterations = hash_password(pin)
+        self.store.db.execute("UPDATE users SET pin_hash=?, pin_salt=?, pin_iter=? WHERE id=?",
+                              (digest, salt, iterations, user_id))
+
+    def change_pin(self, actor, token, old, old_pin, new, client=None):
+        """The user's own PIN. The current password or the current PIN is checked; other sessions end."""
+        if not actor:
+            raise ShopError("login_required", status=401)
         with self.store.lock:
-            self.verify(actor["username"], password, client=client)       # failures count and lock the account like a login
+            if old_pin not in (None, ""):
+                self.verify_pin(actor["id"], actor["username"], old_pin, client=client)
+            else:
+                self.verify(actor["username"], old if isinstance(old, str) else "", client=client)
+        new = check_pin_rules(new, actor["role"])
+
+        def work():
+            self._store_pin(actor["id"], new)
+            self.store.db.execute("DELETE FROM sessions WHERE user_id=? AND token_hash<>?", (actor["id"], token_hash(token)))
+            self.store.audit(actor, "user.pin_set", str(actor["id"]))
+            return {"ok": True}
+        return self.store.tx(work)
+
+    def reset_pin(self, actor, user_id, pin):
+        """Owner sets a staff PIN and clears that name's wait, so five wrong tries are not a dead end."""
+        user = self._target(actor, user_id)
+        pin = check_pin_rules(pin, user["role"])
+
+        def work():
+            self._store_pin(user["id"], pin)
+            self.store.db.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
+            self.store.audit(actor, "user.pin_reset", str(user["id"]))
+            return {"ok": True}
+        result = self.store.tx(work)
+        self.guard.clear_name(user["username"])
+        return result
+
+    def unlock_screen(self, actor, token, password, client=None, pin=None):
+        with self.store.lock:
+            if pin not in (None, ""):
+                self.verify_pin(actor["id"], actor["username"], pin, client=client)
+            else:
+                self.verify(actor["username"], password, client=client)       # failures count and lock the account like a login
         self.store.tx(lambda: self.store.db.execute("UPDATE sessions SET locked=0 WHERE token_hash=?", (token_hash(token),)))
         return {"locked": False}
 
@@ -324,7 +478,7 @@ class Auth:
             if not user:
                 raise ShopError("unknown_owner")
             self._set_password(user["id"], new_password, False)
-            self.store.db.execute("UPDATE users SET active=1 WHERE id=?", (user["id"],))
+            self.store.db.execute("UPDATE users SET active=1, pin_hash=NULL, pin_salt=NULL, pin_iter=NULL WHERE id=?", (user["id"],))
             self.store.db.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
             self.store.audit({"id": user["id"], "workstation": "shop-pc"}, "owner.recovery", str(user["id"]))
             return {"ok": True, "username": user["username"]}
@@ -333,7 +487,8 @@ class Auth:
     @staticmethod
     def public(user):
         return {"id": user["id"], "username": user["username"], "name": user["display_name"],
-                "role": user["role"], "permissions": sorted(ROLES[user["role"]])}
+                "role": user["role"], "permissions": sorted(ROLES[user["role"]]),
+                "has_pin": bool(user.get("pin_hash")), "pin_digits": pin_digits(user["role"])}
 
     def approve(self, approval, permission, actor):
         """Manager approval typed at the till: username + password of a user who

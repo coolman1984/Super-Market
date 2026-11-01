@@ -95,20 +95,38 @@
       cart.lines.push({ product: r.product, qty: r.pack.net_g, pack: r.pack, scanned: r.scan.code });
     } else if (r.qty === null || r.qty === undefined) {
       const w = await askWeight(r.product);
-      if (!w) return;
+      if (!w || blockOver(r.product, w.grams)) return;
       cart.lines.push({ product: r.product, qty: w.grams, scanned: r.scan.code, manualWeight: !w.fromScale });
-    } else {
-      addProduct(r.product, r.qty, r.scan.code, r.scan.kind === 'label');
+    } else if (!addProduct(r.product, r.qty, r.scan.code, r.scan.kind === 'label')) {
+      return;
     }
     SM.scanner.beep(true);
     view.render();
   }
 
+  function looseQty(productId) {
+    return cart.lines.reduce((n, l) => n + (!l.pack && l.product.id === productId ? l.qty : 0), 0);
+  }
+  /* Refuse the line at the moment it is added. Pay stays off later if the cart is still over (stock moved meanwhile). */
+  function overStock(product, addQty) {
+    if (!product || product.available === undefined || product.available === null) return false;
+    return looseQty(product.id) + addQty > product.available;
+  }
+  function blockOver(product, addQty) {
+    if (!overStock(product, addQty)) return false;
+    SM.toast(t('sell.over_stock', { qty: SM.qty(product.available, product.measure) }), 'bad');
+    SM.scanner.beep(false);
+    return true;
+  }
+  function cartOver() { return !!(cart.short && Object.keys(cart.short).length); }
+
   function addProduct(product, qty, scanned, separate) {
+    if (blockOver(product, qty)) return false;
     // Two scans of an ordinary barcode are two items: merge into one line, never drop.
     const same = !separate && cart.lines.find(l => !l.pack && !l.manualWeight && !l.label && l.product.id === product.id && product.measure !== 'g');
     if (same) same.qty += qty;
     else cart.lines.push({ product, qty, scanned, label: separate });
+    return true;
   }
 
   /* Weighed item: with a scale cabled to this till its live weight shows and one tap takes it
@@ -211,8 +229,8 @@
       const rows = await SM.api('GET', '/api/products?q=' + encodeURIComponent(q.value)).catch(() => []);
       SM.put(list, ...rows.filter(r => ['grocery', 'raw_meat', 'prepared'].includes(r.kind)).map(r => h('button', { class: 'pick', onclick: async () => {
         d.close();
-        if (r.measure === 'g') { const w = await askWeight(r); if (w) { cart.key = null; cart.lines.push({ product: r, qty: w.grams, manualWeight: !w.fromScale }); view.render(); } }
-        else { cart.key = null; addProduct(r, 1, null); view.render(); }
+        if (r.measure === 'g') { const w = await askWeight(r); if (w && !blockOver(r, w.grams)) { cart.key = null; cart.lines.push({ product: r, qty: w.grams, manualWeight: !w.fromScale }); view.render(); } }
+        else if (!blockOver(r, 1)) { cart.key = null; addProduct(r, 1, null); view.render(); }
       } }, h('b', { text: SM.name(r) }), h('span', { class: 'muted', text: r.code }), SM.num(r.price === null ? '—' : SM.money(r.price)),
         h('span', { class: 'muted' }, t('sell.available'), ' ', SM.qty(r.available, r.measure)))));
     };
@@ -231,7 +249,7 @@
   /* The total shown at payment comes from the server (audit R14); a change
      after that shows old and new total and needs the cashier's OK. */
   async function payDialog(view) {
-    if (!cart.lines.length) return;
+    if (!cart.lines.length || cartOver()) return;
     if (cart.unknown) { return verifyUnknown(view); }
     let quote;
     try { quote = await SM.api('POST', '/api/quote', { payload: cartPayload() }); } catch (e) { SM.fail(e); return; }
@@ -454,7 +472,7 @@
             { label: t('sell.qty'), render: l => h('div', { class: 'row qty-cell' },
               !l.pack && l.product.measure !== 'g' ? h('button', { class: 'icon-btn', 'aria-label': t('less'), disabled: l.qty <= 1, onclick: () => { if (l.qty <= 1) return; cart.key = null; l.qty--; view.render(); } }, icon('minus')) : null,
               SM.num(SM.qty(l.qty, l.product.measure)),
-              !l.pack && l.product.measure !== 'g' ? h('button', { class: 'icon-btn', 'data-guide': 'sell.more', 'aria-label': t('more'), onclick: () => { cart.key = null; l.qty++; view.render(); } }, icon('plus')) : null) },
+              !l.pack && l.product.measure !== 'g' ? h('button', { class: 'icon-btn', 'data-guide': 'sell.more', 'aria-label': t('more'), onclick: () => { if (blockOver(l.product, 1)) return; cart.key = null; l.qty++; view.render(); } }, icon('plus')) : null) },
             { label: t('sell.price'), num: true, render: l => SM.num(l.pack ? SM.money(l.pack.price) : SM.money(l.product.price) + (l.product.measure === 'g' ? ' / ' + t('unit.kg') : '')) },
             { label: t('sell.amount'), num: true, render: l => SM.num(SM.money(lineAmount(l))) },
             { label: '', render: l => h('button', { class: 'icon-btn', 'aria-label': t('remove'), onclick: () => { cart.key = null; cart.lines.splice(cart.lines.indexOf(l), 1); view.render(); } }, icon('trash')) },
@@ -467,7 +485,8 @@
             h('div', { class: 'tot-row' }, h('span', { text: t('sell.items') }), SM.num(String(cart.lines.length))),
             cart.invoiceDiscount ? h('div', { class: 'tot-row' }, h('span', { text: t('sell.discount') }), SM.num('-' + SM.money(cart.invoiceDiscount))) : null,
             h('div', { class: 'tot-big' }, h('span', { text: t('sell.total') }), SM.num(SM.moneyText(tot.total))),
-            h('button', { class: 'btn primary lg block', 'data-guide': 'sell.pay', disabled: !cart.lines.length || !shift || cart.unknown, onclick: () => payDialog(view) }, t('sell.pay'), h('span', { class: 'kbd', text: 'F9' })),
+            cartOver() ? h('p', { class: 'badge bad', text: t('sell.pay_blocked') }) : null,
+            h('button', { class: 'btn primary lg block', 'data-guide': 'sell.pay', disabled: !cart.lines.length || !shift || cart.unknown || cartOver(), onclick: () => payDialog(view) }, t('sell.pay'), h('span', { class: 'kbd', text: 'F9' })),
             h('button', { class: 'btn ghost block', disabled: !cart.lines.length, onclick: () => discountDialog(view) }, t('sell.discount_btn')),
             h('button', { class: 'btn ghost block', 'data-guide': 'sell.hold', disabled: !cart.lines.length || cart.unknown, onclick: () => holdCart(view) }, t('sell.hold')),
             held().length ? h('button', { class: 'btn ghost block', 'data-guide': 'sell.resume', disabled: cart.unknown, onclick: () => resumeDialog(view) }, t('sell.resume') + ' (' + held().length + ')') : null,
@@ -490,7 +509,7 @@
       if (fresh || cart.restoring) restoreDraft(view);   // a read-back cut short by a second start-up is done again
       this.keys = (e) => {
         if (SM.state.dialogOpen) return;
-        if (e.key === 'F9') { e.preventDefault(); if (cart.lines.length && shift) payDialog(view); }
+        if (e.key === 'F9') { e.preventDefault(); if (cart.lines.length && shift && !cartOver()) payDialog(view); }
         else if (e.key === 'F4') { e.preventDefault(); search(view); }
         else if (e.key === 'F2') { e.preventDefault(); scanInput.focus(); }
       };

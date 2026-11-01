@@ -2,6 +2,7 @@
 // fresh TRAINING server (run after flows.js): invoice before goods (2), gift line (5),
 // cost correction (3), carton change (9), thaw (14), buy-get offer (26), day close (38).
 const { chromium } = require('playwright');
+const { viewText } = require('./wait');
 const base = process.argv[2] || 'http://127.0.0.1:8799';
 const out = process.argv[3] || '.';
 (async () => {
@@ -11,11 +12,12 @@ const out = process.argv[3] || '.';
   page.on('pageerror', e => errors.push(e.message));
   const res = {};
   await page.goto(base); await page.reload();
-  await page.waitForSelector('.sidebar, input[type=password]');
+  await page.waitForSelector('.sidebar, .who-list');
   if (await page.locator('.side-foot .logout-btn').count()) await page.click('.side-foot .logout-btn');
-  await page.waitForSelector('input[type=password]');
-  await page.fill('input[autocomplete=username]', 'owner'); await page.fill('input[type=password]', 'training-only');
-  await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
+  await page.waitForSelector('[data-username=owner]');
+  await page.click('[data-username=owner]');
+  for (const d of '159382') await page.click('.pin-key[data-digit="' + d + '"]');
+  await page.waitForSelector('.sidebar');
   // a saved dialog closes; if it stays open the save failed and the toast says why
   const closed = () => page.waitForSelector('#overlay.on', { state: 'detached', timeout: 8000 }).catch(async () => {
     throw new Error('dialog still open: ' + (await page.locator('.toast').allTextContents()).join(' | ')); });
@@ -50,7 +52,10 @@ const out = process.argv[3] || '.';
   await page.locator('.recv-line input').first().fill('6');
   await page.locator('.recv-line input[type=date]').fill('2027-01-31');
   res.row02_cost_from_invoice = (await page.textContent('.recv-line')).includes(await page.evaluate(() => SM.t('recv.cost_from_invoice')));
-  await page.click('#view .form-actions .btn.primary'); await page.waitForTimeout(800);
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/receipts') && r.request().method() === 'POST'),
+    page.click('#view .form-actions .btn.primary'),
+  ]);
   res.row02_received_6 = (await api('GET', '/api/products?q=1001'))[0].available - before === 6;
   // ---- row 5: gift line on the same screen
   await page.goto(base + '/#receive'); await page.reload(); await page.waitForSelector('#view select');
@@ -60,7 +65,10 @@ const out = process.argv[3] || '.';
   await page.locator('.recv-line select').first().selectOption('gift');
   await page.locator('.recv-line input').first().fill('2');
   await page.locator('.recv-line input[type=date]').fill('2027-01-31');
-  await page.click('#view .form-actions .btn.primary'); await page.waitForTimeout(800);
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/receipts') && r.request().method() === 'POST'),
+    page.click('#view .form-actions .btn.primary'),
+  ]);
   res.row05_gift_lines = (await api('GET', '/api/reports/day')).gift_lines >= 1;
   // ---- row 3: invoice correction from the supplier statement
   await page.goto(base + '/#parties'); await page.waitForSelector('#view .tbl');
@@ -114,13 +122,14 @@ const out = process.argv[3] || '.';
   await page.locator('.dialog footer .btn.primary').click(); await closed();
   res.row14_toast = await page.locator('.toast').last().textContent().catch(() => '');
   // ---- row 38: the reports screen offers the day close with its explanation
-  await page.goto(base + '/#reports'); await page.waitForSelector('#view .card');
-  await page.waitForTimeout(800);
+  await page.goto(base + '/#reports');
+  await page.waitForFunction((title) => (document.querySelector('#view') || {}).innerText.includes(title), await page.evaluate(() => SM.t('close.title')));
   res.row38_close_card = (await page.textContent('#view')).includes(await page.evaluate(() => SM.t('close.title')));
   await page.screenshot({ path: out + '/day-close-ar.png', fullPage: true });
   // no raw keys on the touched screens
   for (const v of ['receive', 'stock', 'parties', 'catalog', 'reports']) {
-    await page.goto(base + '/#' + v); await page.waitForTimeout(500);
+    await page.goto(base + '/#' + v);
+    await viewText(page, '#' + v);
     const raw = (await page.textContent('#view')).match(/\b(?:adj|close|promo|thaw|recv|cat|rep|party)\.[a-z_.]+/);
     if (raw) errors.push(v + ': raw key ' + raw[0]);
   }

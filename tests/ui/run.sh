@@ -10,7 +10,20 @@ PID=$!
 python3 -m server.app --data "$TMP/fresh-data" --port 8798 >/dev/null 2>&1 &
 PID2=$!
 trap 'kill $PID $PID2; rm -rf "$TMP"' EXIT
-sleep 2
+python3 - <<'PY'
+import sys, time, urllib.request
+for port in (8799, 8798):
+    ok = False
+    for _ in range(50):
+        try:
+            urllib.request.urlopen("http://127.0.0.1:%d/" % port, timeout=1)
+            ok = True
+            break
+        except Exception:
+            time.sleep(0.2)  # poll until the server answers; not a UI pause
+    if not ok:
+        sys.exit("server on %d did not answer" % port)
+PY
 node tests/ui/smoke.js http://127.0.0.1:8799 "$OUT"
 node tests/ui/flows.js http://127.0.0.1:8799 "$OUT"
 node tests/ui/rows.js http://127.0.0.1:8799 "$OUT"
@@ -23,3 +36,5 @@ node tests/ui/review_c.js http://127.0.0.1:8799 "$OUT"
 node tests/ui/simple_accounts.js http://127.0.0.1:8799 http://127.0.0.1:8798 "$OUT"
 node tests/ui/review_d.js http://127.0.0.1:8799 "$OUT"
 node tests/ui/sm02.js http://127.0.0.1:8799 "$OUT"
+node tests/ui/count_sheet.js http://127.0.0.1:8799 "$OUT"
+node tests/ui/shift_shortage.js http://127.0.0.1:8799 "$OUT"

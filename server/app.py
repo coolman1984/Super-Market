@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from . import guidebook, backup, scale, training
-from .auth import Auth, can, require
+from .auth import Auth, can, check_pin_rules, pin_digits, require
 from .core import Forbidden, ShopError, integer, text, today
 from .db import Store
 from .scanner import ScannerHub, list_serial_ports
@@ -66,13 +66,16 @@ class App:
         r("POST", r"/api/setup", self.setup, auth=False)
         r("POST", r"/api/local/stop", self.local_stop, auth=False)
         r("POST", r"/api/login", self.login, auth=False)
+        r("GET", r"/api/login/people", self.login_people, auth=False)
         r("POST", r"/api/logout", self.logout)
         r("GET", r"/api/guide/state", lambda a, q, b: guidebook.state(self.store, a))
         r("POST", r"/api/guide/progress", lambda a, q, b: guidebook.save_progress(self.store, a, b.get("update")))
         r("POST", r"/api/account/password", self.change_password)
+        r("POST", r"/api/account/pin", self.change_pin)
         r("POST", r"/api/account/lock", self.lock)
         r("POST", r"/api/account/unlock", self.unlock)
         r("POST", r"/api/users/(\d+)/password", lambda a, q, b, uid: self.auth.reset_password(a, int(uid), b.get("password")))
+        r("POST", r"/api/users/(\d+)/pin", lambda a, q, b, uid: self.auth.reset_pin(a, int(uid), b.get("pin")))
         r("POST", r"/api/users/(\d+)/active", lambda a, q, b, uid: self.auth.set_active(a, int(uid), bool(b.get("active")), b.get("reason")))
         r("GET", r"/api/products", lambda a, q, b: self.shop.search_products(q.get("q", ""), _int(q.get("limit"), 30), a))
         r("GET", r"/api/products/(\d+)", lambda a, q, b, pid: self.shop.product(int(pid), a))
@@ -138,11 +141,14 @@ class App:
         r("GET", r"/api/counts", self.counts)
         r("POST", r"/api/counts", lambda a, q, b: self.shop.open_count(a, b.get("location_id")))
         r("GET", r"/api/counts/(\d+)", lambda a, q, b, cid: self.shop.count_sheet(a, int(cid)))
+        r("GET", r"/api/counts/(\d+)/review", lambda a, q, b, cid: self.shop.count_review(a, int(cid)))
         r("POST", r"/api/counts/(\d+)/line", lambda a, q, b, cid: self.shop.record_count(a, int(cid), b.get("lot_id"), b.get("counted")))
         r("POST", r"/api/counts/(\d+)/cancel", lambda a, q, b, cid: self.shop.cancel_count(a, int(cid), b.get("reason")))
-        r("POST", r"/api/counts/(\d+)/approve", lambda a, q, b, cid: self.shop.approve_count(a, b.get("key"), int(cid), b.get("owner_reason")))
+        r("POST", r"/api/counts/(\d+)/approve", lambda a, q, b, cid: self.shop.approve_count(a, b.get("key"), int(cid), b.get("owner_reason"), b.get("confirm_jump") is True))
         r("GET", r"/api/stock", lambda a, q, b: self.shop.stock_report(a, _int(q.get("product"), None)))
         r("GET", r"/api/reports/day", lambda a, q, b: self.shop.day_report(a, q.get("day")))
+        r("GET", r"/api/reports/gaps", lambda a, q, b: self.shop.open_gaps(a))
+        r("POST", r"/api/shifts/gap", lambda a, q, b: self.shop.handle_shift_gap(a, b.get("key"), b.get("shift_id"), b.get("note")))
         r("GET", r"/api/export/stock\.csv", self.export_stock)
         r("GET", r"/api/settings", lambda a, q, b: self.public_settings(a))
         r("POST", r"/api/settings", self.save_settings)
@@ -182,7 +188,7 @@ class App:
                 "instance": s.get("instance_id") if private else None, "lan": self.lan if private else None,
                 "lan_addresses": self._lan_addresses() if self.lan and actor else None,
                 "clock_behind": ({"closed": self.store.clock_behind(), "today": today()} if self.store.clock_behind() else None),
-                "training_login": {"users": [u for u, _, _ in training.TRAINING_USERS], "password": training.TRAINING_PASSWORD}
+                "training_login": {"people": [{"name": n, "pin": training.TRAINING_PINS[u]} for u, n, _r in training.TRAINING_USERS]}
                 if self.store.mode == "training" else None}
 
     port = None
@@ -251,17 +257,43 @@ class App:
         return self.store.tx(work)
 
     def login(self, actor, q, body, client=None):
-        token, user = self.auth.login(body.get("username"), body.get("password"), body.get("workstation") or "unknown", client=client)
+        ws = body.get("workstation") or "unknown"
+        if body.get("pin") not in (None, ""):
+            token, user = self.auth.login_pin(body.get("user_id"), body.get("username"), body.get("pin"), ws, client=client)
+        else:
+            username = body.get("username") or self.auth.username_of(body.get("user_id"))
+            token, user = self.auth.login(username, body.get("password"), ws, client=client)
         return {"user": user, "_cookie": token}
+
+    def login_people(self, actor, q, body, client=None):
+        """Names on the sign-in screen. Loopback, or any till when the shop network is on. No secrets."""
+        try:
+            local = ipaddress.ip_address(client or "").is_loopback
+        except ValueError:
+            local = False
+        if not actor and not local and not self.lan:
+            raise Forbidden("forbidden")
+        order = {"cashier": 0, "counter": 1, "butcher": 2, "receiver": 3, "accountant": 4, "viewer": 5, "manager": 6, "owner": 7}
+        rows = self.store.all("""SELECT id, username, display_name AS name, role,
+            CASE WHEN pin_hash IS NOT NULL AND pin_hash != '' THEN 1 ELSE 0 END AS has_pin
+            FROM users WHERE active=1""")
+        for row in rows:
+            row["has_pin"] = bool(row["has_pin"])
+            row["pin_digits"] = pin_digits(row["role"])
+        rows.sort(key=lambda row: (order.get(row["role"], 9), row["name"]))
+        return rows
 
     def change_password(self, actor, q, body, token=None, client=None):
         return self.auth.change_password(actor, token, body.get("old"), body.get("new"), client=client)
+
+    def change_pin(self, actor, q, body, token=None, client=None):
+        return self.auth.change_pin(actor, token, body.get("old"), body.get("old_pin"), body.get("pin"), client=client)
 
     def lock(self, actor, q, body, token=None):
         return self.auth.lock_screen(actor, token)
 
     def unlock(self, actor, q, body, token=None, client=None):
-        return self.auth.unlock_screen(actor, token, body.get("password"), client=client)
+        return self.auth.unlock_screen(actor, token, body.get("password"), client=client, pin=body.get("pin"))
 
     def logout(self, actor, q, body, token=None):
         if token:
@@ -445,7 +477,9 @@ class App:
 
     def users(self, actor, q, body):
         require(actor, "users")
-        return self.store.all("SELECT id, username, display_name, role, active, must_change, created_at FROM users ORDER BY id")
+        return self.store.all("""SELECT id, username, display_name, role, active, must_change, created_at,
+            CASE WHEN pin_hash IS NOT NULL AND pin_hash != '' THEN 1 ELSE 0 END AS has_pin
+            FROM users ORDER BY id""")
 
     def add_user(self, actor, q, body):
         require(actor, "users")
@@ -453,6 +487,8 @@ class App:
             uid = self.auth.create_user(body.get("username"), body.get("name"), body.get("role"), body.get("password"))
             # the owner typed this password: the employee replaces it with his own at first login
             self.store.db.execute("UPDATE users SET must_change=1 WHERE id=?", (uid,))
+            if body.get("pin") not in (None, ""):
+                self.auth._store_pin(uid, check_pin_rules(body.get("pin"), body.get("role")))
             self.store.audit(actor, "user.added", str(uid))
             return uid
         return {"id": self.store.tx(work)}
@@ -670,9 +706,9 @@ def make_handler(app, allowed_lan):
                             result = fn(actor, query, body, client=self.client_address[0])
                         elif fn == app.local_stop:
                             result = fn(actor, query, body, client=self.client_address[0], key=self.headers.get("X-SM-Stop"), server=self.server)
-                        elif fn == app.login:
+                        elif fn == app.login or fn == app.login_people:
                             result = fn(actor, query, body, client=self.client_address[0])
-                        elif fn in (app.change_password, app.unlock):
+                        elif fn in (app.change_password, app.unlock, app.change_pin):
                             result = fn(actor, query, body, token=token, client=self.client_address[0])
                         elif fn in (app.logout, app.lock):
                             result = fn(actor, query, body, token=token)
