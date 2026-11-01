@@ -1,0 +1,64 @@
+{
+  "local_worker_only": true,
+  "sales": 401,
+  "returns": 40,
+  "queued_after_lost_reply": 4546,
+  "drained_rows": 4145,
+  "pending_after": 0,
+  "restore_report": {
+    "ok": true,
+    "balances": [],
+    "missing_balances": [],
+    "packs": [],
+    "packs_over_stock": [],
+    "payments": [],
+    "accounts": [],
+    "cost_attribution": [],
+    "foreign_key_problems": 0,
+    "rows": 4105
+  },
+  "compared": {
+    "sales": {
+      "rows": 401,
+      "identical": true
+    },
+    "sale_lines": {
+      "rows": 401,
+      "identical": true
+    },
+    "sale_allocations": {
+      "rows": 401,
+      "identical": true
+    },
+    "payments": {
+      "rows": 401,
+      "identical": true
+    },
+    "cash_entries": {
+      "rows": 442,
+      "identical": true
+    },
+    "stock_entries": {
+      "rows": 443,
+      "identical": true
+    },
+    "lots": {
+      "rows": 42,
+      "identical": true
+    },
+    "receipts": {
+      "rows": 2,
+      "identical": true
+    },
+    "return_lines": {
+      "rows": 40,
+      "identical": true
+    },
+    "returns": {
+      "rows": 40,
+      "identical": true
+    }
+  },
+  "restored_stock": 639,
+  "source_stock": 639
+}

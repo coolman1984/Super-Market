@@ -1,5 +1,5 @@
 // ISSUE-009 resume, ISSUE-010 difference list, ISSUE-011 a 10× count is never silent.
-// Training shop: rice (1002) sits at 30 on the grocery shelf. Counting 300 is the extra zero.
+// Use the actual opening rice balance: earlier journeys may have received another unit.
 const { chromium } = require('playwright');
 const base = process.argv[2] || 'http://127.0.0.1:8799';
 const out = process.argv[3] || '.';
@@ -26,6 +26,10 @@ const out = process.argv[3] || '.';
   }, code);
 
   await page.goto(base);
+  await login('manager');
+  const initialRice = await stock('1002');
+  if (!(initialRice > 0 && initialRice < 100)) throw new Error('unexpected training rice balance: ' + initialRice);
+  await page.click('[aria-label="تبديل المستخدم"]');
   await login('counter');
   await page.evaluate(() => SM.go('count'));
   await page.waitForSelector('[data-guide="count.open"]');
@@ -79,9 +83,9 @@ const out = process.argv[3] || '.';
   await page.waitForSelector('#count-diffs');
   const diffs = await page.locator('#count-diffs').innerText();
   check('lists_the_item', diffs.includes('أرز'));
-  check('lists_system_qty', diffs.includes('30'));
+  check('lists_system_qty', diffs.includes(String(initialRice)));
   check('lists_counted_qty', diffs.includes('300'));
-  check('lists_the_difference', diffs.includes('270'));
+  check('lists_the_difference', diffs.includes(String(300 - initialRice)));
   check('marks_the_big_jump', diffs.includes('فرق كبير'));
   check('explicit_yes', (await page.locator('#count-approve-yes').innerText()) === 'نعم، الرقم صحيح');
   check('recount_button', (await page.locator('#count-approve-no').innerText()) === 'أعد العد');
@@ -90,13 +94,13 @@ const out = process.argv[3] || '.';
   await shot('approver');
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
-  check('escape_does_not_post', (await stock('1002')) === 30);
+  check('escape_does_not_post', (await stock('1002')) === initialRice);
   check('escape_closes', await page.locator('#count-diffs').count() === 0);
   await page.click('[data-guide="count.approve"]');
   await page.waitForSelector('#count-approve-yes');
   await page.click('#count-approve-yes');
   await page.waitForSelector('.toast');
-  check('approved_stock_is_300', (await stock('1002')) === 300);
+  check('approved_stock_is_300', (await stock('1002')) === initialRice0);
 
   await browser.close();
   console.log(JSON.stringify(res, null, 2));

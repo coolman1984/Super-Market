@@ -1,0 +1,2173 @@
+{
+  "source": "15985263e298dee1d6b4ef394423e4a4eed46a79",
+  "pages": [
+    {
+      "view": "today",
+      "actual": "today",
+      "variant": "ar-desktop",
+      "title": "اليوم",
+      "textLength": 511,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-today.png"
+    },
+    {
+      "view": "sell",
+      "actual": "sell",
+      "variant": "ar-desktop",
+      "title": "البيع",
+      "textLength": 253,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-sell.png"
+    },
+    {
+      "view": "returns",
+      "actual": "returns",
+      "variant": "ar-desktop",
+      "title": "المرتجعات",
+      "textLength": 201,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-returns.png"
+    },
+    {
+      "view": "cash",
+      "actual": "cash",
+      "variant": "ar-desktop",
+      "title": "درج النقد والوردية",
+      "textLength": 230,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-cash.png"
+    },
+    {
+      "view": "receive",
+      "actual": "receive",
+      "variant": "ar-desktop",
+      "title": "استلام البضاعة",
+      "textLength": 340,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-receive.png"
+    },
+    {
+      "view": "stock",
+      "actual": "stock",
+      "variant": "ar-desktop",
+      "title": "المخزون والدفعات",
+      "textLength": 767,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-stock.png"
+    },
+    {
+      "view": "prepare",
+      "actual": "prepare",
+      "variant": "ar-desktop",
+      "title": "التقطيع والتجهيز",
+      "textLength": 903,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-prepare.png"
+    },
+    {
+      "view": "count",
+      "actual": "count",
+      "variant": "ar-desktop",
+      "title": "الجرد",
+      "textLength": 222,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-count.png"
+    },
+    {
+      "view": "reports",
+      "actual": "reports",
+      "variant": "ar-desktop",
+      "title": "التقارير",
+      "textLength": 1255,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-reports.png"
+    },
+    {
+      "view": "parties",
+      "actual": "parties",
+      "variant": "ar-desktop",
+      "title": "الموردون والعملاء",
+      "textLength": 227,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-parties.png"
+    },
+    {
+      "view": "catalog",
+      "actual": "catalog",
+      "variant": "ar-desktop",
+      "title": "الأصناف",
+      "textLength": 593,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-catalog.png"
+    },
+    {
+      "view": "scanner",
+      "actual": "scanner",
+      "variant": "ar-desktop",
+      "title": "الماسح والميزان",
+      "textLength": 2488,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-scanner.png"
+    },
+    {
+      "view": "settings",
+      "actual": "settings",
+      "variant": "ar-desktop",
+      "title": "الإعدادات",
+      "textLength": 2215,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-settings.png"
+    },
+    {
+      "view": "help",
+      "actual": "help",
+      "variant": "ar-desktop",
+      "title": "المساعدة",
+      "textLength": 2318,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 1086,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-desktop-help.png"
+    },
+    {
+      "view": "today",
+      "actual": "today",
+      "variant": "ar-tablet",
+      "title": "اليوم",
+      "textLength": 511,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-today.png"
+    },
+    {
+      "view": "sell",
+      "actual": "sell",
+      "variant": "ar-tablet",
+      "title": "البيع",
+      "textLength": 253,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-sell.png"
+    },
+    {
+      "view": "returns",
+      "actual": "returns",
+      "variant": "ar-tablet",
+      "title": "المرتجعات",
+      "textLength": 201,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-returns.png"
+    },
+    {
+      "view": "cash",
+      "actual": "cash",
+      "variant": "ar-tablet",
+      "title": "درج النقد والوردية",
+      "textLength": 230,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-cash.png"
+    },
+    {
+      "view": "receive",
+      "actual": "receive",
+      "variant": "ar-tablet",
+      "title": "استلام البضاعة",
+      "textLength": 340,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-receive.png"
+    },
+    {
+      "view": "stock",
+      "actual": "stock",
+      "variant": "ar-tablet",
+      "title": "المخزون والدفعات",
+      "textLength": 767,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-stock.png"
+    },
+    {
+      "view": "prepare",
+      "actual": "prepare",
+      "variant": "ar-tablet",
+      "title": "التقطيع والتجهيز",
+      "textLength": 903,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-prepare.png"
+    },
+    {
+      "view": "count",
+      "actual": "count",
+      "variant": "ar-tablet",
+      "title": "الجرد",
+      "textLength": 222,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-count.png"
+    },
+    {
+      "view": "reports",
+      "actual": "reports",
+      "variant": "ar-tablet",
+      "title": "التقارير",
+      "textLength": 1255,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-reports.png"
+    },
+    {
+      "view": "parties",
+      "actual": "parties",
+      "variant": "ar-tablet",
+      "title": "الموردون والعملاء",
+      "textLength": 227,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-parties.png"
+    },
+    {
+      "view": "catalog",
+      "actual": "catalog",
+      "variant": "ar-tablet",
+      "title": "الأصناف",
+      "textLength": 593,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-catalog.png"
+    },
+    {
+      "view": "scanner",
+      "actual": "scanner",
+      "variant": "ar-tablet",
+      "title": "الماسح والميزان",
+      "textLength": 2488,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-scanner.png"
+    },
+    {
+      "view": "settings",
+      "actual": "settings",
+      "variant": "ar-tablet",
+      "title": "الإعدادات",
+      "textLength": 2149,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-settings.png"
+    },
+    {
+      "view": "help",
+      "actual": "help",
+      "variant": "ar-tablet",
+      "title": "المساعدة",
+      "textLength": 2318,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 768,
+      "viewport": 768,
+      "documentWidth": 768,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-tablet-help.png"
+    },
+    {
+      "view": "today",
+      "actual": "today",
+      "variant": "ar-phone",
+      "title": "اليوم",
+      "textLength": 511,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-today.png"
+    },
+    {
+      "view": "sell",
+      "actual": "sell",
+      "variant": "ar-phone",
+      "title": "البيع",
+      "textLength": 253,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-sell.png"
+    },
+    {
+      "view": "returns",
+      "actual": "returns",
+      "variant": "ar-phone",
+      "title": "المرتجعات",
+      "textLength": 201,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-returns.png"
+    },
+    {
+      "view": "cash",
+      "actual": "cash",
+      "variant": "ar-phone",
+      "title": "درج النقد والوردية",
+      "textLength": 230,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-cash.png"
+    },
+    {
+      "view": "receive",
+      "actual": "receive",
+      "variant": "ar-phone",
+      "title": "استلام البضاعة",
+      "textLength": 340,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-receive.png"
+    },
+    {
+      "view": "stock",
+      "actual": "stock",
+      "variant": "ar-phone",
+      "title": "المخزون والدفعات",
+      "textLength": 767,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-stock.png"
+    },
+    {
+      "view": "prepare",
+      "actual": "prepare",
+      "variant": "ar-phone",
+      "title": "التقطيع والتجهيز",
+      "textLength": 903,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-prepare.png"
+    },
+    {
+      "view": "count",
+      "actual": "count",
+      "variant": "ar-phone",
+      "title": "الجرد",
+      "textLength": 222,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-count.png"
+    },
+    {
+      "view": "reports",
+      "actual": "reports",
+      "variant": "ar-phone",
+      "title": "التقارير",
+      "textLength": 1255,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-reports.png"
+    },
+    {
+      "view": "parties",
+      "actual": "parties",
+      "variant": "ar-phone",
+      "title": "الموردون والعملاء",
+      "textLength": 227,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-parties.png"
+    },
+    {
+      "view": "catalog",
+      "actual": "catalog",
+      "variant": "ar-phone",
+      "title": "الأصناف",
+      "textLength": 593,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-catalog.png"
+    },
+    {
+      "view": "scanner",
+      "actual": "scanner",
+      "variant": "ar-phone",
+      "title": "الماسح والميزان",
+      "textLength": 2488,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-scanner.png"
+    },
+    {
+      "view": "settings",
+      "actual": "settings",
+      "variant": "ar-phone",
+      "title": "الإعدادات",
+      "textLength": 2149,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-settings.png"
+    },
+    {
+      "view": "help",
+      "actual": "help",
+      "variant": "ar-phone",
+      "title": "المساعدة",
+      "textLength": 2318,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-help.png"
+    },
+    {
+      "view": "today",
+      "actual": "today",
+      "variant": "en-dark",
+      "title": "Today",
+      "textLength": 477,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-today.png"
+    },
+    {
+      "view": "sell",
+      "actual": "sell",
+      "variant": "en-dark",
+      "title": "Sell",
+      "textLength": 242,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-sell.png"
+    },
+    {
+      "view": "returns",
+      "actual": "returns",
+      "variant": "en-dark",
+      "title": "Returns",
+      "textLength": 164,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-returns.png"
+    },
+    {
+      "view": "cash",
+      "actual": "cash",
+      "variant": "en-dark",
+      "title": "Drawer & shift",
+      "textLength": 180,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-cash.png"
+    },
+    {
+      "view": "receive",
+      "actual": "receive",
+      "variant": "en-dark",
+      "title": "Receive goods",
+      "textLength": 377,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-receive.png"
+    },
+    {
+      "view": "stock",
+      "actual": "stock",
+      "variant": "en-dark",
+      "title": "Stock & lots",
+      "textLength": 771,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-stock.png"
+    },
+    {
+      "view": "prepare",
+      "actual": "prepare",
+      "variant": "en-dark",
+      "title": "Cutting & preparation",
+      "textLength": 972,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-prepare.png"
+    },
+    {
+      "view": "count",
+      "actual": "count",
+      "variant": "en-dark",
+      "title": "Stock count",
+      "textLength": 262,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-count.png"
+    },
+    {
+      "view": "reports",
+      "actual": "reports",
+      "variant": "en-dark",
+      "title": "Reports",
+      "textLength": 1351,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-reports.png"
+    },
+    {
+      "view": "parties",
+      "actual": "parties",
+      "variant": "en-dark",
+      "title": "Suppliers & customers",
+      "textLength": 220,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-parties.png"
+    },
+    {
+      "view": "catalog",
+      "actual": "catalog",
+      "variant": "en-dark",
+      "title": "Products",
+      "textLength": 596,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-catalog.png"
+    },
+    {
+      "view": "scanner",
+      "actual": "scanner",
+      "variant": "en-dark",
+      "title": "Scanner and scale",
+      "textLength": 2752,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-scanner.png"
+    },
+    {
+      "view": "settings",
+      "actual": "settings",
+      "variant": "en-dark",
+      "title": "Settings",
+      "textLength": 2303,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-settings.png"
+    },
+    {
+      "view": "help",
+      "actual": "help",
+      "variant": "en-dark",
+      "title": "Help",
+      "textLength": 2771,
+      "missingKeys": [],
+      "rootLeft": 280,
+      "rootRight": 1366,
+      "viewport": 1366,
+      "documentWidth": 1366,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "en-dark-help.png"
+    },
+    {
+      "view": "catalog",
+      "actual": "catalog",
+      "variant": "ar-phone-long-names",
+      "title": "الأصناف",
+      "textLength": 836,
+      "missingKeys": [],
+      "rootLeft": 0,
+      "rootRight": 390,
+      "viewport": 390,
+      "documentWidth": 390,
+      "buttonOverflow": [],
+      "fieldOverflow": [],
+      "hasPageError": false,
+      "screenshot": "ar-phone-long-names-catalog.png"
+    }
+  ],
+  "roles": [
+    {
+      "role": "manager",
+      "advertisedViews": [
+        "today",
+        "sell",
+        "returns",
+        "cash",
+        "receive",
+        "stock",
+        "prepare",
+        "count",
+        "reports",
+        "parties",
+        "catalog",
+        "scanner",
+        "settings",
+        "help"
+      ],
+      "routeChecks": [
+        {
+          "view": "today",
+          "actual": "today",
+          "advertised": true,
+          "title": "اليوم",
+          "length": 514
+        },
+        {
+          "view": "sell",
+          "actual": "sell",
+          "advertised": true,
+          "title": "البيع",
+          "length": 253
+        },
+        {
+          "view": "returns",
+          "actual": "returns",
+          "advertised": true,
+          "title": "المرتجعات",
+          "length": 201
+        },
+        {
+          "view": "cash",
+          "actual": "cash",
+          "advertised": true,
+          "title": "درج النقد والوردية",
+          "length": 230
+        },
+        {
+          "view": "receive",
+          "actual": "receive",
+          "advertised": true,
+          "title": "استلام البضاعة",
+          "length": 340
+        },
+        {
+          "view": "stock",
+          "actual": "stock",
+          "advertised": true,
+          "title": "المخزون والدفعات",
+          "length": 767
+        },
+        {
+          "view": "prepare",
+          "actual": "prepare",
+          "advertised": true,
+          "title": "التقطيع والتجهيز",
+          "length": 903
+        },
+        {
+          "view": "count",
+          "actual": "count",
+          "advertised": true,
+          "title": "الجرد",
+          "length": 222
+        },
+        {
+          "view": "reports",
+          "actual": "reports",
+          "advertised": true,
+          "title": "التقارير",
+          "length": 1371
+        },
+        {
+          "view": "parties",
+          "actual": "parties",
+          "advertised": true,
+          "title": "الموردون والعملاء",
+          "length": 227
+        },
+        {
+          "view": "catalog",
+          "actual": "catalog",
+          "advertised": true,
+          "title": "الأصناف",
+          "length": 836
+        },
+        {
+          "view": "scanner",
+          "actual": "scanner",
+          "advertised": true,
+          "title": "الماسح والميزان",
+          "length": 2488
+        },
+        {
+          "view": "settings",
+          "actual": "settings",
+          "advertised": true,
+          "title": "الإعدادات",
+          "length": 441
+        },
+        {
+          "view": "help",
+          "actual": "help",
+          "advertised": true,
+          "title": "المساعدة",
+          "length": 2351
+        }
+      ],
+      "apiAccess": [
+        {
+          "path": "/api/users",
+          "status": 403
+        },
+        {
+          "path": "/api/settings",
+          "status": 200
+        },
+        {
+          "path": "/api/backup/status",
+          "status": 200
+        },
+        {
+          "path": "/api/reports/day",
+          "status": 200
+        },
+        {
+          "path": "/api/stock",
+          "status": 200
+        },
+        {
+          "path": "/api/parties?kind=supplier",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "role": "cashier",
+      "advertisedViews": [
+        "today",
+        "sell",
+        "returns",
+        "cash",
+        "stock",
+        "parties",
+        "catalog",
+        "scanner",
+        "settings",
+        "help"
+      ],
+      "routeChecks": [
+        {
+          "view": "today",
+          "actual": "today",
+          "advertised": true,
+          "title": "اليوم",
+          "length": 203
+        },
+        {
+          "view": "sell",
+          "actual": "sell",
+          "advertised": true,
+          "title": "البيع",
+          "length": 253
+        },
+        {
+          "view": "returns",
+          "actual": "returns",
+          "advertised": true,
+          "title": "المرتجعات",
+          "length": 201
+        },
+        {
+          "view": "cash",
+          "actual": "cash",
+          "advertised": true,
+          "title": "درج النقد والوردية",
+          "length": 230
+        },
+        {
+          "view": "receive",
+          "actual": "sell",
+          "advertised": false,
+          "title": "البيع",
+          "length": 253
+        },
+        {
+          "view": "stock",
+          "actual": "stock",
+          "advertised": true,
+          "title": "المخزون والدفعات",
+          "length": 599
+        },
+        {
+          "view": "prepare",
+          "actual": "sell",
+          "advertised": false,
+          "title": "البيع",
+          "length": 253
+        },
+        {
+          "view": "count",
+          "actual": "sell",
+          "advertised": false,
+          "title": "البيع",
+          "length": 253
+        },
+        {
+          "view": "reports",
+          "actual": "sell",
+          "advertised": false,
+          "title": "البيع",
+          "length": 253
+        },
+        {
+          "view": "parties",
+          "actual": "parties",
+          "advertised": true,
+          "title": "الموردون والعملاء",
+          "length": 158
+        },
+        {
+          "view": "catalog",
+          "actual": "catalog",
+          "advertised": true,
+          "title": "الأصناف",
+          "length": 735
+        },
+        {
+          "view": "scanner",
+          "actual": "scanner",
+          "advertised": true,
+          "title": "الماسح والميزان",
+          "length": 2477
+        },
+        {
+          "view": "settings",
+          "actual": "settings",
+          "advertised": true,
+          "title": "الإعدادات",
+          "length": 178
+        },
+        {
+          "view": "help",
+          "actual": "help",
+          "advertised": true,
+          "title": "المساعدة",
+          "length": 2483
+        }
+      ],
+      "apiAccess": [
+        {
+          "path": "/api/users",
+          "status": 403
+        },
+        {
+          "path": "/api/settings",
+          "status": 200
+        },
+        {
+          "path": "/api/backup/status",
+          "status": 403
+        },
+        {
+          "path": "/api/reports/day",
+          "status": 403
+        },
+        {
+          "path": "/api/stock",
+          "status": 200
+        },
+        {
+          "path": "/api/parties?kind=supplier",
+          "status": 403
+        }
+      ]
+    },
+    {
+      "role": "receiver",
+      "advertisedViews": [
+        "today",
+        "receive",
+        "stock",
+        "count",
+        "parties",
+        "catalog",
+        "scanner",
+        "settings",
+        "help"
+      ],
+      "routeChecks": [
+        {
+          "view": "today",
+          "actual": "today",
+          "advertised": true,
+          "title": "اليوم",
+          "length": 219
+        },
+        {
+          "view": "sell",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 219
+        },
+        {
+          "view": "returns",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 219
+        },
+        {
+          "view": "cash",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 219
+        },
+        {
+          "view": "receive",
+          "actual": "receive",
+          "advertised": true,
+          "title": "استلام البضاعة",
+          "length": 340
+        },
+        {
+          "view": "stock",
+          "actual": "stock",
+          "advertised": true,
+          "title": "المخزون والدفعات",
+          "length": 644
+        },
+        {
+          "view": "prepare",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 219
+        },
+        {
+          "view": "count",
+          "actual": "count",
+          "advertised": true,
+          "title": "الجرد",
+          "length": 222
+        },
+        {
+          "view": "reports",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 219
+        },
+        {
+          "view": "parties",
+          "actual": "parties",
+          "advertised": true,
+          "title": "الموردون والعملاء",
+          "length": 121
+        },
+        {
+          "view": "catalog",
+          "actual": "catalog",
+          "advertised": true,
+          "title": "الأصناف",
+          "length": 735
+        },
+        {
+          "view": "scanner",
+          "actual": "scanner",
+          "advertised": true,
+          "title": "الماسح والميزان",
+          "length": 2477
+        },
+        {
+          "view": "settings",
+          "actual": "settings",
+          "advertised": true,
+          "title": "الإعدادات",
+          "length": 178
+        },
+        {
+          "view": "help",
+          "actual": "help",
+          "advertised": true,
+          "title": "المساعدة",
+          "length": 2605
+        }
+      ],
+      "apiAccess": [
+        {
+          "path": "/api/users",
+          "status": 403
+        },
+        {
+          "path": "/api/settings",
+          "status": 200
+        },
+        {
+          "path": "/api/backup/status",
+          "status": 403
+        },
+        {
+          "path": "/api/reports/day",
+          "status": 403
+        },
+        {
+          "path": "/api/stock",
+          "status": 200
+        },
+        {
+          "path": "/api/parties?kind=supplier",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "role": "butcher",
+      "advertisedViews": [
+        "today",
+        "stock",
+        "prepare",
+        "count",
+        "catalog",
+        "scanner",
+        "settings",
+        "help"
+      ],
+      "routeChecks": [
+        {
+          "view": "today",
+          "actual": "today",
+          "advertised": true,
+          "title": "اليوم",
+          "length": 225
+        },
+        {
+          "view": "sell",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 225
+        },
+        {
+          "view": "returns",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 225
+        },
+        {
+          "view": "cash",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 225
+        },
+        {
+          "view": "receive",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 225
+        },
+        {
+          "view": "stock",
+          "actual": "stock",
+          "advertised": true,
+          "title": "المخزون والدفعات",
+          "length": 665
+        },
+        {
+          "view": "prepare",
+          "actual": "prepare",
+          "advertised": true,
+          "title": "التقطيع والتجهيز",
+          "length": 903
+        },
+        {
+          "view": "count",
+          "actual": "count",
+          "advertised": true,
+          "title": "الجرد",
+          "length": 222
+        },
+        {
+          "view": "reports",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 225
+        },
+        {
+          "view": "parties",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 225
+        },
+        {
+          "view": "catalog",
+          "actual": "catalog",
+          "advertised": true,
+          "title": "الأصناف",
+          "length": 735
+        },
+        {
+          "view": "scanner",
+          "actual": "scanner",
+          "advertised": true,
+          "title": "الماسح والميزان",
+          "length": 2477
+        },
+        {
+          "view": "settings",
+          "actual": "settings",
+          "advertised": true,
+          "title": "الإعدادات",
+          "length": 178
+        },
+        {
+          "view": "help",
+          "actual": "help",
+          "advertised": true,
+          "title": "المساعدة",
+          "length": 2571
+        }
+      ],
+      "apiAccess": [
+        {
+          "path": "/api/users",
+          "status": 403
+        },
+        {
+          "path": "/api/settings",
+          "status": 200
+        },
+        {
+          "path": "/api/backup/status",
+          "status": 403
+        },
+        {
+          "path": "/api/reports/day",
+          "status": 403
+        },
+        {
+          "path": "/api/stock",
+          "status": 200
+        },
+        {
+          "path": "/api/parties?kind=supplier",
+          "status": 403
+        }
+      ]
+    },
+    {
+      "role": "counter",
+      "advertisedViews": [
+        "today",
+        "count",
+        "catalog",
+        "scanner",
+        "settings",
+        "help"
+      ],
+      "routeChecks": [
+        {
+          "view": "today",
+          "actual": "today",
+          "advertised": true,
+          "title": "اليوم",
+          "length": 197
+        },
+        {
+          "view": "sell",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 197
+        },
+        {
+          "view": "returns",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 197
+        },
+        {
+          "view": "cash",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 197
+        },
+        {
+          "view": "receive",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 197
+        },
+        {
+          "view": "stock",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 197
+        },
+        {
+          "view": "prepare",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 197
+        },
+        {
+          "view": "count",
+          "actual": "count",
+          "advertised": true,
+          "title": "الجرد",
+          "length": 222
+        },
+        {
+          "view": "reports",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 197
+        },
+        {
+          "view": "parties",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 197
+        },
+        {
+          "view": "catalog",
+          "actual": "catalog",
+          "advertised": true,
+          "title": "الأصناف",
+          "length": 709
+        },
+        {
+          "view": "scanner",
+          "actual": "scanner",
+          "advertised": true,
+          "title": "الماسح والميزان",
+          "length": 2477
+        },
+        {
+          "view": "settings",
+          "actual": "settings",
+          "advertised": true,
+          "title": "الإعدادات",
+          "length": 178
+        },
+        {
+          "view": "help",
+          "actual": "help",
+          "advertised": true,
+          "title": "المساعدة",
+          "length": 2598
+        }
+      ],
+      "apiAccess": [
+        {
+          "path": "/api/users",
+          "status": 403
+        },
+        {
+          "path": "/api/settings",
+          "status": 200
+        },
+        {
+          "path": "/api/backup/status",
+          "status": 403
+        },
+        {
+          "path": "/api/reports/day",
+          "status": 403
+        },
+        {
+          "path": "/api/stock",
+          "status": 403
+        },
+        {
+          "path": "/api/parties?kind=supplier",
+          "status": 403
+        }
+      ]
+    },
+    {
+      "role": "accountant",
+      "advertisedViews": [
+        "today",
+        "stock",
+        "reports",
+        "parties",
+        "catalog",
+        "settings",
+        "help"
+      ],
+      "routeChecks": [
+        {
+          "view": "today",
+          "actual": "today",
+          "advertised": true,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "sell",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "returns",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "cash",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "receive",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "stock",
+          "actual": "stock",
+          "advertised": true,
+          "title": "المخزون والدفعات",
+          "length": 671
+        },
+        {
+          "view": "prepare",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "count",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "reports",
+          "actual": "reports",
+          "advertised": true,
+          "title": "التقارير",
+          "length": 1355
+        },
+        {
+          "view": "parties",
+          "actual": "parties",
+          "advertised": true,
+          "title": "الموردون والعملاء",
+          "length": 115
+        },
+        {
+          "view": "catalog",
+          "actual": "catalog",
+          "advertised": true,
+          "title": "الأصناف",
+          "length": 735
+        },
+        {
+          "view": "scanner",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "settings",
+          "actual": "settings",
+          "advertised": true,
+          "title": "الإعدادات",
+          "length": 178
+        },
+        {
+          "view": "help",
+          "actual": "help",
+          "advertised": true,
+          "title": "المساعدة",
+          "length": 2627
+        }
+      ],
+      "apiAccess": [
+        {
+          "path": "/api/users",
+          "status": 403
+        },
+        {
+          "path": "/api/settings",
+          "status": 200
+        },
+        {
+          "path": "/api/backup/status",
+          "status": 403
+        },
+        {
+          "path": "/api/reports/day",
+          "status": 200
+        },
+        {
+          "path": "/api/stock",
+          "status": 200
+        },
+        {
+          "path": "/api/parties?kind=supplier",
+          "status": 200
+        }
+      ]
+    },
+    {
+      "role": "viewer",
+      "advertisedViews": [
+        "today",
+        "stock",
+        "reports",
+        "catalog",
+        "settings",
+        "help"
+      ],
+      "routeChecks": [
+        {
+          "view": "today",
+          "actual": "today",
+          "advertised": true,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "sell",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "returns",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "cash",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "receive",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "stock",
+          "actual": "stock",
+          "advertised": true,
+          "title": "المخزون والدفعات",
+          "length": 599
+        },
+        {
+          "view": "prepare",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "count",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "reports",
+          "actual": "reports",
+          "advertised": true,
+          "title": "التقارير",
+          "length": 1124
+        },
+        {
+          "view": "parties",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "catalog",
+          "actual": "catalog",
+          "advertised": true,
+          "title": "الأصناف",
+          "length": 735
+        },
+        {
+          "view": "scanner",
+          "actual": "today",
+          "advertised": false,
+          "title": "اليوم",
+          "length": 406
+        },
+        {
+          "view": "settings",
+          "actual": "settings",
+          "advertised": true,
+          "title": "الإعدادات",
+          "length": 178
+        },
+        {
+          "view": "help",
+          "actual": "help",
+          "advertised": true,
+          "title": "المساعدة",
+          "length": 2627
+        }
+      ],
+      "apiAccess": [
+        {
+          "path": "/api/users",
+          "status": 403
+        },
+        {
+          "path": "/api/settings",
+          "status": 200
+        },
+        {
+          "path": "/api/backup/status",
+          "status": 403
+        },
+        {
+          "path": "/api/reports/day",
+          "status": 200
+        },
+        {
+          "path": "/api/stock",
+          "status": 200
+        },
+        {
+          "path": "/api/parties?kind=supplier",
+          "status": 403
+        }
+      ]
+    }
+  ],
+  "dialogs": [],
+  "errors": [],
+  "requests500": [],
+  "findings": [],
+  "interactions": [
+    {
+      "name": "scanner_page_controls",
+      "count": 8
+    },
+    {
+      "name": "malformed_payloads",
+      "results": [
+        {
+          "path": "/api/quote",
+          "type": "null",
+          "status": 400
+        },
+        {
+          "path": "/api/quote",
+          "type": "array",
+          "status": 400
+        },
+        {
+          "path": "/api/quote",
+          "type": "object",
+          "status": 400
+        },
+        {
+          "path": "/api/quote",
+          "type": "string",
+          "status": 400
+        },
+        {
+          "path": "/api/quote",
+          "type": "number",
+          "status": 400
+        },
+        {
+          "path": "/api/sales",
+          "type": "null",
+          "status": 400
+        },
+        {
+          "path": "/api/sales",
+          "type": "array",
+          "status": 400
+        },
+        {
+          "path": "/api/sales",
+          "type": "object",
+          "status": 400
+        },
+        {
+          "path": "/api/sales",
+          "type": "string",
+          "status": 400
+        },
+        {
+          "path": "/api/sales",
+          "type": "number",
+          "status": 400
+        },
+        {
+          "path": "/api/receipts",
+          "type": "null",
+          "status": 400
+        },
+        {
+          "path": "/api/receipts",
+          "type": "array",
+          "status": 400
+        },
+        {
+          "path": "/api/receipts",
+          "type": "object",
+          "status": 400
+        },
+        {
+          "path": "/api/receipts",
+          "type": "string",
+          "status": 400
+        },
+        {
+          "path": "/api/receipts",
+          "type": "number",
+          "status": 400
+        },
+        {
+          "path": "/api/production",
+          "type": "null",
+          "status": 400
+        },
+        {
+          "path": "/api/production",
+          "type": "array",
+          "status": 400
+        },
+        {
+          "path": "/api/production",
+          "type": "object",
+          "status": 400
+        },
+        {
+          "path": "/api/production",
+          "type": "string",
+          "status": 400
+        },
+        {
+          "path": "/api/production",
+          "type": "number",
+          "status": 400
+        },
+        {
+          "path": "/api/supplier-credit-notes",
+          "type": "null",
+          "status": 400
+        },
+        {
+          "path": "/api/supplier-credit-notes",
+          "type": "array",
+          "status": 400
+        },
+        {
+          "path": "/api/supplier-credit-notes",
+          "type": "object",
+          "status": 400
+        },
+        {
+          "path": "/api/supplier-credit-notes",
+          "type": "string",
+          "status": 400
+        },
+        {
+          "path": "/api/supplier-credit-notes",
+          "type": "number",
+          "status": 400
+        }
+      ]
+    },
+    {
+      "name": "concurrent_http_sales_and_replays",
+      "requests": 40,
+      "sold": 10,
+      "rejections": [
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        },
+        {
+          "status": 400,
+          "error": "insufficient_stock"
+        }
+      ],
+      "remaining": 0,
+      "reconcile": true
+    },
+    {
+      "name": "price_uses_app_dialog",
+      "passed": true
+    },
+    {
+      "name": "xss_text_render",
+      "executed": false
+    }
+  ]
+}
