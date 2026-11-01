@@ -9,9 +9,11 @@ from .barcode import gs1_check_digit
 from .core import add_days, today
 
 TRAINING_USERS = [("owner", "صاحب المحل (تدريب)", "owner"), ("manager", "المدير (تدريب)", "manager"),
-                  ("cashier", "أمين الصندوق (تدريب)", "cashier"), ("butcher", "الجزار (تدريب)", "butcher"),
-                  ("counter", "مسؤول الجرد (تدريب)", "counter")]
-TRAINING_PASSWORD = "training-only"
+                  ("cashier", "كاشير (تدريب)", "cashier"), ("butcher", "الجزار (تدريب)", "butcher"),
+                  ("counter", "أمين الجرد (تدريب)", "counter")]
+TRAINING_PASSWORD = "training-only"   # still accepted by the API; the screen shows the PIN, not this word
+# Not weak: not a run, not a pad column, not a birth year.
+TRAINING_PINS = {"owner": "159382", "manager": "470296", "cashier": "3826", "butcher": "2964", "counter": "4702"}
 
 
 def ean(body):
@@ -22,7 +24,11 @@ def seed(shop):
     if shop.auth.has_users():
         return False
     store = shop.store
-    store.tx(lambda: [shop.auth.create_user(u, n, r, TRAINING_PASSWORD) for u, n, r in TRAINING_USERS])
+    def _seed_users():
+        for u, n, r in TRAINING_USERS:
+            uid = shop.auth.create_user(u, n, r, TRAINING_PASSWORD)
+            shop.auth._store_pin(uid, TRAINING_PINS[u])
+    store.tx(_seed_users)
     owner = shop.auth.public(store.one("SELECT * FROM users WHERE username='owner'"))
     owner["workstation"] = "training"
     k = lambda: uuid.uuid4().hex  # noqa: E731

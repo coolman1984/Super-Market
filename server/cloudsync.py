@@ -212,6 +212,9 @@ def export_row(db, table, rid):
     if table == "users":
         data.pop("pw_hash", None)       # passwords never leave the shop PC
         data.pop("pw_salt", None)
+        data.pop("pin_hash", None)      # PINs stay on the shop PC, same as passwords
+        data.pop("pin_salt", None)
+        data.pop("pin_iter", None)
     return data
 
 
@@ -789,6 +792,9 @@ def restore_from_cloud(cloud, new_folder, progress=None):
             for r in ordered:
                 table, data = r["t"], {k: _from_json(v) for k, v in r["d"].items()}
                 if table == "users":
+                    data.pop("pin_hash", None)
+                    data.pop("pin_salt", None)
+                    data.pop("pin_iter", None)
                     data.update(pw_hash="!restored", pw_salt="00", must_change=1)
                 if table == "schema_migrations":
                     continue

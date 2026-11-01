@@ -1,6 +1,7 @@
 // Owner flows through the real UI on a fresh TRAINING server (after smoke.js):
 // return part of TR-000001, cut beef with a loss, make tagines with packs.
 const { chromium } = require('playwright');
+const { scanCode } = require('./wait');
 const base = process.argv[2] || 'http://127.0.0.1:8799';
 const out = process.argv[3] || '.';
 (async () => {
@@ -9,13 +10,22 @@ const out = process.argv[3] || '.';
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(base); await page.reload();
-  await page.waitForSelector('input[type=password]');
-  await page.fill('input[autocomplete=username]', 'manager'); await page.fill('input[type=password]', 'training-only');
-  await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
+  await page.waitForSelector('[data-username=manager]');
+  await page.click('[data-username=manager]');
+  for (const d of '470296') await page.click('.pin-key[data-digit="' + d + '"]');
+  await page.waitForSelector('.sidebar');
   // manager needs an open shift for a cash refund
   await page.goto(base + '/#cash'); await page.waitForSelector('.input.big');
-  if (await page.locator('#view .narrow').count()) { await page.fill('.input.big', '100'); await page.click('button.btn.primary.lg'); await page.waitForTimeout(800); }
-  await page.goto(base + '/#returns'); await page.waitForSelector('.input');
+  if (await page.locator('#view .narrow').count()) {
+    await page.fill('.input.big', '100');
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/api/shift') && r.request().method() === 'POST'),
+      page.click('button.btn.primary.lg'),
+    ]);
+    await page.waitForSelector('.scan-input');
+  }
+  await page.goto(base + '/#returns');
+  await page.waitForSelector('#view .field input');
   await page.fill('#view .field input', 'TR-000001'); await page.press('#view .field input', 'Enter');
   await page.waitForSelector('#view .tbl');
   await page.fill('#view .tbl tbody tr:first-child input.input', '2');
@@ -46,10 +56,10 @@ const out = process.argv[3] || '.';
   // tagines: recipe for 2 packs of 500 g
   await page.goto(base + '/#prepare'); await page.reload(); await page.waitForSelector('.seg');
   await page.click('.seg button:nth-child(2)');
-  await page.waitForTimeout(300);
+  await page.waitForSelector('#view .card select');
   const ps = page.locator('#view .card').first().locator('select');
   await ps.selectOption((await ps.locator('option', { hasText: 'طاجن' }).first().getAttribute('value')));
-  await page.waitForTimeout(800);
+  await page.waitForFunction(() => document.querySelectorAll('#view .card input').length >= 3);
   const ins = page.locator('#view .card').nth(1);
   const inSel = ins.locator('select');
   for (let i = 0; i < await inSel.count(); i++) await inSel.nth(i).selectOption({ index: 1 });
@@ -67,25 +77,28 @@ const out = process.argv[3] || '.';
   // ---- audit R17: a cart never passes to the next user ----
   const login = async (user) => {
     await page.goto(base); await page.reload();
-    await page.waitForSelector('.sidebar, input[type=password]');      // the app has rendered one or the other
+    await page.waitForSelector('.sidebar, .who-list');      // the app has rendered one or the other
     if (await page.locator('.side-foot .logout-btn').count()) { await page.click('.side-foot .logout-btn'); }
-    await page.waitForSelector('input[type=password]', { timeout: 8000 }).catch(async (e) => {
+    await page.waitForSelector('[data-username="' + user + '"]', { timeout: 8000 }).catch(async (e) => {
       await page.screenshot({ path: out + '/login-stuck.png' }); console.error('stuck', await page.textContent('body').then(x => x.slice(0, 300))); throw e; });
-    await page.fill('input[autocomplete=username]', user); await page.fill('input[type=password]', 'training-only');
-    await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
+    const pins = { owner: '159382', manager: '470296', cashier: '3826', butcher: '2964', counter: '4702' };
+    await page.click('[data-username="' + user + '"]');
+    for (const d of pins[user]) await page.click('.pin-key[data-digit="' + d + '"]');
+    await page.waitForSelector('.sidebar');
   };
   await login('cashier');
   await page.goto(base + '/#sell'); await page.waitForSelector('.scan-input');
-  await page.fill('.scan-input', '6220000000013'); await page.press('.scan-input', 'Enter'); await page.waitForTimeout(400);
+  await scanCode(page, '6220000000013');
   const cashierCart = await page.textContent('.cart');
-  await page.click('.side-foot .logout-btn'); await page.waitForSelector('input[type=password]');
-  await page.fill('input[autocomplete=username]', 'manager'); await page.fill('input[type=password]', 'training-only');
-  await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
+  await page.click('.side-foot .logout-btn'); await page.waitForSelector('[data-username=manager]');
+  await page.click('[data-username=manager]');
+  for (const d of '470296') await page.click('.pin-key[data-digit="' + d + '"]');
+  await page.waitForSelector('.sidebar');
   await page.goto(base + '/#sell'); await page.waitForSelector('.scan-input');
   const managerCart = await page.textContent('.cart');
   // ---- audit S03: the sale is saved but the answer is lost ----
   const before = (await page.evaluate(() => SM.api('GET', '/api/reports/day'))).sales_count;
-  await page.fill('.scan-input', '6220000000013'); await page.press('.scan-input', 'Enter'); await page.waitForTimeout(400);
+  await scanCode(page, '6220000000013');
   let cut_replies = 0;
   await page.route('**/api/sales', async (route) => {
     if (cut_replies < 3) { cut_replies++; await route.fetch(); await route.abort('connectionreset'); } else await route.continue();

@@ -590,7 +590,15 @@
           const row = { lot: l, input, saved, el: null };
           input.addEventListener('input', () => { draft[String(l.lot_id)] = input.value; saveDraft(); });
           input.addEventListener('change', () => { commit(row).catch(e => SM.fail(e)); });
-          row.el = h('div', { class: 'count-row' }, h('div', {}, h('b', { text: SM.name(l) }), h('div', { class: 'muted' }, l.expires ? t('count.expires', { date: l.expires }) : null, h('small', { class: 'muted ltr lot-no', text: ' ' + l.lot_no }))),   // report L9: what the counter reads first is the date, not the batch number
+          // The counter reads the date. The lot number is for the manager, in its own box so RTL cannot glue the two.
+          const showLot = !(SM.state.user && SM.state.user.role === 'counter');
+          const meta = h('div', { class: 'muted count-meta' });
+          if (l.expires) meta.append(h('span', {}, t('count.expires'), ' '), h('bdi', { dir: 'ltr', class: 'ltr', text: l.expires }));
+          if (showLot) {
+            if (l.expires) meta.append(h('span', { class: 'count-sep', 'aria-hidden': 'true', text: '·' }));
+            meta.append(h('bdi', { dir: 'ltr', class: 'ltr lot-no', text: l.lot_no }));
+          }
+          row.el = h('div', { class: 'count-row' }, h('div', {}, h('b', { text: SM.name(l) }), meta),
             h('div', { class: 'row' }, input, h('span', { class: 'muted', text: l.measure === 'g' ? t('unit.kg') : t('unit.pc') }), saved));
           return row;
         });

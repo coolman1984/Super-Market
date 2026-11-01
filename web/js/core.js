@@ -99,6 +99,15 @@ function parseScaled(text, decimals) {
 SM.parseMoney = (s) => parseScaled(s, 2);
 SM.parseKg = (s) => parseScaled(s, 3);            // kilograms text -> grams
 SM.parseInt = (s) => { const v = parseScaled(s, 0); return v === null ? null : v; };
+/* One key or a pasted run of Arabic-Indic digits becomes ASCII digits. Anything else is empty. */
+SM.asciiPinKeys = (key) => {
+  const s = asciiDigits(String(key == null ? '' : key));
+  return /^[0-9]+$/.test(s) ? s : '';
+};
+SM.filterPeople = (people, q) => {
+  const n = String(q || '').trim();
+  return (people || []).filter(p => !n || String(p.name || '').includes(n));
+};
 function scaled(n, decimals) {
   if (n === null || n === undefined) return '—';
   const neg = n < 0; n = Math.abs(n);
@@ -126,9 +135,9 @@ SM.api = async function (method, path, body) {
   } catch (e) { throw new ApiError(0, { error: 'network' }); }
   const data = await resp.json().catch(() => ({ error: 'bad_reply' }));
   if (!resp.ok) {
-    if (resp.status === 401 && data.error === 'login_required' && SM.onLoggedOut) {
-      if (SM.state.user) SM.state.sessionEnded = true;     // report L1: the sign-in screen says why it is back
-      SM.onLoggedOut();
+    if (resp.status === 401 && data.error === 'login_required' && SM.onLoggedOut && SM.state.user) {
+      SM.state.sessionEnded = true;     // report L1: the sign-in screen says why it is back
+      SM.onLoggedOut();                  // one departure only; a second 401 must not rebuild the screen and hide the message
     }
     // the server refuses everything on a locked till or before a forced password change: show that screen
     if ((data.error === 'screen_locked' || data.error === 'must_change_password') && SM.onAccountGate) SM.onAccountGate(data.error);
@@ -194,7 +203,7 @@ SM.errorText = (e) => {
   const msg = t(k);
   const reason = msg === k ? t('err.generic', { code }) : t(k, e.detail || {});
   if (code === 'network') return reason;                       // its own text already says "may be saved"
-  if (code === 'login_required' || code === 'bad_login' || code === 'account_locked' || code === 'too_many_attempts') return reason;
+  if (code === 'login_required' || code === 'bad_login' || code === 'bad_pin' || code === 'account_locked' || code === 'too_many_attempts') return reason;
   const saved = e && e.status && e.status < 500 ? t('err.suffix_not_saved') : t('err.suffix_unknown');
   return reason + ' ' + saved;
 };
@@ -234,8 +243,14 @@ SM.dialog = function ({ title, body, actions, wide, onClose }) {
 SM.drawer = function ({ title, body, actions }) {
   let host = document.getElementById('panels');
   if (!host) { host = h('div', { id: 'panels' }); document.body.append(host); }
+  // Each open gets a generation. The slide-out clear must not wipe a drawer
+  // opened after this one (the close timer outlives the panel it belonged to).
+  const gen = host._drawerGen = (host._drawerGen || 0) + 1;
   const scrim = h('div', { class: 'drawer-scrim' });
-  const close = () => { panel.classList.remove('on'); scrim.classList.remove('on'); setTimeout(() => { SM.put(host); }, 220); };
+  const close = () => {
+    panel.classList.remove('on'); scrim.classList.remove('on');
+    setTimeout(() => { if (host._drawerGen === gen) SM.put(host); }, 220);
+  };
   const panel = h('aside', { class: 'drawer', role: 'dialog', 'aria-label': title },
     h('header', { class: 'drawer-head' }, h('h2', { text: title }), h('button', { class: 'icon-btn', 'aria-label': t('close'), onclick: close }, icon('x'))),
     h('div', { class: 'drawer-body' }, body),

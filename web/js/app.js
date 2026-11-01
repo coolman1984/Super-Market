@@ -47,7 +47,73 @@
   SM.onAccountGate = () => { if (!gateShown) { gateShown = true; boot().finally(() => { gateShown = false; }); } };
   let gateShown = false;
 
-  /* Locked till: only the SAME user's password opens it; "switch user" logs out (drafts stay per user). */
+  function setAuthTitle(title, sub) {
+    const h1 = document.getElementById('auth-title');
+    const p = document.getElementById('auth-sub');
+    if (h1) h1.textContent = title;
+    if (p) p.textContent = sub || '';
+  }
+
+  function initials(name) {
+    const parts = String(name || '').replace(/[()]/g, ' ').split(/\s+/).filter(Boolean);
+    return parts[0] ? Array.from(parts[0])[0] : '؟';
+  }
+
+  function stayError() { return h('p', { class: 'field-error', role: 'alert' }); }
+
+  let pinKeys = null;
+  /* Large digit pad. The red note sits under the dots and stays until the next digit. It is not a toast. */
+  function pinPad(digits, hint, onFull, onType) {
+    let value = '';
+    let locked = false;
+    const dots = h('div', { class: 'pin-dots', 'aria-hidden': 'true' });
+    const err = stayError();
+    const onKey = (ev) => {
+      if (!document.body.contains(dots)) { document.removeEventListener('keydown', onKey); if (pinKeys === onKey) pinKeys = null; return; }
+      if (ev.target && ev.target.closest && ev.target.closest('input, textarea')) return;
+      const typed = SM.asciiPinKeys(ev.key);
+      if (typed) { ev.preventDefault(); for (const d of typed) push(d); }
+      else if (ev.key === 'Backspace') { ev.preventDefault(); if (!locked) { value = value.slice(0, -1); paint(); } }
+    };
+    if (onFull) {
+      if (pinKeys) document.removeEventListener('keydown', pinKeys);
+      pinKeys = onKey;
+      document.addEventListener('keydown', onKey);
+    }
+    function paint() {
+      SM.put(dots, Array.from({ length: digits }, (_, i) => h('span', { class: 'pin-dot' + (i < value.length ? ' on' : '') })));
+    }
+    function push(d) {
+      if (locked || value.length >= digits) return;
+      err.textContent = '';
+      if (onType) onType();
+      value += d;
+      paint();
+      if (value.length === digits && onFull) onFull(value);
+    }
+    paint();
+    const grid = h('div', { class: 'pin-pad', role: 'group', 'aria-label': t('set.pin') },
+      ['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => h('button', { type: 'button', class: 'pin-key', 'data-digit': d, text: d, onclick: () => push(d) })),
+      h('button', { type: 'button', class: 'pin-key pin-ghost', text: t('login.pin_clear'), onclick: () => { value = ''; err.textContent = ''; paint(); } }),
+      h('button', { type: 'button', class: 'pin-key', 'data-digit': '0', text: '0', onclick: () => push('0') }),
+      h('button', { type: 'button', class: 'pin-key pin-ghost', 'aria-label': t('login.pin_backspace'), text: '⌫', onclick: () => { value = value.slice(0, -1); paint(); } }));
+    return { el: h('div', { class: 'pin-block' }, hint ? h('p', { class: 'pin-hint', text: hint }) : null, dots, err, grid),
+      value: () => value,
+      setError(msg, freeze) {
+        err.textContent = msg || '';
+        value = '';
+        paint();
+        if (freeze) {
+          locked = true;
+          grid.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        }
+      } };
+  }
+
+  function pinHint(digits) { return t(digits === 6 ? 'login.pin_hint_6' : 'login.pin_hint_4'); }
+
+  /* Locked till: the same person's PIN or password opens it; "switch user" logs out. */
+
   /* Review M5: the PC date is behind a closed day: say so plainly instead of refusing every sale with a vague error. */
   function clockScreen(state) {
     const c = state.clock_behind;
@@ -56,14 +122,39 @@
   }
 
   function lockScreen(state) {
-    const pass = h('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
+    const u = state.user;
+    const note = stayError();
+    const leave = h('button', { class: 'btn ghost', type: 'button', text: t('lock.switch'), onclick: async () => { await SM.api('POST', '/api/logout', {}).catch(() => {}); SM.onLoggedOut(); } });
     SM.scanner.handler = null;
-    authFrame(t('lock.title', { name: state.user.name }), t('lock.sub'), h('form', { class: 'stack', onsubmit: async (e) => {
-      e.preventDefault();
-      try { await SM.api('POST', '/api/account/unlock', { password: pass.value }); boot(); } catch (err) { pass.value = ''; SM.fail(err); }
-    } }, SM.field(t('password'), pass), h('button', { class: 'btn primary lg', type: 'submit', text: t('lock.open') }),
-      h('button', { class: 'btn ghost', type: 'button', text: t('lock.switch'), onclick: async () => { await SM.api('POST', '/api/logout', {}).catch(() => {}); SM.onLoggedOut(); } })));
-    pass.focus();
+    const passwordForm = () => {
+      const pass = h('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
+      const form = h('form', { class: 'stack', onsubmit: async (e) => {
+        e.preventDefault();
+        note.textContent = '';
+        try { await SM.api('POST', '/api/account/unlock', { password: pass.value }); boot(); }
+        catch (err) { pass.value = ''; note.textContent = SM.errorText(err); }
+      } }, SM.field(t('password'), pass), note, h('button', { class: 'btn primary lg', id: 'login-go', type: 'submit', text: t('lock.open') }), leave);
+      return form;
+    };
+    let body;
+    if (u.has_pin) {
+      const pad = pinPad(u.pin_digits, '', async (pin) => {
+        try { await SM.api('POST', '/api/account/unlock', { pin }); boot(); }
+        catch (err) { pad.setError(SM.errorText(err), err.code === 'account_locked' || err.code === 'too_many_attempts'); }
+      });
+      const swap = h('button', { class: 'btn ghost', type: 'button', id: 'login-password', text: t('login.use_password'), onclick: () => {
+        setAuthTitle(t('lock.title', { name: u.name }), t('lock.sub'));
+        const card = document.querySelector('.auth-card');
+        const form = passwordForm();
+        const old = card.querySelector('.stack');
+        if (old) old.replaceWith(form); else card.append(form);
+        form.querySelector('input').focus();
+      } });
+      body = h('div', { class: 'stack' }, pad.el, (u.role === 'owner' || u.role === 'manager') ? swap : h('p', { class: 'muted', text: t('login.forgot_pin_hint') }), leave);
+    } else body = passwordForm();
+    authFrame(t('lock.title', { name: u.name }), u.has_pin ? pinHint(u.pin_digits) : t('lock.sub'), body);
+    const input = document.querySelector('.auth-card input');
+    if (input) input.focus();
   }
 
   /* Own password. Forced after the owner typed it (new employee or reset). */
@@ -96,7 +187,7 @@
   function authFrame(title, sub, form) {
     SM.put(document.body, h('main', { class: 'auth-wrap' },
       SM.state.mode === 'training' ? h('div', { class: 'train-bar' }, icon('school'), h('span', { text: t('mode.training_bar') })) : null,
-      h('div', { class: 'card auth-card' }, h('div', { class: 'brand-mark' }, icon('cart', 'lg')), h('h1', { text: title }), h('p', { class: 'muted', text: sub }), form,
+      h('div', { class: 'card auth-card' }, h('div', { class: 'brand-mark' }, icon('cart', 'lg')), h('h1', { id: 'auth-title', text: title }), h('p', { class: 'muted', id: 'auth-sub', text: sub }), form,
         h('div', { class: 'row auth-foot' }, h('button', { class: 'btn ghost sm', onclick: () => { SM.prefs.set('lang', SM.state.lang === 'ar' ? 'en' : 'ar'); SM.applyPrefs(); boot(); } }, icon('lang', 'sm'), SM.state.lang === 'ar' ? 'English' : 'العربية')))));
   }
 
@@ -115,18 +206,130 @@
   }
 
   function loginScreen(state) {
-    const user = h('input', { class: 'input', autocomplete: 'username', autofocus: true }), pass = h('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
     const tl = state.training_login;
     const ended = SM.state.sessionEnded ? h('p', { class: 'tip', id: 'session-ended', role: 'status', text: t('login.session_ended') }) : null;
     SM.state.sessionEnded = false;
-    authFrame(state.shop_name || t('app.name'), t('login.sub'), h('form', { class: 'stack', onsubmit: async (e) => {
-      e.preventDefault();
-      try { await SM.api('POST', '/api/login', { username: user.value, password: pass.value, workstation: SM.workstation() }); boot(); } catch (err) { SM.fail(err); }
-    } }, ended, SM.field(t('username'), user), SM.field(t('password'), pass), h('button', { class: 'btn primary lg', type: 'submit', text: t('login.go') }),
-      h('button', { class: 'btn ghost', type: 'button', id: 'login-forgot', text: t('login.forgot'), onclick: () => SM.forgotDialog() }),
-      tl ? h('div', { class: 'tip' }, h('div', {}, h('b', { text: t('login.training_users') }), ' ', tl.users.join(' · '), h('br'), t('password'), ': ', h('code', { class: 'ltr', text: tl.password }))) : null));
-    user.focus();
+    const host = h('div', { class: 'stack', id: 'login-host' });
+    const forgot = () => h('button', { class: 'btn ghost', type: 'button', id: 'login-forgot', text: t('login.forgot'), onclick: () => SM.forgotDialog() });
+    const trainingTip = tl && tl.people ? h('div', { class: 'tip', id: 'training-pins' },
+      h('div', { class: 'stack' }, h('b', { text: t('login.training_pins') }),
+        tl.people.map(p => h('div', {}, p.name, ' ', h('b', { class: 'num', text: p.pin }))))) : null;
+    let people = [];
+    authFrame(t('login.who'), t('login.who_sub'), host);
+
+    function personButton(p) {
+      return h('button', {
+        type: 'button', class: 'who-btn', 'data-username': p.username, 'data-role': p.role, 'data-user-id': String(p.id),
+        onclick: () => (p.has_pin ? showPin(p) : showPassword(p)),
+      }, h('span', { class: 'who-av', 'aria-hidden': 'true', text: initials(p.name) }),
+        h('span', { class: 'who-name' }, h('b', { text: p.name }), h('small', { text: t('role.' + p.role) })));
+    }
+    function showWho() {
+      setAuthTitle(t('login.who'), t('login.who_sub'));
+      const list = h('div', { class: 'who-list' });
+      const search = people.length > 12 ? h('input', { class: 'input', id: 'who-search', autocomplete: 'off', placeholder: t('login.search') }) : null;
+      const draw = () => SM.put(list, SM.filterPeople(people, search ? search.value : '').map(personButton));
+      if (search) search.addEventListener('input', draw);
+      draw();
+      SM.put(host, ended, trainingTip, search, list, forgot());
+    }
+
+    function showPassword(p) {
+      setAuthTitle(p.name, p.has_pin ? t('login.password_for') : t('login.no_pin'));
+      const pass = h('input', { class: 'input', type: 'password', autocomplete: 'current-password', autofocus: true });
+      const note = stayError();
+      const form = h('form', { class: 'stack', onsubmit: async (e) => {
+        e.preventDefault();
+        note.textContent = '';
+        try { await SM.api('POST', '/api/login', { user_id: p.id, password: pass.value, workstation: SM.workstation() }); boot(); }
+        catch (err) { pass.value = ''; note.textContent = SM.errorText(err); }
+      } }, SM.field(t('password'), pass), note,
+        h('button', { class: 'btn primary lg', id: 'login-go', type: 'submit', text: t('login.go') }),
+        p.has_pin ? h('button', { class: 'btn ghost', type: 'button', text: t('login.use_pin'), onclick: () => showPin(p) }) : null,
+        h('button', { class: 'btn ghost', type: 'button', text: t('login.back'), onclick: () => showWho() }),
+        forgot());
+      SM.put(host, form);
+      pass.focus();
+    }
+
+    function showPin(p) {
+      setAuthTitle(p.name, pinHint(p.pin_digits));
+      const pad = pinPad(p.pin_digits, '', async (pin) => {
+        try { await SM.api('POST', '/api/login', { user_id: p.id, pin, workstation: SM.workstation() }); boot(); }
+        catch (err) { pad.setError(SM.errorText(err), err.code === 'account_locked' || err.code === 'too_many_attempts'); }
+      });
+      const passLink = (p.role === 'owner' || p.role === 'manager')
+        ? h('button', { class: 'btn ghost', type: 'button', id: 'login-password', text: t('login.use_password'), onclick: () => showPassword(p) })
+        : h('p', { class: 'muted', text: t('login.forgot_pin_hint') });
+      SM.put(host, pad.el, passLink,
+        h('button', { class: 'btn ghost', type: 'button', text: t('login.back'), onclick: () => showWho() }));
+    }
+
+    function showClassic() {
+      const user = h('input', { class: 'input', autocomplete: 'username' }), pass = h('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
+      const note = stayError();
+      setAuthTitle(state.shop_name || t('app.name'), t('login.sub'));
+      SM.put(host, h('form', { class: 'stack', onsubmit: async (e) => {
+        e.preventDefault();
+        note.textContent = '';
+        try { await SM.api('POST', '/api/login', { username: user.value, password: pass.value, workstation: SM.workstation() }); boot(); }
+        catch (err) { note.textContent = SM.errorText(err); }
+      } }, SM.field(t('username'), user), SM.field(t('password'), pass), note,
+        h('button', { class: 'btn primary lg', id: 'login-go', type: 'submit', text: t('login.go') }), forgot(), trainingTip));
+    }
+
+    SM.api('GET', '/api/login/people').then(rows => { people = rows || []; if (!people.length) showClassic(); else showWho(); }).catch(() => showClassic());
   }
+
+  SM.resetPinDialog = (user) => {
+    const digits = user.role === 'owner' || user.role === 'manager' ? 6 : 4;
+    const pad = pinPad(digits, t(digits === 6 ? 'set.pin_help_6' : 'set.pin_help_4'));
+    pad.el.setAttribute('data-guide', 'set.pin_new');
+    const d = SM.dialog({ title: t('set.pin_title', { name: user.display_name }), body: [pad.el],
+      actions: [h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => d.close() }),
+        h('button', { class: 'btn primary', id: 'pin-save', text: t('set.pin_save'), onclick: async () => {
+          try { await SM.api('POST', '/api/users/' + user.id + '/pin', { pin: pad.value() }); d.close(); SM.toast(t('set.pin_done')); SM.go('settings'); }
+          catch (e) { pad.setError(SM.errorText(e)); }
+        } })] });
+    return d;
+  };
+
+  SM.ownPinDialog = () => {
+    const u = SM.state.user;
+    const digits = u.pin_digits || (u.role === 'owner' || u.role === 'manager' ? 6 : 4);
+    const note = stayError();
+    const clearNote = () => { note.textContent = ''; };
+    const fresh = pinPad(digits, pinHint(digits), null, clearNote);
+    let usePin = !!u.has_pin;
+    let step = 1;
+    const oldPw = h('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
+    oldPw.addEventListener('input', clearNote);
+    const oldPad = pinPad(digits, t('account.pin_old_pin'), null, clearNote);
+    const body = h('div', { id: 'own-pin-body' });
+    const swap = h('button', { class: 'btn ghost', type: 'button', id: 'own-pin-swap', text: t('login.use_password'), onclick: () => {
+      usePin = !usePin;
+      swap.textContent = usePin ? t('login.use_password') : t('login.use_pin');
+      paint();
+    } });
+    const primary = h('button', { class: 'btn primary', id: 'own-pin-save', type: 'button', text: t('login.next'), onclick: async () => {
+      note.textContent = '';
+      if (step === 1) { step = 2; paint(); return; }
+      const payload = { pin: fresh.value() };
+      if (usePin) payload.old_pin = oldPad.value(); else payload.old = oldPw.value;
+      try { await SM.api('POST', '/api/account/pin', payload); d.close(); SM.toast(t('account.pin_saved')); boot(); }
+      catch (e) { note.textContent = SM.errorText(e); }
+    } });
+    function paint() {
+      primary.textContent = step === 1 ? t('login.next') : t('set.pin_save');
+      swap.hidden = step !== 1;
+      const cred = usePin ? oldPad.el : SM.field(t('account.pin_old'), oldPw);
+      SM.put(body, step === 1 ? cred : fresh.el, note);
+    }
+    paint();
+    const d = SM.dialog({ title: t('account.pin'), body: [body],
+      actions: [h('button', { class: 'btn ghost', text: t('cancel'), onclick: () => d.close() }), u.has_pin ? swap : null, primary] });
+    return d;
+  };
 
   SM.renderShell = function () {
     const u = SM.state.user;
@@ -152,8 +355,21 @@
     SM.put(document.body, h('div', { class: 'app' }, side, main));
     pendingBanner(main);
     backupBanner(main);
+    pinPrompt(main);
     route();
   };
+
+  /* After an upgrade, old accounts have no PIN. The owner sees one bar until they set them. */
+  async function pinPrompt(main) {
+    if (SM.state.mode === 'training' || !SM.can('users')) return;
+    const users = await SM.api('GET', '/api/users').catch(() => []);
+    const missing = (users || []).filter(u => u.active && !u.has_pin);
+    const top = main.querySelector('.topbar');
+    if (!missing.length || !top || !document.body.contains(main)) return;
+    top.parentNode.insertBefore(h('div', { class: 'tip warn-tip', id: 'pin-prompt', role: 'status' },
+      h('div', { class: 'grow', text: t('login.pin_prompt', { n: missing.length }) }),
+      h('button', { class: 'btn primary sm', id: 'pin-prompt-go', text: t('set.pin_btn'), onclick: () => SM.go('settings') })), top.nextSibling);
+  }
 
   /* Audit S03: an operation whose answer was lost stays visible until resolved. */
   function pendingBanner(main) {
@@ -189,7 +405,7 @@
     if (!SM.state.user || !document.getElementById('view')) return;
     // a side panel of the page being left (an item's details...) must not stay over the next page
     const panels = document.getElementById('panels');
-    if (panels) SM.put(panels);
+    if (panels) { panels._drawerGen = (panels._drawerGen || 0) + 1; SM.put(panels); }
     let v = (location.hash || '#today').slice(1);
     if (!SM.views[v] || !allowed(v)) v = SM.can('sell') && !SM.can('reports') ? 'sell' : 'today';
     if (current && current.unmount) { try { current.unmount(); } catch (e) { /* ignore */ } }
