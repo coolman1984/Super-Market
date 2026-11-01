@@ -219,7 +219,7 @@ class Matrix(ShopFixture, unittest.TestCase):
         with self.assertRaises(ShopError) as err:
             self.shop.approve_count(self.manager, key(), count)
         self.assertEqual(err.exception.code, "count_affects_packs")
-        self.shop.cancel_count(self.counter, count, "a pack is missing; writing it off first")
+        self.shop.cancel_count(self.manager, count, "a pack is missing; writing it off first")
         self.shop.waste_pack(self.owner, key(), made["outputs"][0]["packs"][0]["code"], "unknown")
         count2 = self.shop.open_count(self.counter, self.fridge)["count"]
         self.shop.record_count(self.counter, count2, lot, 500)

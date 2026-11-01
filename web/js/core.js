@@ -349,7 +349,7 @@ SM.badge = (state) => {
 SM.table = function (cols, rows, onRow) {
   const thead = h('thead', {}, h('tr', {}, cols.map(c => h('th', { text: c.label, class: c.num ? 'n' : '' }))));
   const tbody = h('tbody', {}, rows.map((r, i) => {
-    const tr = h('tr', { style: { '--i': i } }, cols.map(c => h('td', { class: c.num ? 'n' : '' }, c.render ? c.render(r) : (r[c.key] ?? ''))));
+    const tr = h('tr', { style: { '--i': i } }, cols.map(c => h('td', { class: c.num ? 'n' : '', 'data-label': c.label }, c.render ? c.render(r) : (r[c.key] ?? ''))));
     if (onRow) { tr.tabIndex = 0; tr.classList.add('clickable'); tr.onclick = () => onRow(r); tr.onkeydown = (e) => { if (e.key === 'Enter') onRow(r); }; }
     return tr;
   }));

@@ -11,6 +11,8 @@ name: release
 on:
   push:
     tags: ["v*"]
+    branches: ["main"]
+    paths: ["server/version.py", ".github/workflows/release.yml"]
   workflow_dispatch:        # dry run: no GitHub Release; sign+verify run unless VERSION is exactly N.N.N-pilot
 
 permissions:

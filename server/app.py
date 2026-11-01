@@ -99,7 +99,8 @@ class App:
         r("POST", r"/api/returns", lambda a, q, b: self.shop.return_sale(a, b.get("key"), b.get("payload"), self.shop.verify_approval(b.get("approval"), a)))
         r("GET", r"/api/payments/pending", lambda a, q, b: self.shop.pending_payments(a))
         r("POST", r"/api/payments/confirm", lambda a, q, b: self.shop.confirm_payment(a, b.get("key"), b.get("payment_id"), b.get("outcome")))
-        r("POST", r"/api/customers/pay", lambda a, q, b: self.shop.customer_payment(a, b.get("key"), b.get("customer_id"), b.get("amount")))
+        r("POST", r"/api/customers/pay", lambda a, q, b: self.shop.customer_payment(
+            a, b.get("key"), b.get("customer_id"), b.get("amount"), b.get("method") or "cash", b.get("reference")))
         r("POST", r"/api/suppliers/pay", lambda a, q, b: self.shop.supplier_payment(a, b.get("key"), b.get("supplier_id"), b.get("amount"), b.get("note"), b.get("source")))
         r("POST", r"/api/customers/reverse", lambda a, q, b: self.shop.reverse_customer_payment(a, b.get("key"), b.get("entry_id"), b.get("reason")))
         r("GET", r"/api/customers/(\d+)/statement", lambda a, q, b, cid: self.shop.customer_statement(a, int(cid)))
@@ -141,11 +142,14 @@ class App:
         r("GET", r"/api/counts", self.counts)
         r("POST", r"/api/counts", lambda a, q, b: self.shop.open_count(a, b.get("location_id")))
         r("GET", r"/api/counts/(\d+)", lambda a, q, b, cid: self.shop.count_sheet(a, int(cid)))
+        r("GET", r"/api/counts/(\d+)/review", lambda a, q, b, cid: self.shop.count_review(a, int(cid)))
         r("POST", r"/api/counts/(\d+)/line", lambda a, q, b, cid: self.shop.record_count(a, int(cid), b.get("lot_id"), b.get("counted")))
         r("POST", r"/api/counts/(\d+)/cancel", lambda a, q, b, cid: self.shop.cancel_count(a, int(cid), b.get("reason")))
-        r("POST", r"/api/counts/(\d+)/approve", lambda a, q, b, cid: self.shop.approve_count(a, b.get("key"), int(cid), b.get("owner_reason")))
+        r("POST", r"/api/counts/(\d+)/approve", lambda a, q, b, cid: self.shop.approve_count(a, b.get("key"), int(cid), b.get("owner_reason"), b.get("confirm_jump") is True))
         r("GET", r"/api/stock", lambda a, q, b: self.shop.stock_report(a, _int(q.get("product"), None)))
         r("GET", r"/api/reports/day", lambda a, q, b: self.shop.day_report(a, q.get("day")))
+        r("GET", r"/api/reports/gaps", lambda a, q, b: self.shop.open_gaps(a))
+        r("POST", r"/api/shifts/gap", lambda a, q, b: self.shop.handle_shift_gap(a, b.get("key"), b.get("shift_id"), b.get("note")))
         r("GET", r"/api/export/stock\.csv", self.export_stock)
         r("GET", r"/api/settings", lambda a, q, b: self.public_settings(a))
         r("POST", r"/api/settings", self.save_settings)
@@ -156,6 +160,7 @@ class App:
         r("GET", r"/api/scanner/profile", lambda a, q, b: self.profile_for(a))
         r("POST", r"/api/scanner/profile", self.save_profile)
         r("GET", r"/api/scanner/ports", self.ports)
+        r("GET", r"/api/scanner/models", self.hardware_models)
         r("POST", r"/api/scanner/devices", self.save_devices)
         r("GET", r"/api/scanner/events", self.scanner_events, lock=False)
         r("POST", r"/api/scanner/claim", self.scanner_claim)
@@ -384,6 +389,11 @@ class App:
         require(actor, "sell")
         r = self.hub.weight(actor.get("workstation"))
         return {"has_scale": False} if r is None else dict(r, has_scale=True)
+
+    def hardware_models(self, actor, q, body):
+        require(actor, "scanner_setup")
+        from .hardware import profiles
+        return profiles()
 
     def ports(self, actor, q, body):
         require(actor, "scanner_setup")

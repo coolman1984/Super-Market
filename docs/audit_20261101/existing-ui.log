@@ -1,0 +1,181 @@
+{
+ "status": "رقم التحقق غير صحيح؛ الرمز تالف أو القراءة ناقصة. أعد المسح.6220000000014",
+ "qtyHasThree": true,
+ "cartPreview": "الصنفالكميةالسعرالقيمةعصير مانجو ١ لتر14 قطعة35.00490.00",
+ "cleared": "",
+ "receiptHasTraining": true,
+ "overflow": false,
+ "errors": []
+}
+{
+ "ret": "قيمة المرتجع 70.00 ج.مالإيصال المرجعي: TR-000001نقدًا من الدرج 70.00حجز للفحص R000007",
+ "mass": "الداخل 10.000 كجمالناتج 9.500 كجمالفاقد المسجّل 0.500 كجمالأوزان متوازنة",
+ "cut": "P000008 — 7.000 كجم — الانتهاء 2026-11-04P000009 — 2.000 كجم — الانتهاء 2026-11-04P000010 — 0.500 كجم — الانتهاء 2026-11-04",
+ "tag": "no dialog",
+ "r17_cashier_cart_had_item": true,
+ "r17_manager_cart_clean": true,
+ "s03_unknown_banner": true,
+ "s03_sales_added": 1,
+ "errors": []
+}
+{
+ "row02_invoice_registered": true,
+ "row02_no_stock_yet": true,
+ "row02_cost_from_invoice": true,
+ "row02_received_6": true,
+ "row05_gift_lines": true,
+ "row03_toast": "سُجّل التصحيح: على المخزون 5.67، وعلى تكلفة المبيعات 0.33.",
+ "row09_old_retired_new_10": true,
+ "row09_scan_now_10": true,
+ "row26_promo_on_quote": true,
+ "row26_list_shown": true,
+ "row14_frozen_in": 1,
+ "row14_toast": "الدفعة P000014 صلاحيتها حتى 2026-11-03.",
+ "row38_close_card": true,
+ "errors": []
+}
+{
+ "case1_lines": 1,
+ "case1_qty": "2 قطعة",
+ "case1_ok": true,
+ "case23": {
+  "kg_ar_comma": 2500,
+  "kg_comma": 2500,
+  "kg_ar_decimal": 2500,
+  "kg_dot": 2500,
+  "money_comma": 1250,
+  "money_ar": 1250,
+  "money_two_marks": null,
+  "money_three_dec": null,
+  "whole": 15000
+ },
+ "case23_ok": true,
+ "case4_lines_after_reload": 1,
+ "case4_qty": "2 قطعة",
+ "case4_ok": true,
+ "case5_held": 10,
+ "case5_cart_kept": 1,
+ "case5_toast": "يوجد 10 فواتير معلّقة، وهو الحد. استكمل واحدة أو احذفها أولًا؛ لم يُحذف شيء.",
+ "case5_ok": true,
+ "errors": []
+}
+{
+ "locked_after_reload": true,
+ "wrong_refused": true,
+ "unlocked": true,
+ "forced_screen": true,
+ "after_change_in": true,
+ "stopped_is_out": true,
+ "users_state": true,
+ "ok": true,
+ "errors": []
+}
+{
+ "a_saved_once": 1,
+ "a_pay_blocked": true,
+ "a_check_shown": true,
+ "a_still_once": 1,
+ "a_ok": true,
+ "b_banner": true,
+ "b_draft_kept": true,
+ "b_no_double": true,
+ "b_restored": true,
+ "b_ok": true,
+ "c_resume_btn": true,
+ "c_old_key_gone": true,
+ "c_ok": true,
+ "d_scan_after_password": true,
+ "d_dialog_flag": true,
+ "d_ok": true,
+ "errors": []
+}
+{
+ "fab": "الدليل3/11",
+ "course_title": "طريق الكاشير",
+ "first_look_done": true,
+ "step_after_go": "افتح ورديتكخطوة 2 من 4×عدّ النقد الذي في الدرج، واكتبه هنا. مثال التدريب: 500.سأنتقل وحدي عندما تنتهي من هذه الخطوة.السابقالتالي",
+ "target_outlined": true,
+ "moved_on_by_itself": true,
+ "coach_text_end": "افتح ورديتكخطوة 4 من 4×تم. ورديتك مفتوحة، وتنتقل إلى البيع.كيف تعرف أنها نجحت: تفتح صفحة «البيع» وتختفي رسالة «لا توجد وردية».إذا أخطأت: إذا",
+ "open_shift_done": true,
+ "fab_after": "الدليل4/11",
+ "error_button": true,
+ "problem_open": true,
+ "page_help": true,
+ "ok": true,
+ "errors": []
+}
+{
+ "training_says_off": true,
+ "training_has_no_button": true,
+ "shows_last_ok": true,
+ "shows_waiting": true,
+ "shows_plain_warning": true,
+ "no_secret_or_address": true,
+ "send_now_called": true,
+ "enrolling_says_it_is_automatic": true,
+ "enrolling_has_no_button": true,
+ "recovery_hidden_until_asked": true,
+ "recovery_shown": true,
+ "cashier_refused": true,
+ "no_page_errors": true
+} []
+Review C: cumulative credit, final settlement, guide evidence and cloud uncertainty passed.
+{
+ "setup_tip": true,
+ "forgot_staff_owner_wrong": true,
+ "roles_note": true,
+ "ready_temp_password": true,
+ "added_must_change": true,
+ "reset_ready": true,
+ "reset_saved": true,
+ "temp_password_works": true,
+ "account_card": true,
+ "help_lock_works": true,
+ "lessons": true,
+ "cashier_lessons": true,
+ "ok": true,
+ "errors": []
+}
+{
+ "M2_counter_has_no_stock_page": true,
+ "open_shift_is_a_big_button": true,
+ "arabic_hint_not_in_monospace": true,
+ "M1_no_null_after_unknown_barcode": true,
+ "M8_refused_when_added": true,
+ "M8_message": true,
+ "M8_short_shown_on_the_line": true,
+ "M8_pay_disabled_while_over": true,
+ "scale_weight_shows": true,
+ "scale_weight_taken_into_cart": true,
+ "M7_advanced_folded": true,
+ "M5_wrong_box_marked": true,
+ "M9_program_window_not_prompt": true,
+ "M4_zero_price_asks_first": true,
+ "zero_price_cancel_keeps_the_form": true,
+ "scale_sticker_understood": true,
+ "scale_sticker_saved": true,
+ "second_till_scale_keeps_the_first": true,
+ "L1_session_ended_said": true,
+ "no_page_errors_no_browser_dialogs": true
+} []
+{
+ "one_zero_dialog": true,
+ "zero_phrase": true,
+ "yes_no": true,
+ "large_buttons": true,
+ "cancel_keeps_price": true,
+ "no_second_dialog": true,
+ "yes_saves_zero": true,
+ "abc_keeps_the_box": true,
+ "abc_names_the_field": true,
+ "abc_does_not_save": true,
+ "arabic_digits": true,
+ "decimal_comma": true,
+ "new_abc_names_the_field": true,
+ "new_abc_keeps_the_form": true,
+ "new_abc_not_saved": true,
+ "server_refuses_text": true,
+ "server_refuses_null": true,
+ "no_page_errors": true
+} []

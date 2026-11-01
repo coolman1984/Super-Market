@@ -62,6 +62,7 @@ tr.clickable { cursor: pointer; }
 .pay-total { font-size: 2rem; font-weight: 700; }
 .pay-row { display: grid; grid-template-columns: 7rem 1fr 1fr auto; gap: .5rem; align-items: center; }
 .pay-change { display: grid; gap: .4rem; font-size: 1.1rem; }
+.pay-change .badge { white-space: normal; border-radius: var(--r-2); max-width: 100%; }
 .change-big { font-size: 1.8rem; font-weight: 700; color: var(--ok); }
 
 /* receipt & labels: screen preview + print */
@@ -93,6 +94,13 @@ svg.ean { width: 100%; height: 3.2rem; fill: #000; background: #fff; }
 .count-meta { display: flex; flex-wrap: wrap; gap: .4rem; align-items: baseline; }
 .count-sep { unicode-bidi: isolate; }
 .count-row .input { width: 9rem; direction: ltr; text-align: end; }
+tr.count-open { cursor: pointer; }
+.count-resume { width: 100%; justify-content: center; }
+.dialog > footer { flex-wrap: wrap; }
+tr.count-open td:first-child { border-inline-start: 3px solid var(--signal); }
+.count-diff { display: flex; flex-wrap: wrap; gap: .45rem 1.1rem; align-items: center; padding: .65rem .8rem; border: 1px solid var(--line-2); border-radius: var(--r-1); background: var(--surface); }
+.count-diff b { flex: 1 1 10rem; }
+.count-diff.wide { background: var(--warn-soft); border-color: var(--warn); }
 .scan-result { min-height: 1rem; }
 .faq summary { cursor: pointer; font-size: 1.05rem; }
 .faq[open] summary { margin-block-end: .7rem; }
@@ -108,6 +116,20 @@ svg.ean { width: 100%; height: 3.2rem; fill: #000; background: #fff; }
   .menu-btn { display: inline-grid; }
 }
 
+/* Phone: one card per shift. The 7-column table does not fit in 390px. */
+#shifts-card { scroll-margin-top: calc(var(--topbar-h) + 1rem); }
+.shift-cards { display: none; }
+.gap-row { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; }
+.btn.gap-done { min-height: 44px; }
+.shift-card { display: grid; gap: .35rem; min-width: 0; padding: .75rem .85rem; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface-2); }
+.shift-line { display: flex; flex-wrap: wrap; gap: .35rem .6rem; align-items: baseline; min-width: 0; }
+.shift-card .reason { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  #shifts-card { overflow-x: hidden; }
+  #shifts-card .table-wrap { display: none; }
+  .shift-cards { display: grid; gap: .55rem; }
+}
+
 /* Help: one block per screen (purpose, steps, example, errors, fix, result, next step) */
 .help-row { margin-block: .9rem; }
 .help-row h4 { margin: 0 0 .3rem; font-size: .95rem; color: var(--ink-3, inherit); }
@@ -116,3 +138,14 @@ svg.ean { width: 100%; height: 3.2rem; fill: #000; background: #fff; }
 .example { padding: .6rem .9rem; border-inline-start: 3px solid var(--signal); background: var(--surface-2, transparent); border-radius: var(--r-sm, 6px); }
 .next-step { font-weight: 600; }
 .ex-done .badge { margin-inline-end: .3rem; }
+
+/* User accounts remain actionable without horizontal scrolling on a phone. */
+@media (max-width: 600px) {
+ .users-card .table-wrap { overflow: visible; }
+ .users-card .tbl, .users-card .tbl tbody, .users-card .tbl tr, .users-card .tbl td { display: block; width: 100%; min-width: 0; }
+ .users-card .tbl thead { display: none; }
+ .users-card .tbl tr { margin-block: .7rem; border: 1px solid var(--line-2); border-radius: var(--r-1); padding: .5rem; }
+ .users-card .tbl td { border: 0; padding: .25rem; white-space: normal; }
+ .users-card .tbl td::before { content: attr(data-label); color: var(--ink-2); margin-inline-end: .6rem; }
+ .users-card .tbl .row { flex-wrap: wrap; }
+}

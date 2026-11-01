@@ -70,7 +70,7 @@ def detect_label_layout(code, printed=None, item_code=None):
         return [], "not_scale_label"
     if not valid_gs1(code):
         return [], "bad_check_digit"
-    item_code = re.sub(r"\D", "", str(item_code or ""))
+    item_code = re.sub(r"\D", "", str(item_code or "").translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")))
     out = []
     for lay in LAYOUTS:
         t = template_for(lay["id"], code[:2])
@@ -105,8 +105,10 @@ def parse_weight(frame):
     if not text or _ERROR.search(text):
         return None
     found = list(_NUM.finditer(text))
-    # the weight is the number with a unit, else the last number (CAS-style lines put their flags first)
-    m = next((f for f in reversed(found) if f.group(3)), found[-1] if found else None)
+    # Never guess between weight, tare, unit price and total on a multi-number line.
+    if len(found) != 1:
+        return None
+    m = found[0]
     if not m:
         return None
     sign, number, unit = m.group(1), m.group(2).replace(",", "."), (m.group(3) or "").lower()
@@ -117,7 +119,7 @@ def parse_weight(frame):
         if grams is None:               # "1250.0 g"
             grams = _scaled(number, 1)
             grams = grams // 10 if grams is not None and grams % 10 == 0 else None
-    else:                               # kg is the default unit of every scale sold for Egypt
+    else:                               # unitless text is interpreted as kg only in this configured text mode
         grams = _scaled(number, 3)
     if grams is None:
         return None
@@ -147,7 +149,7 @@ class ScaleReader:
             r = parse_weight(f)
             if r is not None:
                 self.latest = dict(r, at=time.monotonic())
-            elif _ERROR.search(f.decode("latin-1", "replace") if isinstance(f, bytes) else f):
+            else:
                 self.latest = None      # overload or error: the last good weight must not stay offered (review PR #18)
 
     def run(self):
@@ -177,6 +179,7 @@ class ScaleReader:
             except OSError as exc:
                 self.status, self.error = "disconnected", str(exc)[:200]
             finally:
+                self.latest = None
                 try:
                     transport.close()
                 except OSError:
@@ -184,7 +187,7 @@ class ScaleReader:
 
     def reading(self):
         r = self.latest
-        if not r or time.monotonic() - r["at"] > self.STALE:
+        if self.status != "connected" or not r or time.monotonic() - r["at"] > self.STALE:
             return {"connected": self.status == "connected", "grams": None, "stable": False}
         return {"connected": True, "grams": r["grams"], "stable": r["stable"]}
 

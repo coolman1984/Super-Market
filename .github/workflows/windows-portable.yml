@@ -47,6 +47,21 @@ jobs:
           $global:LASTEXITCODE = 0
       - name: Frontend audit checks (R16 R17 R18)
         run: node tests/ui/audit_ui.js
+      - name: Install build-only browser tooling
+        run: |
+          npm install --no-save --package-lock=false playwright@1.62.1
+          npx playwright install chromium
+      - name: Rendered journeys on Windows
+        shell: bash
+        env:
+          SM_CLOUD_URL: "off"
+        run: bash tests/ui/run.sh windows-browser-evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-browser-evidence
+          path: windows-browser-evidence
+          retention-days: 14
       - name: Build portable package (pinned Python from NuGet, SHA-512 checked)
         run: python tools/build_portable.py --out dist
       - name: Start the package with its own Python only

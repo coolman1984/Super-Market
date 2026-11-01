@@ -81,6 +81,9 @@ class ShopFixture:
                                                   "kind": kind, "measure": "g", "price": price, "allergens": allergens})
 
     def receive(self, product, qty, cost, location=None, expires="2026-11-05", **extra):
+        if location is None:
+            kind = self.store.scalar("SELECT kind FROM products WHERE id=?", (product,))
+            location = self.fridge if kind in ('raw_meat', 'prepared') else self.shelf
         line = {"product_id": product, "qty": qty, "line_cost": cost, "location_id": location or self.shelf,
                 "expires": expires}
         line.update(extra)

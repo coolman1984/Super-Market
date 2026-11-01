@@ -503,20 +503,77 @@
   };
 
   /* ---------------- count ---------------- */
+  const COUNT_SHEET = 'sm.count.sheet';
+  const countDraftKey = (id) => 'sm.count.draft.' + id;
+  function countStore(key, value) {
+    try {
+      if (arguments.length === 1) return sessionStorage.getItem(key);
+      if (value === null) sessionStorage.removeItem(key); else sessionStorage.setItem(key, value);
+    } catch (e) { return null; }
+    return null;
+  }
+  function formatCount(lot, n) { return lot.measure === 'g' ? SM.qty(n, 'g').split(' ')[0] : String(n); }
+  function parseCount(lot, text) { return lot.measure === 'g' ? SM.parseKg(text) : SM.parseInt(text); }
+  /* The approver sees every difference, largest first, and a big jump is a separate yes. */
+  function askCountApprove(review) {
+    const lines = review.lines || [];
+    const big = lines.some(l => l.big);
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (v) => { if (done) return; done = true; window.removeEventListener('keydown', onKey, true); dlg.close(); resolve(v); };
+      const no = h('button', { class: 'btn ghost', id: 'count-approve-no', text: big ? t('count.far_recount') : t('cancel'), onclick: () => finish(false) });
+      const yes = h('button', { class: 'btn primary', id: 'count-approve-yes', text: big ? t('count.jump_yes') : t('count.approve'), onclick: () => finish(true) });
+      if (big) no.setAttribute('autofocus', 'true');
+      const onKey = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopImmediatePropagation(); finish(false); } };
+      window.addEventListener('keydown', onKey, true);
+      const dlg = SM.dialog({ title: t('count.approve'), wide: true, onClose: () => finish(false),
+        body: [h('p', { text: lines.length ? t('count.approve_list') : t('count.approve_none') }),
+          big ? h('p', { class: 'tip warn-tip', text: t('count.jump_note') }) : null,
+          lines.length ? h('div', { class: 'stack', id: 'count-diffs' }, lines.map(l => h('div', { class: 'count-diff' + (l.wide ? ' wide' : '') + (l.big ? ' big' : '') },
+            h('b', { text: SM.name(l) }),
+            h('span', {}, t('count.system'), ' ', SM.num(SM.qty(l.system, l.measure))),
+            h('span', {}, t('count.counted'), ' ', SM.num(SM.qty(l.counted, l.measure))),
+            h('span', {}, t('count.diff'), ' ', SM.num(SM.qty(l.diff, l.measure))),
+            l.big ? h('span', { class: 'badge warn', text: t('count.wide') }) : null))) : null],
+        actions: [no, yes] });
+    });
+  }
+  let leaveSheet = async () => {};
   SM.views.count = {
     icon: 'list', perm: 'count',
+    async unmount() { try { await leaveSheet(); } catch (e) { /* the next screen still opens */ } },
     async mount(root) {
+      leaveSheet = async () => {};
       const locs = await locations();
       const list = await SM.api('GET', '/api/counts').catch(() => []);
+      const remembered = countStore(COUNT_SHEET);
+      const still = list.find(r => r.status === 'open' && String(r.id) === remembered);
+      if (!still && remembered) countStore(COUNT_SHEET, null);
       const loc = select(locs.map(l => ({ value: l.id, label: locName(l) })));
       loc.setAttribute('data-guide', 'count.location');
       const open = h('button', { class: 'btn primary', 'data-guide': 'count.open', text: t('count.open'), onclick: async () => {
-        try { const r = await SM.api('POST', '/api/counts', { location_id: parseInt(loc.value, 10) }); sheet(r.count); } catch (e) { SM.fail(e); }
+        const locationId = parseInt(loc.value, 10);
+        const existing = list.find(r => r.status === 'open' && r.location_id === locationId);
+        if (existing) { await sheet(existing.id); return; }
+        try { const r = await SM.api('POST', '/api/counts', { location_id: locationId }); await sheet(r.count); } catch (e) { SM.fail(e); }
       } });
-      SM.put(root, h('div', { class: 'card' }, h('p', { class: 'tip', text: t('count.blind_tip') }), h('div', { class: 'row wrap' }, SM.field(t('count.location'), loc), open)),
-        list.length ? SM.table([{ label: '#', key: 'id' }, { label: t('count.location'), render: r => SM.name(r) }, { label: t('stock.state'), render: r => SM.badge(r.status) },
-          { label: t('count.opened'), render: r => h('span', { class: 'ltr', text: r.opened_at.slice(0, 16) }) }], list, r => r.status === 'open' && sheet(r.id)) : null);
+      if (still) { await sheet(still.id); return; }
+      const table = list.length ? SM.table([
+        { label: '#', key: 'id' }, { label: t('count.location'), render: r => SM.name(r) }, { label: t('stock.state'), render: r => SM.badge(r.status) },
+        { label: t('count.opened'), render: r => h('span', { class: 'ltr', text: r.opened_at.slice(0, 16) }) }],
+        list, r => { if (r.status === 'open') sheet(r.id); }) : null;
+      if (table) table.querySelectorAll('tbody tr').forEach((tr, i) => {
+        if (list[i].status === 'open') { tr.classList.add('count-open'); tr.title = t('count.resume', { place: SM.name(list[i]) }); }
+        else { tr.classList.remove('clickable'); tr.tabIndex = -1; tr.onclick = null; tr.onkeydown = null; }
+      });
+      const resumes = list.filter(r => r.status === 'open').map(r =>
+        h('button', { type: 'button', class: 'btn count-resume', text: t('count.resume', { place: SM.name(r) }), onclick: () => sheet(r.id) }));
+      SM.put(root, h('div', { class: 'card' }, h('p', { class: 'tip', text: t('count.blind_tip') }), h('div', { class: 'row wrap' }, SM.field(t('count.location'), loc), open)), resumes, table);
       async function sheet(id) {
+        countStore(COUNT_SHEET, String(id));
+        let draft = {};
+        try { draft = JSON.parse(countStore(countDraftKey(id)) || '{}') || {}; } catch (e) { draft = {}; }
+        const saveDraft = () => countStore(countDraftKey(id), JSON.stringify(draft));
         const s = await SM.api('GET', '/api/counts/' + id);
         const filter = SM.scanner.field({ placeholder: t('count.scan_ph'), onEnter: async (raw) => {
           const r = await SM.api('POST', '/api/scan', { raw }).catch(() => null);
@@ -524,14 +581,15 @@
           rows.forEach(x => x.el.hidden = pid ? x.lot.code !== r.product.code : false);
           const first = rows.find(x => !x.el.hidden); if (first) first.input.focus();
         } });
+        let chain = Promise.resolve();
         const rows = s.lots.map(l => {
-          const input = h('input', { class: 'input', inputmode: 'decimal', 'data-guide': 'count.qty', value: l.counted === null ? '' : (l.measure === 'g' ? SM.qty(l.counted, 'g').split(' ')[0] : String(l.counted)) });
+          const savedText = l.counted === null ? '' : formatCount(l, l.counted);
+          const draftText = draft[String(l.lot_id)];
+          const input = h('input', { class: 'input', inputmode: 'decimal', 'data-guide': 'count.qty', value: draftText != null && draftText !== savedText ? draftText : savedText });
           const saved = h('span', {});
-          input.addEventListener('change', async () => {
-            const v = l.measure === 'g' ? SM.parseKg(input.value) : SM.parseInt(input.value);
-            if (v === null) { SM.put(saved, h('span', { class: 'badge bad', text: t('err.bad_number') })); return; }
-            try { await SM.api('POST', '/api/counts/' + id + '/line', { lot_id: l.lot_id, counted: v }); SM.put(saved, h('span', { class: 'badge ok', text: t('saved') })); } catch (e) { SM.fail(e); }
-          });
+          const row = { lot: l, input, saved, el: null };
+          input.addEventListener('input', () => { draft[String(l.lot_id)] = input.value; saveDraft(); });
+          input.addEventListener('change', () => { commit(row).catch(e => SM.fail(e)); });
           // The counter reads the date. The lot number is for the manager, in its own box so RTL cannot glue the two.
           const showLot = !(SM.state.user && SM.state.user.role === 'counter');
           const meta = h('div', { class: 'muted count-meta' });
@@ -540,29 +598,58 @@
             if (l.expires) meta.append(h('span', { class: 'count-sep', 'aria-hidden': 'true', text: '·' }));
             meta.append(h('bdi', { dir: 'ltr', class: 'ltr lot-no', text: l.lot_no }));
           }
-          const el = h('div', { class: 'count-row' }, h('div', {}, h('b', { text: SM.name(l) }), meta),
+          row.el = h('div', { class: 'count-row' }, h('div', {}, h('b', { text: SM.name(l) }), meta),
             h('div', { class: 'row' }, input, h('span', { class: 'muted', text: l.measure === 'g' ? t('unit.kg') : t('unit.pc') }), saved));
-          return { lot: l, input, el };
+          return row;
         });
+        function commit(row) {
+          const run = async () => {
+            const text = row.input.value.trim();
+            if (!text) return;
+            const v = parseCount(row.lot, row.input.value);
+            if (v === null) { SM.put(row.saved, h('span', { class: 'badge bad', text: t('err.bad_number') })); return; }
+            if (v === row.lot.counted) { delete draft[String(row.lot.lot_id)]; saveDraft(); return; }
+            await SM.api('POST', '/api/counts/' + id + '/line', { lot_id: row.lot.lot_id, counted: v });
+            row.lot.counted = v;
+            delete draft[String(row.lot.lot_id)]; saveDraft();
+            SM.put(row.saved, h('span', { class: 'badge ok', text: t('saved') }));
+          };
+          chain = chain.then(run, run);
+          return chain;
+        }
+        leaveSheet = async () => { for (const row of rows) await commit(row); };
+        const dropSheet = () => { countStore(COUNT_SHEET, null); countStore(countDraftKey(id), null); leaveSheet = async () => {}; };
+        const back = h('button', { class: 'btn ghost', text: t('count.back'), onclick: async () => {
+          await leaveSheet(); countStore(COUNT_SHEET, null); leaveSheet = async () => {}; SM.go('count');
+        } });
         const key = SM.newKey();
-        const cancel = h('button', { class: 'btn ghost', text: t('count.cancel'), onclick: SM.guard(async () => {
+        const canCancel = SM.state.user && (SM.state.user.role === 'owner' || SM.state.user.role === 'manager');
+        const cancel = canCancel ? h('button', { class: 'btn ghost', text: t('count.cancel'), onclick: SM.guard(async () => {
           const reason = await SM.ask(t('count.cancel_q')); if (!reason) return;
-          try { await SM.api('POST', '/api/counts/' + id + '/cancel', { reason }); SM.toast(t('count.cancelled')); SM.go('count'); } catch (e) { SM.fail(e); }
-        }) });
+          try { await SM.api('POST', '/api/counts/' + id + '/cancel', { reason }); dropSheet(); SM.toast(t('count.cancelled')); SM.go('count'); } catch (e) { SM.fail(e); }
+        }) }) : null;
         const approve = SM.can('count_approve') ? h('button', { class: 'btn primary', 'data-guide': 'count.approve', text: t('count.approve'), onclick: async () => {
-          if (!(await SM.confirm(t('count.approve'), t('count.approve_q')))) return;
           try {
-            let extra;
-            try { await SM.command('/api/counts/' + id + '/approve', key, undefined); }
+            await leaveSheet();
+            const review = await SM.api('GET', '/api/counts/' + id + '/review');
+            if (!(await askCountApprove(review))) return;
+            const extra = review.lines.some(l => l.big) ? { confirm_jump: true } : {};
+            try { await SM.command('/api/counts/' + id + '/approve', key, undefined, extra); }
             catch (e) {
               if (e.code !== 'approver_counted' || SM.state.user.role !== 'owner') throw e;
               const reason = await SM.ask(t('count.owner_reason_q')); if (!reason) return;
-              extra = { owner_reason: reason };
+              extra.owner_reason = reason;
             }
-            const r = await SM.command('/api/counts/' + id + '/approve', key, undefined, extra); SM.toast(t('count.approved', { n: r.differences.length })); SM.go('count'); } catch (e) { SM.fail(e); }
+            const r = await SM.command('/api/counts/' + id + '/approve', key, undefined, extra);
+            dropSheet(); SM.toast(t('count.approved', { n: r.differences.length })); SM.go('count');
+          } catch (e) { SM.fail(e); }
         } }) : null;
-        SM.put(root, h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('count.sheet', { id }) }), cancel, approve), h('p', { class: 'tip', text: t('count.uncounted_tip') }), filter),
+        SM.put(root, h('div', { class: 'card' }, h('header', {}, h('h3', { text: t('count.sheet', { id }) }), back, cancel, approve), h('p', { class: 'tip', text: t('count.uncounted_tip') }), filter),
           h('div', { class: 'stack' }, rows.map(r => r.el)));
+        for (const row of rows) {
+          const v = parseCount(row.lot, row.input.value);
+          if (v !== null && v !== row.lot.counted) await commit(row, true);
+        }
       }
     },
   };

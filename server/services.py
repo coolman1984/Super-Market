@@ -325,6 +325,7 @@ class Shop:
             FROM stock_balances b JOIN lots l ON l.id=b.lot_id JOIN locations c ON c.id=b.location_id
             JOIN products p ON p.id=l.product_id
             WHERE l.product_id=? AND l.status='released' AND c.sellable=1 AND b.qty>0
+              AND (p.kind NOT IN ('raw_meat','prepared') OR c.kind IN ('display_fridge','prep_fridge','freezer'))
               AND ((l.expires IS NULL AND p.needs_expiry=0) OR l.expires>=?)
             ORDER BY l.expires IS NULL, l.expires, l.id, c.id""", (product_id, day))
         blocked = self.recall_blocked()
@@ -447,6 +448,8 @@ class Shop:
         return cur.lastrowid, lot_no
 
     def _entry(self, op, kind, lot, location, qty, cost, reason=None):
+        if qty > 0:
+            self._storage_destination(lot, self._location(location))
         self.store.db.execute(
             "INSERT INTO stock_entries(op_id,kind,reason,lot_id,location_id,qty,cost,at) VALUES(?,?,?,?,?,?,?,?)",
             (op, kind, reason, lot, location, qty, cost, now_iso()))
@@ -474,6 +477,8 @@ class Shop:
         integer(qty, 1)
         if check:
             self._usable_lot(lot)
+        if kind == 'sale':
+            self._storage_destination(lot, self._location(location))
         have, cost = self._balance(lot, location)
         if qty > have:
             raise ShopError("insufficient_stock", {"lot": lot, "have": have, "need": qty})
@@ -757,8 +762,13 @@ class Shop:
             require(actor, "close_others_shift")
         by_kind = self.store.all("SELECT kind, SUM(amount) amount, COUNT(*) n FROM cash_entries WHERE shift_id=? GROUP BY kind",
                                  (shift["id"],))
-        noncash = self.store.all("""SELECT p.method, p.eff_state state, SUM(p.amount) amount FROM payment_states p
-            JOIN sales s ON s.id=p.sale_id WHERE s.shift_id=? AND p.method<>'cash' GROUP BY p.method, p.eff_state""", (shift["id"],))
+        noncash = self.store.all("""SELECT method, state, SUM(amount) amount FROM (
+            SELECT p.method method, p.eff_state state, p.amount amount FROM payment_states p
+            JOIN sales s ON s.id=p.sale_id WHERE s.shift_id=? AND p.method<>'cash'
+            UNION ALL
+            SELECT p.method, p.eff_state, p.amount FROM payment_states p
+            WHERE p.shift_id=? AND p.sale_id IS NULL AND p.method<>'cash')
+            GROUP BY method, state""", (shift["id"], shift["id"]))
         out = {"shift": shift, "sales": self.store.scalar("SELECT COUNT(*) FROM sales WHERE shift_id=?", (shift["id"],)),
                "noncash": noncash}
         # blind close: the cashier sees the expected drawer only after counting
@@ -789,6 +799,41 @@ class Shop:
                 WHERE id=?""", (now_iso(), counted, expected, diff, note, actor["id"], shift["id"]))
             return {"shift": shift["id"], "expected": expected, "counted": counted, "difference": diff}
         return self.store.command("shift_close", key, [counted, note, shift_id], actor, work)
+
+    def _shift_rows(self, where, args=()):
+        return self.store.all("""SELECT s.id, s.user_id, u.display_name cashier, s.opened_at, s.closed_at,
+            s.expected, s.counted, s.difference, s.close_note, s.gap_handled_at,
+            COALESCE(s.business_day, substr(s.opened_at,1,10)) business_day
+            FROM shifts s JOIN users u ON u.id=s.user_id
+            WHERE """ + where + " ORDER BY s.id", args)
+
+    def handle_shift_gap(self, actor, key, shift_id, note=None):
+        """A non-zero difference stays on Today across days until the owner or the manager marks it done."""
+        if not actor or actor.get("role") not in ("owner", "manager"):
+            raise Forbidden("forbidden")
+        integer(shift_id, 1)
+        note = text(note, "bad_note", 200, optional=True)
+        row = self.store.one("SELECT id, closed_at, difference, close_note, gap_handled_at FROM shifts WHERE id=?", (shift_id,))
+        if not row or row["closed_at"] is None or not row["difference"]:
+            raise ShopError("bad_request")
+        if row["gap_handled_at"]:
+            return {"shift": row["id"], "handled": True, "already": True}
+        if not row["close_note"] and not note:
+            raise ShopError("bad_note")
+
+        def work(op):
+            current = self.store.one("SELECT close_note, gap_handled_at FROM shifts WHERE id=?", (shift_id,))
+            if current["gap_handled_at"]:
+                return {"shift": shift_id, "handled": True, "already": True}
+            self.store.db.execute("UPDATE shifts SET close_note=COALESCE(close_note, ?), gap_handled_at=? WHERE id=?",
+                                  (note, now_iso(), shift_id))
+            return {"shift": shift_id, "handled": True}
+        return self.store.command("shift_gap", key, [shift_id, note], actor, work)
+
+    def open_gaps(self, actor):
+        """Closed shifts with a difference that nobody has explained or marked done, any business day."""
+        require(actor, "reports")
+        return {"gaps": self._shift_rows("s.closed_at IS NOT NULL AND s.difference <> 0 AND s.gap_handled_at IS NULL")}
 
     # =============== approvals ===============
     APPROVAL_WINDOW_S, APPROVAL_FAILS = 300, 5
@@ -900,13 +945,30 @@ class Shop:
             if not pack and prod["measure"] == "unit":       # buy X get Y, set by a manager (row 26)
                 offer = self._promotion_for(prod["id"], self._offer_day(actor))
                 if offer:
-                    promo = self._promo_free(qty, offer["buy_qty"], offer["free_qty"]) * unit_price
-                    promo_id = offer["id"] if promo else None
+                    promo_id = offer["id"]
             if line_discount + promo > gross:
                 raise ShopError("discount_exceeds_price")
             lines.append(dict(prod=prod, qty=qty, pack=pack, unit_price=unit_price, basis=basis, gross=gross,
                               line_discount=line_discount, promo=promo, promo_id=promo_id,
                               scanned=str(raw.get("scanned") or "")[:128] or None))
+        groups = {}
+        for line in lines:
+            if line['promo_id'] is not None:
+                groups.setdefault((line['prod']['id'], line['unit_price'], line['promo_id'], line['scanned']), []).append(line)
+        removed = set()
+        for (pid, unit_price, promo_id, scanned), group in groups.items():
+            offer = self._promotion_for(pid, self._offer_day(actor))
+            total_qty = sum(l['qty'] for l in group)
+            total = self._promo_free(total_qty, offer['buy_qty'], offer['free_qty']) * unit_price
+            gross, discount = sum(l['gross'] for l in group), sum(l['line_discount'] for l in group)
+            if total > gross - discount:
+                raise ShopError('discount_exceeds_price')
+            # One canonical sale line preserves the existing free-piece-first return rule.
+            # Distinct batch/expiry scan constraints and distinct prices remain separate.
+            group[0].update(qty=total_qty, gross=gross, line_discount=discount, promo=total,
+                            promo_id=promo_id if total else None)
+            removed.update(id(l) for l in group[1:])
+        lines = [l for l in lines if id(l) not in removed]
         gross_total = sum(l["gross"] for l in lines)
         line_disc = sum(l["line_discount"] for l in lines)
         promo_total = sum(l["promo"] for l in lines)
@@ -1168,6 +1230,17 @@ class Shop:
                 raise ShopError("payment_already_decided")
             self.store.db.execute("INSERT INTO payment_confirmations VALUES(?,?,?,?,?)",
                                   (payment_id, op, outcome, actor["id"], now_iso()))
+            if pay["sale_id"] is None:
+                # a debt collected by transfer, wallet or card: the debt was already reduced.
+                # rejection puts that debt back. nothing was ever in the drawer.
+                entry = self.store.one("SELECT * FROM customer_entries WHERE op_id=? AND kind='payment'", (pay["op_id"],))
+                if not entry:
+                    raise ShopError("not_a_payment")
+                follow_up = None
+                if outcome == "rejected":
+                    self._reverse_collection(op, entry, actor, "rejected", drawer=False, needs_permission=False)
+                    follow_up = "customer_debt"
+                return {"payment": payment_id, "outcome": outcome, "follow_up": follow_up}
             sale_at = self.store.one("SELECT op_id, no FROM sales WHERE id=?", (pay["sale_id"],))
             if sale_at:
                 self._note_correction(op, sale_at["op_id"], "payment_" + outcome, sale_at["no"], outcome, actor, False)
@@ -1185,19 +1258,38 @@ class Shop:
 
     def pending_payments(self, actor):
         require(actor, "confirm_payments")
-        return self.store.all("""SELECT p.*, s.no FROM payments p JOIN sales s ON s.id=p.sale_id
+        return self.store.all("""SELECT p.id, p.op_id, p.sale_id, p.method, p.amount, p.reference, p.state, p.at,
+            s.no, c.name customer_name FROM payments p
+            LEFT JOIN sales s ON s.id=p.sale_id
+            LEFT JOIN customer_entries e ON e.op_id=p.op_id AND e.kind='payment'
+            LEFT JOIN customers c ON c.id=e.customer_id
             WHERE p.state='pending' AND p.id NOT IN (SELECT payment_id FROM payment_confirmations) ORDER BY p.id""")
 
     # =============== customers' accounts ===============
     def customer_balance(self, customer_id):
         return self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM customer_entries WHERE customer_id=?", (customer_id,))
 
-    def customer_payment(self, actor, key, customer_id, amount):
+    COLLECT_METHODS = ("cash", "card", "wallet", "transfer")
+
+    def customer_payment(self, actor, key, customer_id, amount, method="cash", reference=None):
+        """Collect what a customer owes. Only cash enters the drawer. Transfer
+        (InstaPay), wallet and card wait for the manager, the same queue as a
+        sale paid that way, and never change the expected drawer."""
         require(actor, "shift")
         integer(customer_id, 1), integer(amount, 1)
+        if method is None:
+            method = "cash"
+        if method not in self.COLLECT_METHODS:
+            raise ShopError("bad_payment")
+        if isinstance(reference, str) and not reference.strip():
+            reference = None
+        reference = text(reference, "bad_reference", 80, optional=True)
+        state = "settled" if method == "cash" else "pending"
 
         def work(op):
             shift = self._open_shift_of(actor)
+            if not self.store.scalar("SELECT 1 FROM customers WHERE id=?", (customer_id,)):
+                raise ShopError("unknown_customer")
             balance = self.customer_balance(customer_id)
             if amount > balance:
                 raise ShopError("payment_exceeds_debt", {"balance": balance})
@@ -1212,10 +1304,46 @@ class Shop:
                     left -= take
                 if not left:
                     break
+            pid = self.store.db.execute(
+                """INSERT INTO payments(op_id,sale_id,method,amount,reference,state,at,shift_id)
+                VALUES(?,?,?,?,?,?,?,?)""",
+                (op, None, method, amount, reference, state, now_iso(), shift["id"])).lastrowid
+            if method == "cash":
+                self.store.db.execute("INSERT INTO cash_entries(shift_id,op_id,kind,amount,note,at) VALUES(?,?,?,?,?,?)",
+                                      (shift["id"], op, "debt_collect", amount, "customer %d" % customer_id, now_iso()))
+            return {"entry": eid, "balance": balance - amount, "method": method, "state": state, "payment": pid}
+        return self.store.command("customer_payment", key, [customer_id, amount, method, reference], actor, work)
+
+    def _collection_payment(self, entry):
+        """The payment row of a collection, if this program wrote one.
+        Older collections have only the cash entry and were drawer cash."""
+        return self.store.one("SELECT id, method, eff_state FROM payment_states WHERE op_id=? AND sale_id IS NULL",
+                              (entry["op_id"],))
+
+    def _reverse_collection(self, op, entry, actor, reason, drawer, needs_permission):
+        """Put a collected debt back. Drawer cash moves only when the collection
+        itself was cash; a rejected transfer never touched the drawer."""
+        if self.store.scalar("SELECT 1 FROM customer_entries WHERE reverses=?", (entry["id"],)):
+            raise ShopError("already_reversed")
+        self._require_account_clear(entry["customer_id"])
+        for a in self.store.all("SELECT sale_id, amount FROM credit_allocations WHERE entry_id=?", (entry["id"],)):
+            if a["amount"] > self._collected_free(a["sale_id"]):
+                # a refund already paid this money back: reversing now would pay it twice
+                raise ShopError("collection_already_refunded", {"sale": a["sale_id"]})
+        self._note_correction(op, entry["op_id"], "payment_reversal", "entry %d" % entry["id"], reason, actor, needs_permission)
+        shift = None
+        if drawer:
+            shift = self._open_shift_of(actor)
+            self._check_drawer(shift["id"], -entry["amount"])
+        rev = self.store.db.execute("INSERT INTO customer_entries(customer_id,op_id,kind,amount,at,reverses) VALUES(?,?,?,?,?,?)",
+                                    (entry["customer_id"], op, "payment_reversal", -entry["amount"], now_iso(), entry["id"])).lastrowid
+        for a in self.store.all("SELECT sale_id, amount FROM credit_allocations WHERE entry_id=?", (entry["id"],)):
+            self.store.db.execute("INSERT INTO credit_allocations VALUES(?,?,?)", (rev, a["sale_id"], -a["amount"]))
+        if drawer:
             self.store.db.execute("INSERT INTO cash_entries(shift_id,op_id,kind,amount,note,at) VALUES(?,?,?,?,?,?)",
-                                  (shift["id"], op, "debt_collect", amount, "customer %d" % customer_id, now_iso()))
-            return {"entry": eid, "balance": balance - amount}
-        return self.store.command("customer_payment", key, [customer_id, amount], actor, work)
+                                  (shift["id"], op, "debt_collect", entry["amount"], reason, now_iso()))
+        self.store.audit(actor, "customer.payment_reversal", str(entry["id"]), {"reason": reason, "drawer": drawer})
+        return rev
 
     def reverse_customer_payment(self, actor, key, entry_id, reason):
         require(actor, "cash_moves")
@@ -1225,23 +1353,11 @@ class Shop:
             entry = self.store.one("SELECT * FROM customer_entries WHERE id=?", (integer(entry_id, 1),))
             if not entry or entry["kind"] != "payment":
                 raise ShopError("not_a_payment")
-            if self.store.scalar("SELECT 1 FROM customer_entries WHERE reverses=?", (entry_id,)):
-                raise ShopError("already_reversed")
-            self._require_account_clear(entry["customer_id"])
-            for a in self.store.all("SELECT sale_id, amount FROM credit_allocations WHERE entry_id=?", (entry_id,)):
-                if a["amount"] > self._collected_free(a["sale_id"]):
-                    # a refund already paid this money back: reversing now would pay it twice
-                    raise ShopError("collection_already_refunded", {"sale": a["sale_id"]})
-            self._note_correction(op, entry["op_id"], "payment_reversal", "entry %d" % entry["id"], reason, actor, True)
-            shift = self._open_shift_of(actor)
-            self._check_drawer(shift["id"], -entry["amount"])
-            rev = self.store.db.execute("INSERT INTO customer_entries(customer_id,op_id,kind,amount,at,reverses) VALUES(?,?,?,?,?,?)",
-                                        (entry["customer_id"], op, "payment_reversal", -entry["amount"], now_iso(), entry_id)).lastrowid
-            for a in self.store.all("SELECT sale_id, amount FROM credit_allocations WHERE entry_id=?", (entry_id,)):
-                self.store.db.execute("INSERT INTO credit_allocations VALUES(?,?,?)", (rev, a["sale_id"], -a["amount"]))
-            self.store.db.execute("INSERT INTO cash_entries(shift_id,op_id,kind,amount,note,at) VALUES(?,?,?,?,?,?)",
-                                  (shift["id"], op, "debt_collect", entry["amount"], reason, now_iso()))
-            self.store.audit(actor, "customer.payment_reversal", str(entry_id), {"reason": reason})
+            pay = self._collection_payment(entry)
+            if pay and pay["eff_state"] == "pending":
+                raise ShopError("collection_still_pending")
+            drawer = pay is None or pay["method"] == "cash"
+            self._reverse_collection(op, entry, actor, reason, drawer, True)
             return {"balance": self.customer_balance(entry["customer_id"])}
         return self.store.command("customer_payment_reverse", key, [entry_id, reason], actor, work)
 
@@ -1697,9 +1813,13 @@ class Shop:
         self._storage_destination(lot_id, dst)
 
     def _storage_destination(self, lot_id, dst):
-        """Inherited thaw state is checked wherever usable stock is added."""
+        """Every positive stock entry validates cold storage, including held lots.
+        This is a location rule, not a claim about measured temperature."""
         if self._thawed(lot_id) and dst['kind'] not in (*self.THAW_PLACES, 'quarantine', 'waste'):
             raise ShopError('thaw_needs_fridge')
+        kind = self.store.scalar("SELECT p.kind FROM lots l JOIN products p ON p.id=l.product_id WHERE l.id=?", (lot_id,))
+        if kind in ('raw_meat', 'prepared') and dst['kind'] not in (*self.THAW_PLACES, 'freezer', 'quarantine', 'waste'):
+            raise ShopError('meat_needs_cold_storage')
 
     def _thawed(self, lot_id):
         """True when this lot, or any lot it was made from, was thawed here."""
@@ -1832,6 +1952,29 @@ class Shop:
         return {"customers": [dict(id=k, name=names_c[k], **v) for k, v in customers.items()],
                 "suppliers": [dict(id=k, name=names_s[k], **v) for k, v in suppliers.items()]}
 
+    def collections_report(self, start, end):
+        """Actual settlement events by business day. Pending promises are excluded.
+        Reversals are negative on their own posting day; refunds remain separate.
+        Legacy customer collections without a payments row were cash."""
+        return self.store.all("""WITH movements(op_id,method,amount) AS (
+            SELECT p.op_id,p.method,p.amount FROM payments p
+              WHERE p.state='settled' AND p.method IN ('cash','card','wallet','transfer')
+            UNION ALL
+            SELECT c.op_id,p.method,p.amount FROM payment_confirmations c
+              JOIN payments p ON p.id=c.payment_id
+              WHERE c.outcome='confirmed' AND p.state='pending' AND p.method<>'credit'
+            UNION ALL
+            SELECT e.op_id,'cash',-e.amount FROM customer_entries e
+              WHERE e.kind='payment' AND NOT EXISTS(SELECT 1 FROM payments p WHERE p.op_id=e.op_id)
+            UNION ALL
+            SELECT e.op_id,COALESCE(p.method,'cash'),-e.amount FROM customer_entries e
+              JOIN customer_entries original ON original.id=e.reverses
+              LEFT JOIN payment_states p ON p.op_id=original.op_id AND p.sale_id IS NULL
+              WHERE e.kind='payment_reversal' AND (p.id IS NULL OR p.eff_state='settled')
+        ) SELECT m.method,'settled' state,SUM(m.amount) amount FROM movements m JOIN ops o ON o.id=m.op_id
+          WHERE COALESCE(o.business_day,substr(o.at,1,10)) BETWEEN ? AND ?
+          GROUP BY m.method ORDER BY m.method""", (start, end))
+
     def period_report(self, actor, start, end):
         """Daily series for a date range: invoices, returns, collections by
         method, refunds, waste, with totals. Facts only; no profit claim."""
@@ -1858,7 +2001,7 @@ class Shop:
         totals = {k: sum(x[k] for x in series) for k in ("sales", "sales_total", "returns", "net_sales", "waste_cost")}
         by_method = self.store.all(f"""SELECT p.method, p.eff_state state, SUM(p.amount) amount FROM payment_states p JOIN sales s ON s.id=p.sale_id
             JOIN ops o ON o.id=s.op_id WHERE {BD} BETWEEN ? AND ? GROUP BY p.method, p.eff_state""", (start, end))
-        return {"start": start, "end": end, "series": series, "totals": totals, "by_method": by_method,
+        return {"start": start, "end": end, "series": series, "totals": totals, "by_method": by_method, "collections": self.collections_report(start, end),
                 "notes": ["sales_not_cash", "margin_before_expenses"]}
 
     # =============== returns ===============
@@ -1898,6 +2041,12 @@ class Shop:
             if method == "credit_note" and not sale["customer_id"]:
                 raise ShopError("credit_needs_customer")
             if self.store.scalar("SELECT 1 FROM payment_states WHERE sale_id=? AND eff_state='pending'", (sale["id"],)):
+                raise ShopError("sale_has_unconfirmed_payment")
+            if self.store.scalar("""SELECT 1 FROM credit_allocations a
+                JOIN customer_entries e ON e.id=a.entry_id AND e.kind='payment'
+                JOIN payment_states p ON p.op_id=e.op_id AND p.sale_id IS NULL
+                WHERE a.sale_id=? AND p.eff_state='pending'
+                AND NOT EXISTS(SELECT 1 FROM customer_entries r WHERE r.reverses=e.id)""", (sale["id"],)):
                 raise ShopError("sale_has_unconfirmed_payment")
             seen, total, rows = set(), 0, []
             for raw in payload["lines"]:
@@ -2099,13 +2248,28 @@ class Shop:
 
     def _collected_free(self, sale_id):
         """Collected on-account money of this sale that no refund has used yet.
-        Refunds pay direct cash first; only the rest came out of collections."""
+        A refund pays the sale's own settled card, wallet, transfer or cash
+        first; only the rest came out of later collections."""
         collected = self.store.scalar("""SELECT COALESCE(SUM(a.amount),0) FROM credit_allocations a
             JOIN customer_entries e ON e.id=a.entry_id WHERE a.sale_id=? AND e.kind IN ('payment','payment_reversal')""", (sale_id,))
-        direct = self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM payment_states WHERE sale_id=? AND method='cash' AND eff_state='settled'",
-                                   (sale_id,))
-        consumed = max(0, self._cash_refunded(sale_id) - direct)
+        own = self.store.scalar("""SELECT COALESCE(SUM(amount),0) FROM payment_states WHERE sale_id=?
+            AND eff_state='settled' AND method IN ('cash','card','wallet','transfer')""", (sale_id,))
+        refunded = self._cash_refunded(sale_id) + self.store.scalar("""SELECT COALESCE(SUM(a.amount),0) FROM refund_allocations a
+            JOIN returns r ON r.id=a.return_id WHERE r.sale_id=? AND a.method IN ('card','wallet','transfer')""", (sale_id,))
+        consumed = max(0, refunded - own)
         return max(0, collected - consumed)
+
+    def _settled_collections(self, sale_id):
+        """Net collection on this sale per method. Legacy rows have no payment
+        and were drawer cash. A pending transfer is not money we can hand back."""
+        return self.store.all("""SELECT COALESCE(p.method,'cash') method, COALESCE(SUM(a.amount),0) amount
+            FROM credit_allocations a
+            JOIN customer_entries e ON e.id=a.entry_id
+            LEFT JOIN customer_entries src ON src.id=CASE e.kind WHEN 'payment_reversal' THEN e.reverses ELSE e.id END
+            LEFT JOIN payment_states p ON p.op_id=src.op_id AND p.sale_id IS NULL
+            WHERE a.sale_id=? AND e.kind IN ('payment','payment_reversal')
+              AND (p.id IS NULL OR p.eff_state='settled')
+            GROUP BY COALESCE(p.method,'cash')""", (sale_id,))
 
     # ---- customer account integrity (migration reviews and ambiguous collections)
     def _unallocated_collections(self, customer_id):
@@ -2187,10 +2351,11 @@ class Shop:
         for r in self.store.all("""SELECT method, SUM(amount) a FROM payment_states WHERE sale_id=? AND eff_state='settled'
                 AND method<>'credit' GROUP BY method""", (sale_id,)):
             caps[r["method"]] += r["a"]
-        # on-account money the customer has since paid (in cash) can come back as cash
-        caps["cash"] += self.store.scalar("""SELECT COALESCE(SUM(a.amount),0) FROM credit_allocations a
-            JOIN customer_entries e ON e.id=a.entry_id WHERE a.sale_id=? AND e.kind IN ('payment','payment_reversal')""",
-                                          (sale_id,))
+        # later collections come back the way they were paid. cash (and old rows
+        # with no payment) can leave the drawer; a confirmed transfer cannot.
+        for r in self._settled_collections(sale_id):
+            if r["method"] in caps:
+                caps[r["method"]] += r["amount"]
         refunded = {}
         for r in self.store.all("""SELECT a.method, SUM(a.amount) amount FROM refund_allocations a JOIN returns r
                 ON r.id=a.return_id WHERE r.sale_id=? GROUP BY a.method""", (sale_id,)):
@@ -2762,22 +2927,44 @@ class Shop:
         return self.store.command("production", key, fingerprint_payload, actor, work)
 
     # =============== counting ===============
+    @staticmethod
+    def count_is_far(expected, counted):
+        """A typed extra zero and the like: 10× either way, or 10+ beside a zero."""
+        hi = expected if expected > counted else counted
+        lo = counted if expected > counted else expected
+        if hi == 0:
+            return False
+        if lo == 0:
+            return hi >= 10
+        return hi >= lo * 10
+
+    @staticmethod
+    def count_is_wide(expected, counted):
+        """More than half the recorded balance, so the approval list can mark it."""
+        if expected <= 0:
+            return counted > 0
+        return abs(counted - expected) * 2 > expected
+
     def open_count(self, actor, location_id):
         require(actor, "count")
 
         def work():
-            self._location(integer(location_id, 1))
-            if self.store.scalar("SELECT 1 FROM counts WHERE location_id=? AND status='open'", (location_id,)):
-                raise ShopError("count_already_open")
+            loc = integer(location_id, 1)
+            self._location(loc)
+            existing = self.store.scalar("SELECT id FROM counts WHERE location_id=? AND status='open'", (loc,))
+            if existing:
+                return {"count": existing, "resumed": True}
             cutoff = self.store.scalar("SELECT COALESCE(MAX(id),0) FROM stock_entries")
             cid = self.store.db.execute("INSERT INTO counts(location_id,cutoff_entry,opened_by,opened_at,status) VALUES(?,?,?,?,'open')",
-                                        (location_id, cutoff, actor["id"], now_iso())).lastrowid
+                                        (loc, cutoff, actor["id"], now_iso())).lastrowid
             self.store.audit(actor, "count.open", str(cid))
-            return {"count": cid}
+            return {"count": cid, "resumed": False}
         return self.store.tx(work)
 
     def cancel_count(self, actor, count_id, reason):
         """Close an open count without any adjustment (counted lines stay as evidence)."""
+        if actor.get("role") not in ("owner", "manager"):
+            raise Forbidden("count_cancel_manager")
         require(actor, "count")
         reason = text(reason, "reason_required", 200)
 
@@ -2807,25 +2994,75 @@ class Shop:
             l["counted"] = counted.get(l["lot_id"])
         return {"count": count, "lots": lots}
 
+    def _count_variances(self, count):
+        """Latest counted line per lot against the ledger at the moment it was counted."""
+        latest = self.store.all("""SELECT cl.lot_id, cl.counted, cl.seen_entry, p.name_ar, p.name_en, p.measure, l.lot_no
+            FROM count_lines cl JOIN lots l ON l.id=cl.lot_id JOIN products p ON p.id=l.product_id
+            WHERE cl.id IN (SELECT MAX(id) FROM count_lines WHERE count_id=? GROUP BY lot_id)""", (count["id"],))
+        rows = []
+        for row in latest:
+            expected = self.store.scalar("""SELECT COALESCE(SUM(qty),0) FROM stock_entries
+                WHERE lot_id=? AND location_id=? AND id<=?""", (row["lot_id"], count["location_id"], row["seen_entry"]))
+            diff = row["counted"] - expected
+            if not diff:
+                continue
+            tier, rank = self._count_rank(row["lot_id"], count["location_id"], expected, row["counted"])
+            rows.append({"lot_id": row["lot_id"], "lot_no": row["lot_no"], "name_ar": row["name_ar"], "name_en": row["name_en"],
+                         "measure": row["measure"], "system": expected, "counted": row["counted"], "diff": diff,
+                         "big": self.count_is_far(expected, row["counted"]), "wide": self.count_is_wide(expected, row["counted"]),
+                         "_tier": tier, "_rank": rank})
+        # money first (|difference| × unit cost). A zero cost falls back to the percent, so
+        # 180 pieces of a priced item outrank 0.25 kg of a cheap one.
+        rows.sort(key=lambda r: (-r["_tier"], -r["_rank"], r["name_ar"]))
+        for r in rows:
+            r.pop("_tier")
+            r.pop("_rank")
+        return rows
+
+    def _count_rank(self, lot_id, location_id, expected, counted):
+        """(1, piastres) when the line has a cost, else (0, permille)."""
+        diff = abs(counted - expected)
+        qty, cost = self._balance(lot_id, location_id)
+        if qty > 0 and cost > 0:
+            money = cost * diff // qty
+            if money > 0:
+                return 1, money
+        if expected > 0:
+            return 0, diff * 1000 // expected
+        return 0, 1000 if counted else 0
+
+    def count_review(self, actor, count_id):
+        """Differences for the approver, before anything is posted. A counter stays blind."""
+        require(actor, "count_approve")
+        count = self.store.one("SELECT * FROM counts WHERE id=?", (integer(count_id, 1),))
+        if not count or count["status"] != "open":
+            raise ShopError("count_not_open")
+        lines = self._count_variances(count)
+        return {"lines": lines, "big": any(r["big"] for r in lines)}
+
     def record_count(self, actor, count_id, lot_id, counted):
+        """Save the figure the counter typed. The answer never says far, near, or any balance."""
         require(actor, "count")
 
         def work():
             count = self.store.one("SELECT * FROM counts WHERE id=?", (integer(count_id, 1),))
             if not count or count["status"] != "open":
                 raise ShopError("count_not_open")
-            if not self.store.scalar("SELECT 1 FROM lots WHERE id=?", (integer(lot_id, 1),)):
+            lot = integer(lot_id, 1)
+            if not self.store.scalar("SELECT 1 FROM lots WHERE id=?", (lot,)):
                 raise ShopError("unknown_lot")
+            qty = integer(counted)
             # the shelf was counted NOW: later approval compares with the ledger at
             # this position, so sales between opening and counting are not lost twice
             seen = self.store.scalar("SELECT COALESCE(MAX(id),0) FROM stock_entries")
             self.store.db.execute("INSERT INTO count_lines(count_id,lot_id,counted,seen_entry,user_id,at) VALUES(?,?,?,?,?,?)",
-                                  (count_id, lot_id, integer(counted), seen, actor["id"], now_iso()))
-            return {"ok": True}
+                                  (count_id, lot, qty, seen, actor["id"], now_iso()))
+            return {"ok": True, "saved": True}
         return self.store.tx(work)
 
-    def approve_count(self, actor, key, count_id, owner_reason=None):
+    def approve_count(self, actor, key, count_id, owner_reason=None, confirm_jump=False):
         require(actor, "count_approve")
+        confirm_jump = confirm_jump is True
 
         def work(op):
             count = self.store.one("SELECT * FROM counts WHERE id=?", (integer(count_id, 1),))
@@ -2834,15 +3071,12 @@ class Shop:
             counters = {r["user_id"] for r in self.store.all("SELECT DISTINCT user_id FROM count_lines WHERE count_id=?", (count_id,))}
             if actor["id"] in counters and not (actor["role"] == "owner" and owner_reason):
                 raise Forbidden("approver_counted")  # owner exception only with a written reason
-            latest = self.store.all("""SELECT lot_id, counted, seen_entry FROM count_lines WHERE id IN
-                (SELECT MAX(id) FROM count_lines WHERE count_id=? GROUP BY lot_id)""", (count_id,))
+            variances = self._count_variances(count)
+            if any(r["big"] for r in variances) and not confirm_jump:
+                raise ShopError("count_jump_unconfirmed")
             diffs = []
-            for row in latest:
-                expected = self.store.scalar("""SELECT COALESCE(SUM(qty),0) FROM stock_entries
-                    WHERE lot_id=? AND location_id=? AND id<=?""", (row["lot_id"], count["location_id"], row["seen_entry"]))
-                diff = row["counted"] - expected
-                if not diff:
-                    continue
+            for row in variances:
+                diff = row["diff"]
                 if diff < 0:
                     try:
                         self._check_free(row["lot_id"], count["location_id"], -diff)
@@ -2865,7 +3099,7 @@ class Shop:
             if actor["id"] in counters:
                 self.store.audit(actor, "count.owner_self_approval", str(count_id), {"reason": text(owner_reason, "reason_required", 200)})
             return {"count": count_id, "differences": diffs, "self_approved_owner": actor["id"] in counters}
-        return self.store.command("count_approve", key, [count_id, owner_reason], actor, work)
+        return self.store.command("count_approve", key, [count_id, owner_reason, confirm_jump], actor, work)
 
     # =============== reports ===============
     @staticmethod
@@ -2879,12 +3113,14 @@ class Shop:
         near = self.settings()["near_expiry_days"]
         day = today()
         rows = self.store.all("""SELECT l.id lot_id, l.lot_no, l.status, l.expires, l.origin, p.id product_id, p.code, p.name_ar,
-            p.name_en, p.measure, p.kind, p.needs_expiry, c.id location_id, c.name_ar loc_ar, c.name_en loc_en, c.sellable, b.qty, b.cost
+            p.name_en, p.measure, p.kind, p.needs_expiry, c.id location_id, c.name_ar loc_ar, c.name_en loc_en, c.sellable, c.kind location_kind, b.qty, b.cost
             FROM stock_balances b JOIN lots l ON l.id=b.lot_id JOIN products p ON p.id=l.product_id JOIN locations c ON c.id=b.location_id
             WHERE b.qty>0 AND (? IS NULL OR p.id=?) ORDER BY p.name_ar, l.expires""", (product_id, product_id))
         for r in rows:
             if r["status"] != "released":
                 r["state"] = r["status"]
+            elif r["kind"] in ('raw_meat', 'prepared') and r['location_kind'] not in (*self.THAW_PLACES, 'freezer', 'quarantine', 'waste'):
+                r['state'] = 'storage_unsuitable'
             elif r["expires"] is None and r["needs_expiry"]:
                 r["state"] = "expiry_missing"
             elif r["expires"] and r["expires"] < day:
@@ -2929,15 +3165,16 @@ class Shop:
             WHERE kind='rebate' AND receipt_id IS NULL AND op_id IN {OPS}"""), (day,))
         gifts = self.store.scalar(q("""SELECT COUNT(*) FROM receipt_lines rl JOIN receipts r ON r.id=rl.receipt_id
             WHERE rl.line_kind<>'purchase' AND r.op_id IN {OPS}"""), (day,))
-        shifts = self.store.all("""SELECT id, user_id, opened_at, closed_at, expected, counted, difference,
-            COALESCE(business_day, substr(opened_at,1,10)) business_day FROM shifts
-            WHERE COALESCE(business_day, substr(opened_at,1,10))=?""", (day,))
-        rejected = self.store.all(q("""SELECT s.no, p.method, p.amount, c.at FROM payment_confirmations c
-            JOIN payments p ON p.id=c.payment_id JOIN sales s ON s.id=p.sale_id
+        shifts = self._shift_rows("COALESCE(s.business_day, substr(s.opened_at,1,10))=?", (day,))
+        rejected = self.store.all(q("""SELECT s.no no, cu.name customer_name, p.method, p.amount, c.at
+            FROM payment_confirmations c JOIN payments p ON p.id=c.payment_id
+            LEFT JOIN sales s ON s.id=p.sale_id
+            LEFT JOIN customer_entries e ON e.op_id=p.op_id AND e.kind='payment'
+            LEFT JOIN customers cu ON cu.id=e.customer_id
             WHERE c.outcome='rejected' AND c.op_id IN {OPS}"""), (day,))
         net_sales = sales["total"] - returns["amount"]
         out = {"day": day, "day_start_hour": self.store.day_start_hour(), "sales_count": sales["n"], "sales_total": sales["total"], "discounts": sales["discounts"],
-               "returns": returns["amount"], "net_sales": net_sales, "by_method": by_method, "refunds_by_method": refunds,
+               "returns": returns["amount"], "net_sales": net_sales, "by_method": by_method, "collections": self.collections_report(day, day), "refunds_by_method": refunds,
                "safe": self.safe_balance() if can(actor, "safe") else None, "shifts": shifts,
                "waste": waste, "near_expiry": [r for r in self.stock_report(actor) if r["state"] in ("near_expiry", "expired")],
                "held": [r for r in self.stock_report(actor) if r["state"] in ("held", "recalled")],
