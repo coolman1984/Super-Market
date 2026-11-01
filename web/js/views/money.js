@@ -130,12 +130,28 @@
       const customers = await SM.api('GET', '/api/parties?kind=customer').catch(() => []);
       if (customers.length) {
         const c = SM.select(customers.map(x => ({ value: x.id, label: x.name + ' — ' + SM.money(x.balance) })));
-        const a = h('input', { class: 'input', inputmode: 'decimal' });
+        c.setAttribute('data-guide', 'cash.customer');
+        const a = h('input', { class: 'input', inputmode: 'decimal', 'data-guide': 'cash.amount' });
+        const method = SM.select([
+          { value: 'cash', label: t('pay.m.cash') },
+          { value: 'transfer', label: t('cash.method.transfer') },
+          { value: 'wallet', label: t('pay.m.wallet') },
+          { value: 'card', label: t('pay.m.card') },
+        ]);
+        method.setAttribute('data-guide', 'cash.method');
+        const ref = h('input', { class: 'input', maxlength: '80', 'data-guide': 'cash.reference' });
         const payKey = SM.newKey();
-        debt.append(h('div', { class: 'grid cols-2' }, SM.field(t('cash.customer'), c), SM.field(t('cash.amount'), a)),
-          h('button', { class: 'btn', text: t('cash.collect'), onclick: SM.guard(async () => {
+        debt.append(h('p', { class: 'muted', text: t('cash.collect_help') }),
+          h('div', { class: 'grid cols-2' }, SM.field(t('cash.customer'), c), SM.field(t('cash.amount'), a),
+            SM.field(t('pay.method'), method), SM.field(t('pay.reference'), ref)),
+          h('button', { class: 'btn', 'data-guide': 'cash.collect', text: t('cash.collect'), onclick: SM.guard(async () => {
             const v = SM.parseMoney(a.value); if (!v) return SM.toast(t('err.bad_amount'), 'bad');
-            try { await SM.command('/api/customers/pay', payKey, undefined, { customer_id: parseInt(c.value, 10), amount: v }); SM.toast(t('saved')); SM.go('cash'); } catch (e) { SM.fail(e); }
+            try {
+              const r = await SM.command('/api/customers/pay', payKey, undefined, {
+                customer_id: parseInt(c.value, 10), amount: v, method: method.value, reference: ref.value || undefined });
+              SM.toast(r.state === 'pending' ? t('cash.collect_pending') : t('saved'));
+              SM.go('cash');
+            } catch (e) { SM.fail(e); }
           }) }));
       }
       const counted = h('input', { class: 'input big', inputmode: 'decimal', 'data-guide': 'cash.counted' });
@@ -184,7 +200,7 @@
     const rows = await SM.api('GET', '/api/payments/pending').catch(() => []);
     const card = h('div', { class: 'card' }, h('h3', { text: t('pay.pending_title') }), h('p', { class: 'muted', text: t('pay.pending_help') }));
     if (!rows.length) { card.append(h('p', { text: t('none') })); return card; }
-    card.append(SM.table([{ label: t('receipt.no'), render: r => h('span', { class: 'ltr', text: r.no }) }, { label: t('pay.method'), render: r => t('pay.m.' + r.method) },
+    card.append(SM.table([{ label: t('receipt.no'), render: r => r.no ? h('span', { class: 'ltr', text: r.no }) : h('span', { text: r.customer_name || t('cash.debt') }) }, { label: t('pay.method'), render: r => r.method === 'transfer' && !r.no ? t('cash.method.transfer') : t('pay.m.' + r.method) },
       { label: t('pay.reference'), render: r => r.reference || '—' }, { label: t('cash.amount'), num: true, render: r => SM.num(SM.money(r.amount)) },
       { label: '', render: r => { r.key = SM.newKey(); return h('div', { class: 'row' }, h('button', { class: 'btn sm', text: t('pay.confirmed'), onclick: SM.guard(() => decide(r, 'confirmed')) }),
         h('button', { class: 'btn sm danger', text: t('pay.rejected'), onclick: SM.guard(() => decide(r, 'rejected')) })); } }], rows));
@@ -289,8 +305,13 @@
           h('div', { class: 'card' }, h('h3', { text: t('rep.by_method') }), h('p', { class: 'muted', text: t('rep.sales_not_cash') }),
             h('dl', { class: 'kv' }, r.by_method.map(m => kv(t('pay.m.' + m.method) + (m.state !== 'settled' ? ' (' + t('state.' + m.state) + ')' : ''), SM.money(m.amount)))),
             r.refunds_by_method && r.refunds_by_method.length ? [h('h4', { text: t('rep.refunds') }), h('dl', { class: 'kv' }, r.refunds_by_method.map(m => kv(t('refund.' + m.method), SM.money(m.amount))))] : null),
+          h('div', { class: 'card', 'data-guide': 'rep.collections' }, h('h3', { text: t('rep.collections') }),
+            h('p', { class: 'muted', text: t('rep.collections_help') }),
+            h('dl', { class: 'kv' }, (r.collections || []).map(m => kv(t('pay.m.' + m.method), SM.money(m.amount))))),
           h('div', { class: 'card', id: 'shifts-card', style: { gridColumn: '1 / -1' } }, h('h3', { text: t('rep.shifts') }), r.shifts.length ? [shiftTable(r.shifts), shiftCards(r.shifts)] : h('p', { text: t('none') })),
-          r.rejected_payments.length ? h('div', { class: 'card' }, h('h3', { text: t('rep.rejected') }), h('ul', {}, r.rejected_payments.map(x => h('li', { class: 'ltr', text: x.no + ' — ' + t('pay.m.' + x.method) + ' — ' + SM.money(x.amount) })))) : null,
+          r.rejected_payments.length ? h('div', { class: 'card' }, h('h3', { text: t('rep.rejected') }), h('ul', {}, r.rejected_payments.map(x => h('li', {},
+            x.no ? h('span', { class: 'ltr', text: x.no }) : h('span', { text: x.customer_name || '' }),
+            ' — ', t('pay.m.' + x.method), ' — ', SM.num(SM.money(x.amount)))))) : null,
           h('div', { class: 'card' }, h('h3', { text: t('rep.waste') }), r.waste.length ? h('dl', { class: 'kv' }, r.waste.map(w => kv(t('waste.' + w.reason), SM.money(w.cost)))) : h('p', { text: t('none') })),
           h('div', { class: 'card' }, h('h3', { text: t('rep.checks') }), h('p', {}, rec && rec.ok ? h('span', { class: 'badge ok', text: t('rep.reconcile_ok') }) : h('span', { class: 'badge bad', text: t('rep.reconcile_bad') })),
             h('p', { class: 'muted', text: t('rep.tax_unverified') }))));
@@ -306,7 +327,8 @@
       const showPeriod = async () => {
         const r = await SM.api('GET', '/api/reports/period?start=' + from.value + '&end=' + to.value).catch(e => { SM.fail(e); return null; });
         if (!r) return;
-        SM.put(periodBox, SM.table([{ label: t('rep.day'), render: x => h('span', { class: 'ltr', text: x.day }) }, { label: t('rep.sales_count'), num: true, render: x => SM.num(String(x.sales)) },
+        SM.put(periodBox, h('h3', { text: t('rep.collections') }), h('p', { class: 'muted', text: t('rep.collections_help') }),
+          h('dl', { class: 'kv' }, (r.collections || []).map(m => kv(t('pay.m.' + m.method), SM.money(m.amount)))), SM.table([{ label: t('rep.day'), render: x => h('span', { class: 'ltr', text: x.day }) }, { label: t('rep.sales_count'), num: true, render: x => SM.num(String(x.sales)) },
           { label: t('rep.sales_total'), num: true, render: x => SM.num(SM.money(x.sales_total)) }, { label: t('rep.returns'), num: true, render: x => SM.num(SM.money(x.returns)) },
           { label: t('rep.net_sales'), num: true, render: x => SM.num(SM.money(x.net_sales)) }], r.series),
           h('p', { class: 'muted' }, t('rep.net_sales'), ': ', SM.num(SM.moneyText(r.totals.net_sales)), ' — ', t('rep.net_sales_hint')));

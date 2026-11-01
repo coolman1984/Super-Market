@@ -717,4 +717,18 @@ def m011(conn):
 
 
 MIGRATIONS.append((11, "shift gaps stay open until explained or marked done", m011))
+
+
+# Migration 12: collection shift; version 10 belongs to PIN sign-in.
+def m012(conn):
+    _ensure_columns(conn, (("payments", "shift_id", "shift_id INTEGER REFERENCES shifts(id)"),))
+    run_script(conn, """DROP VIEW payment_states;
+CREATE VIEW payment_states AS
+  SELECT p.*, CASE WHEN c.outcome='confirmed' THEN 'settled' WHEN c.outcome='rejected' THEN 'rejected'
+    ELSE p.state END AS eff_state
+  FROM payments p LEFT JOIN payment_confirmations c ON c.payment_id=p.id;
+""")
+
+
+MIGRATIONS.append((12, "collection shift for non-cash customer receipts", m012))
 SCHEMA_VERSION = MIGRATIONS[-1][0]

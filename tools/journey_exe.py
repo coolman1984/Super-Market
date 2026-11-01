@@ -105,6 +105,23 @@ def first(home, exe):
     status, sale, _ = call("POST", "/api/sales", {"key": uuid.uuid4().hex, "payload": dict(cart, cash_tendered=5000,
                                                    expected_total=quote["total"], quote_hash=quote["quote_hash"])}, c)
     assert status == 200 and sale["change"] == 3000, sale
+    # Exercise the new modules through the COMPILED program, not only Python tests.
+    models = call("GET", "/api/scanner/models", None, c)
+    assert models[0] == 200 and len(models[1]) == 12 and all(not m["hardware_verified"] for m in models[1]), models[:2]
+    report = call("GET", "/api/reports/day", None, c)[1]
+    assert report["collections"] == [{"method": "cash", "state": "settled", "amount": 2000}], report
+    status, meat, _ = call("POST", "/api/products", {"code": "CI-MEAT", "name_ar": "لحم اختبار", "name_en": "Test meat",
+                        "kind": "raw_meat", "measure": "g", "price": 40000}, c)
+    assert status == 200, meat
+    status, refused, _ = call("POST", "/api/receipts", {"key": uuid.uuid4().hex, "payload": {"lines": [
+        {"product_id": meat["id"], "qty": 1000, "line_cost": 10000, "location_id": shelf, "hold": True}]}}, c)
+    assert status == 400 and refused.get("error") == "meat_needs_cold_storage", refused
+    day = call("GET", "/api/state", None, c)[1]["business_day"]
+    assert call("POST", "/api/promotions", {"key": uuid.uuid4().hex, "product_id": prod["id"], "buy_qty": 2, "free_qty": 1, "starts": day}, c)[0] == 200
+    whole = call("POST", "/api/quote", {"payload": {"lines": [{"product_id": prod["id"], "qty": 3}]}}, c)[1]
+    split = call("POST", "/api/quote", {"payload": {"lines": [{"product_id": prod["id"], "qty": 1}] * 3}}, c)[1]
+    assert whole["total"] == split["total"] == 2000 and whole["quote_hash"] == split["quote_hash"], (whole, split)
+    print("compiled regression OK: devices, cold storage, collection report and promotion")
     stop(home, exe)
     assert os.path.exists(os.path.join(data_folder(home), "shop-data", "shop.db")), "data was not written to " + data_folder(home)
     print("first journey OK: sale", sale["no"])

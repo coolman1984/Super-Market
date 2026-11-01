@@ -200,7 +200,7 @@ class ReviewC(ShopFixture, unittest.TestCase):
         # Model a legacy placement made before this fix, using append-only entries.
         def legacy(op):
             cost = self.shop._consume(op, 'transfer_out', lot, self.prep, 1000, check=False)
-            self.shop._entry(op, 'transfer_in', lot, self.shelf, 1000, cost)
+            self.store.db.execute('INSERT INTO stock_entries(op_id,kind,lot_id,location_id,qty,cost,at) VALUES(?,?,?,?,?,?,?)', (op, 'transfer_in', lot, self.shelf, 1000, cost, core.now_iso()))
             return {}
         self.store.command('legacy_fixture', key(), [], self.owner, legacy)
         self.shop.set_lot_status(self.owner, key(), lot, 'held', 'Review old placement')

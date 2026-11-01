@@ -85,9 +85,14 @@ const base = process.argv[2] || 'http://127.0.0.1:8799';
   res.c_ok = res.c_resume_btn && res.c_old_key_gone;
   // (d) review on PR #11: after a voluntary password change, scanning works without a reload
   await page.click('.side-foot [aria-label="' + await page.evaluate(() => SM.t('account.change')) + '"]');
+  await page.waitForFunction(() => document.activeElement === document.querySelector('[data-guide="account.old"]'));
   const pw = page.locator('.dialog input[type=password]');
   await pw.nth(0).fill('training-only'); await pw.nth(1).fill('training-new-1'); await pw.nth(2).fill('training-new-1');
-  await page.click('.dialog button[type=submit]');
+  const [changed] = await Promise.all([
+    page.waitForResponse(r => r.url().endsWith('/api/account/password') && r.request().method() === 'POST'),
+    page.click('.dialog button[type=submit]'),
+  ]);
+  if (!changed.ok()) throw new Error('password update refused: ' + changed.status() + ' ' + (await changed.json()).error);
   await page.waitForSelector('.dialog', { state: 'detached' });
   await page.goto(base + '/#sell'); await page.waitForSelector('.scan-input');
   const rows = await page.locator('.cart tbody tr').count();

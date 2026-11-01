@@ -107,15 +107,15 @@ class CountReview(ShopFixture, unittest.TestCase):
         grams = self.meat(code="KG")
         cheap = self.grocery(code="LO", barcodes=[])
         dear = self.grocery(code="HI", barcodes=[])
-        self.receive(pieces, 20, 2000, expires=None)                 # 100 piastres a piece
+        self.receive(pieces, 20, 2000, location=self.fridge, expires=None)                 # 100 piastres a piece
         self.receive(grams, 1000, 400, expires="2026-11-05")         # 0.4 piastres a gram
         self.shop.receive(self.owner, key(), {"lines": [
-            {"product_id": cheap, "qty": 100, "line_cost": 0, "line_kind": "gift", "location_id": self.shelf},
-            {"product_id": dear, "qty": 4, "line_cost": 0, "line_kind": "gift", "location_id": self.shelf},
+            {"product_id": cheap, "qty": 100, "line_cost": 0, "line_kind": "gift", "location_id": self.fridge},
+            {"product_id": dear, "qty": 4, "line_cost": 0, "line_kind": "gift", "location_id": self.fridge},
         ]})
         lots = {r["code"]: r["id"] for r in self.store.all(
             "SELECT p.code, l.id FROM lots l JOIN products p ON p.id=l.product_id")}
-        count = self.shop.open_count(self.counter, self.shelf)["count"]
+        count = self.shop.open_count(self.counter, self.fridge)["count"]
         self.shop.record_count(self.counter, count, lots["PC"], 200)   # +180, value 18000
         self.shop.record_count(self.counter, count, lots["KG"], 1250)                    # +250 g = 0.25 kg, value 100
         self.shop.record_count(self.counter, count, lots["LO"], 110)                     # +10, 10%

@@ -1,0 +1,120 @@
+[
+  {
+    "case": "raw_meat_on_grocery_shelf",
+    "seconds": 0.064,
+    "passed": false,
+    "accepted": true,
+    "lot": 1,
+    "location_kind": "shelf",
+    "sold_grams": 500,
+    "sale_total": 20000,
+    "invariant": "raw meat must not become sellable on an ordinary grocery shelf"
+  },
+  {
+    "case": "promotion_split_rows",
+    "seconds": 0.041,
+    "passed": false,
+    "single_row": 3000,
+    "split_rows": 4500,
+    "invariant": "equal eligible quantities of one SKU should not change promotion eligibility by line splitting"
+  },
+  {
+    "case": "maximum_valid_price_arithmetic",
+    "seconds": 0.033,
+    "passed": true,
+    "controlled_error": "bad_price",
+    "rejection_stage": "catalog"
+  },
+  {
+    "case": "weighing_barcode",
+    "seconds": 0.038,
+    "passed": true,
+    "qty": 500,
+    "scan_ok": true
+  },
+  {
+    "case": "replay_and_cross_user_keys",
+    "seconds": 0.047,
+    "passed": true,
+    "replays": 250,
+    "rejected": [
+      "request_key_reused",
+      "request_key_other_user"
+    ],
+    "sales": 1,
+    "stock": 8,
+    "reconcile": true
+  },
+  {
+    "case": "concurrent_last_stock",
+    "seconds": 0.17,
+    "passed": true,
+    "attempts": 200,
+    "succeeded": 100,
+    "rejections": {
+      "insufficient_stock": 100
+    },
+    "stock": 0
+  },
+  {
+    "case": "randomized_accounting",
+    "seconds": 1.42,
+    "passed": true,
+    "invoices": 1200,
+    "expected_total": 12419411,
+    "reported_total": 12419411,
+    "stock_matches": true
+  },
+  {
+    "case": "malformed_scanners",
+    "seconds": 0.045,
+    "passed": true,
+    "attempts": 300,
+    "unhandled": []
+  },
+  {
+    "case": "count_during_sales",
+    "seconds": 0.039,
+    "passed": true,
+    "stock": 7,
+    "expected": 7
+  },
+  {
+    "case": "recalled_stock_sale",
+    "seconds": 0.035,
+    "passed": true,
+    "rejected": "insufficient_stock",
+    "stock": 1000
+  },
+  {
+    "case": "later_credit_collection_report",
+    "seconds": 0.038,
+    "passed": false,
+    "collection_posted": 1500,
+    "drawer_expected": 1500,
+    "report_by_method": [],
+    "period_by_method": [],
+    "invariant": "a table labelled collection by payment method must include actual debt collections on the collection day"
+  },
+  {
+    "case": "later_transfer_confirmation_report",
+    "seconds": 0.039,
+    "passed": false,
+    "before": [
+      {
+        "method": "transfer",
+        "state": "pending",
+        "amount": 1500
+      }
+    ],
+    "old_day_after_confirmation": [
+      {
+        "method": "transfer",
+        "state": "settled",
+        "amount": 1500
+      }
+    ],
+    "confirmation_day": [],
+    "invariant": "collection chronology must not be inferred only from the sale operation date"
+  }
+]

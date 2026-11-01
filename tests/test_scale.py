@@ -147,7 +147,7 @@ class Reader(unittest.TestCase):
         r.feed([b"ST,GS,+ 0.500kg", b"ST,GS,+------kg"])
         self.assertIsNone(r.reading()["grams"])
         r.feed([b"ST,GS,+ 0.500kg", b"garbage line"])
-        self.assertEqual(r.reading()["grams"], 500, "noise that is not an error keeps the weight")
+        self.assertIsNone(r.reading()["grams"], "unrecognised data invalidates the previous weight")
 
     def test_an_old_reading_is_not_offered(self):
         r = scale.ScaleReader({"id": "s1", "type": "serial"}, lambda cfg: None)

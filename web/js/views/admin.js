@@ -310,7 +310,24 @@
         return h('div', { class: 'card', 'data-guide': 'dev.card' }, h('h3', { text: t('dev.title') }), h('p', { class: 'muted', text: t('dev.help') }),
           h('div', { class: 'toolbar' }, [58, 80].map(mm => h('button', { class: 'btn', text: t('dev.print', { mm }), onclick: SM.guard(() => run(mm)) }))), lastBox);
       };
-      SM.put(root, h('p', { class: 'tip', text: t('scn.intro') }), h('div', { class: 'toolbar' }, seg), body, await SM.scaleCards(), sheet, deviceTest());
+      const models = await SM.api('GET', '/api/scanner/models').catch(() => []);
+      const model = SM.select([{ value: '', label: t('hw.choose') }, ...models.map(m => ({ value: m.id, label: SM.state.lang === 'en' ? m.name_en : m.name_ar }))]);
+      model.id = 'hardware-model';
+      const modelHelp = h('p', { class: 'tip', id: 'hardware-model-help', text: t('hw.generic') });
+      model.onchange = async () => {
+        const chosen = models.find(m => m.id === model.value);
+        modelHelp.textContent = t('hw.' + (chosen ? chosen.mode : 'generic'));
+        if (!chosen) return;
+        if (chosen.mode === 'keyboard') {
+          conn = 'keyboard'; seg.querySelectorAll('button').forEach((b, i) => b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false')); await draw();
+          body.querySelector('textarea')?.focus();
+        } else {
+          const target = document.getElementById(chosen.mode === 'label' ? 'scale-sticker' : 'scale-cabled');
+          target?.scrollIntoView({ block: 'center', behavior: 'smooth' }); target?.focus();
+        }
+      };
+      const modelCard = h('div', { class: 'card', 'data-guide': 'hw.models' }, h('h3', { text: t('hw.title') }), SM.field(t('hw.model'), model), modelHelp);
+      SM.put(root, h('p', { class: 'tip', text: t('scn.intro') }), modelCard, h('div', { class: 'toolbar' }, seg), body, await SM.scaleCards(), sheet, deviceTest());
       draw();
     },
   };
@@ -413,7 +430,7 @@
     const pinHelp = h('p', { class: 'muted', text: t('set.pin_help_4') });
     const pinDigits = () => (f.role.value === 'owner' || f.role.value === 'manager' ? 6 : 4);
     f.role.addEventListener('change', () => { pinHelp.textContent = t(pinDigits() === 6 ? 'set.pin_help_6' : 'set.pin_help_4'); });
-    return h('div', { class: 'card', 'data-guide': 'set.users' }, h('h3', { text: t('set.users') }), h('p', { class: 'muted', 'data-guide': 'set.roles_help', text: t('set.roles_help') }),
+    return h('div', { class: 'card users-card', 'data-guide': 'set.users' }, h('h3', { text: t('set.users') }), h('p', { class: 'muted', 'data-guide': 'set.roles_help', text: t('set.roles_help') }),
       SM.table([{ label: t('username'), render: u => h('span', { class: 'ltr', text: u.username }) }, { label: t('set.display'), key: 'display_name' }, { label: t('set.role'), render: u => t('role.' + u.role) },
         { label: t('set.pin'), render: u => h('span', { class: 'badge ' + (u.has_pin ? 'ok' : 'warn'), text: u.has_pin ? t('set.pin_on') : t('set.pin_off') }) },
         { label: t('set.state'), render: u => h('span', { class: 'badge ' + (u.active ? (u.must_change ? 'warn' : 'ok') : 'bad'),
@@ -527,15 +544,19 @@
     const settings = canSave ? await SM.api('GET', '/api/settings').catch(() => ({})) : {};
     const mine = (settings.scanner_devices || []).find(d => d.role === 'scale' && d.workstation === SM.workstation()) || {};
     const port = SM.select((ports.serial.length ? ports.serial : [mine.port || 'COM1']).map(p => ({ value: p, label: p })), mine.port);
-    const poll = SM.select(['none', 'W', 'ENQ', 'P'].map(p => ({ value: p, label: t('scale.poll.' + p) })), mine.poll || 'none');
-    const baud = SM.select([9600, 4800, 2400, 19200].map(b => ({ value: b, label: String(b) })), mine.baud || 9600);
+    const poll = SM.select(['none', 'W', 'W_CR', 'ENQ', 'P', 'S_CR'].map(p => ({ value: p, label: t('scale.poll.' + p) })), mine.poll || 'none');
+    const baud = SM.select([9600, 4800, 2400, 1200, 19200, 38400, 57600, 115200].map(b => ({ value: b, label: String(b) })), mine.baud || 9600);
+    const parity = SM.select(['none', 'even', 'odd'].map(v => ({ value: v, label: t('scn.parity.' + v) })), mine.parity || 'none');
+    const bits = SM.select([8, 7].map(v => ({ value: v, label: String(v) })), mine.bits || 8);
+    const stop = SM.select([1, 2].map(v => ({ value: v, label: String(v) })), mine.stop || 1);
     const liveBox = h('div', { class: 'scale-weight ltr', id: 'scale-live', text: '—' });
     const cabled = h('div', { class: 'card', id: 'scale-cabled', 'data-guide': 'scale.cabled' }, h('h3', { text: t('scale.cable_title') }), h('p', { class: 'muted', text: t('scale.cable_help') }),
       h('div', { class: 'grid cols-3' }, SM.field(t('scale.port'), port, ports.serial.length ? null : t('scale.no_ports')), SM.field(t('scale.sends'), poll, t('scale.sends_help')), SM.field(t('scale.speed'), baud)),
+      h('details', { class: 'advanced' }, h('summary', { text: t('hw.advanced') }), h('div', { class: 'grid cols-3' }, SM.field(t('scn.parity'), parity), SM.field(t('scn.bits'), bits), SM.field(t('scn.stop'), stop))),
       canSave ? h('button', { class: 'btn primary', id: 'scale-save', text: t('scale.connect'), onclick: SM.guard(async () => {
         const used = new Set((settings.scanner_devices || []).map(d => d.id));
         let free = 1; while (used.has('scale' + free)) free++;
-        const dev = { id: mine.id || ('scale' + free), type: 'serial', role: 'scale', port: port.value, poll: poll.value, baud: parseInt(baud.value, 10), parity: 'none', bits: 8, stop: 1, enabled: true, workstation: SM.workstation() };
+        const dev = { id: mine.id || ('scale' + free), type: 'serial', role: 'scale', port: port.value, poll: poll.value, baud: parseInt(baud.value, 10), parity: parity.value, bits: Number(bits.value), stop: Number(stop.value), enabled: true, workstation: SM.workstation() };
         const others = (settings.scanner_devices || []).filter(d => d.id !== dev.id);
         try { await SM.api('POST', '/api/scanner/devices', { devices: [...others, dev] }); SM.toast(t('scale.connected_ok')); SM.go('scanner'); } catch (e) { SM.fail(e); }
       }) }) : h('p', { class: 'muted', text: t('scn.need_manager') }),

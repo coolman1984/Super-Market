@@ -109,3 +109,7 @@
 - [Honeywell Voyager 1250g User Guide (نسخة منشورة)](https://cdn11.bigcommerce.com/s-novopaarpb/content/brochure/h/o/sps-ppr-vg1250-ug.pdf) و[صفحات الدليل](https://www.manualsdir.com/manuals/90212/honeywell-voyager-1250g.html?page=6)
 - [Zebra DS2208 Quick Start Guide](https://www.zebra.com/content/dam/support-dam/zh_cn/documentation/unrestricted/guide/product/ds2208-qsg-zhcn.pdf) و[Product Reference Guide](https://manualmachine.com/zebra/ds2208/26910674-product-reference-guide)
 - [NCR Aloha: برمجة Honeywell 1250g](https://onlinehelp.ncr.com/Retail/Scanners/ImagerSetup/HTML/Topics/HoneywellVoyager.htm)
+
+
+## تحديث ٠٫١٫٢
+اختيار عائلات السوق وطرق قبولها موثق في [دعم أجهزة السوق المصري](EGYPT_HARDWARE.md). لا يثبت الاسم تجربة فعلية. البرنامج يفرّق بين ماسح يكتب، وميزان يطبع ملصقًا، وميزان يرسل وزنًا نصيًا؛ لا يفترض بروتوكولًا من شكل المقبس.
