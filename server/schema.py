@@ -672,13 +672,31 @@ SCHEMA_VERSION = MIGRATIONS[-1][0]
 # ---------------------------------------------------------------- migration 10
 # PIN sign-in (SM-UX-LOGIN). The hash never leaves the shop PC (see cloudsync).
 # via_pin: a session opened with the PIN is not blocked by a temporary password.
+def _column_names(conn, table):
+    return {row[1] for row in conn.execute('PRAGMA table_info("%s")' % table)}
+
+
+def _ensure_columns(conn, specs):
+    """Add columns that are not already there. Safe to run again, and safe when
+    a version number was used for a different change (see m010 / m011)."""
+    for table, column, definition in specs:
+        if column not in _column_names(conn, table):
+            conn.execute("ALTER TABLE %s ADD COLUMN %s" % (table, definition))
+
+
+# Checked from the live tables, not from the version number: the shortage build
+# (be00d4d) already stored version 10 for gap_handled_at, so this step must
+# still run when that number is present and these columns are absent.
+PIN_COLUMNS = (
+    ("users", "pin_hash", "pin_hash TEXT"),
+    ("users", "pin_salt", "pin_salt TEXT"),
+    ("users", "pin_iter", "pin_iter INTEGER"),
+    ("sessions", "via_pin", "via_pin INTEGER NOT NULL DEFAULT 0"),
+)
+
+
 def m010(conn):
-    run_script(conn, """
-ALTER TABLE users ADD COLUMN pin_hash TEXT;
-ALTER TABLE users ADD COLUMN pin_salt TEXT;
-ALTER TABLE users ADD COLUMN pin_iter INTEGER;
-ALTER TABLE sessions ADD COLUMN via_pin INTEGER NOT NULL DEFAULT 0;
-""")
+    _ensure_columns(conn, PIN_COLUMNS)
 
 
 MIGRATIONS.append((10, "PIN sign-in: hashed PIN per user, session opened with a PIN", m010))
@@ -689,8 +707,13 @@ SCHEMA_VERSION = MIGRATIONS[-1][0]
 # A drawer gap stays on Today after the business day rolls until someone
 # explains it or marks it done. The column is mutable (see GUARDED).
 # Numbered 11 because main already used 10 for PIN sign-in.
+GAP_COLUMNS = (
+    ("shifts", "gap_handled_at", "gap_handled_at TEXT"),
+)
+
+
 def m011(conn):
-    run_script(conn, "ALTER TABLE shifts ADD COLUMN gap_handled_at TEXT;")
+    _ensure_columns(conn, GAP_COLUMNS)
 
 
 MIGRATIONS.append((11, "shift gaps stay open until explained or marked done", m011))

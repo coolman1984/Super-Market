@@ -64,17 +64,29 @@ class Store:
             for version, name, fn in migrations:
                 if version <= current:
                     continue
-                self.db.execute("BEGIN IMMEDIATE")
-                try:
-                    fn(self.db)
-                    self.db.execute("INSERT INTO schema_migrations VALUES(?,?,?)", (version, name, now_iso()))
-                    self.db.execute("COMMIT")
-                except BaseException:
-                    if self.db.in_transaction:
-                        self.db.execute("ROLLBACK")
-                    raise
+                self._run_schema(fn, version, name)
+            # Version 10 was issued twice (PIN on main, the shortage column on
+            # be00d4d). Re-apply both from the live tables whenever this open
+            # is allowed to reach them, even if the number is already recorded.
+            wanted = {version for version, _name, _fn in migrations}
+            if 10 in wanted:
+                self._run_schema(schema.m010)
+            if 11 in wanted:
+                self._run_schema(schema.m011)
             if self.schema_version() > 0:
                 self._remember_opened_version()
+
+    def _run_schema(self, fn, version=None, name=None):
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            fn(self.db)
+            if version is not None:
+                self.db.execute("INSERT INTO schema_migrations VALUES(?,?,?)", (version, name, now_iso()))
+            self.db.execute("COMMIT")
+        except BaseException:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
 
     def _opened_with_version(self):
         try:
