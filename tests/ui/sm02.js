@@ -29,10 +29,9 @@ const out = process.argv[3] || '.';
   };
 
   await page.goto(base);
-  await page.waitForSelector('input[autocomplete=username]');
-  await page.fill('input[autocomplete=username]', 'owner');
-  await page.fill('input[type=password]', 'training-only');
-  await page.click('button[type=submit]');
+  await page.waitForSelector('[data-username=owner]');
+  await page.click('[data-username=owner]');
+  for (const d of '159382') await page.click('.pin-key[data-digit="' + d + '"]');
   await page.waitForSelector('.sidebar');
   await page.evaluate(() => SM.go('catalog'));
   await page.waitForTimeout(700);

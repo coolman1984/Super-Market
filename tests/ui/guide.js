@@ -10,11 +10,12 @@ const out = process.argv[3] || '.';
   page.on('pageerror', e => errors.push(e.message));
   const res = {};
   await page.goto(base); await page.reload();
-  await page.waitForSelector('.sidebar, input[type=password]');
+  await page.waitForSelector('.sidebar, .who-list');
   if (await page.locator('.side-foot .logout-btn').count()) await page.click('.side-foot .logout-btn');
-  await page.waitForSelector('input[autocomplete=username]');
-  await page.fill('input[autocomplete=username]', 'cashier'); await page.fill('input[type=password]', 'training-only');
-  await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
+  await page.waitForSelector('[data-username=cashier]');
+  await page.click('[data-username=cashier]');
+  for (const d of '3826') await page.click('.pin-key[data-digit="' + d + '"]');
+  await page.waitForSelector('.sidebar');
   // earlier test scripts may have left this cashier's shift open: close it so the lesson starts from the beginning
   await page.evaluate(async () => { const s = await SM.api('GET', '/api/shift').catch(() => null);
     if (s && s.shift) await SM.command('/api/shift/close', SM.newKey(), undefined, { counted: s.expected || 0 }).catch(() => null); });
@@ -29,10 +30,15 @@ const out = process.argv[3] || '.';
   await page.waitForSelector('[data-afg="coach"]:not([hidden])');
   for (let i = 0; i < 8; i++) {
     if (await page.locator('[data-afg="finish"]').count()) { await page.click('[data-afg="finish"]'); break; }
+    const before = await page.textContent('[data-afg="coach"]');
     if (await page.locator('[data-afg="there"]').count()) await page.click('[data-afg="there"]');
-    await page.waitForTimeout(400);
-    if (await page.locator('[data-afg="next"]').count()) await page.click('[data-afg="next"]');
-    await page.waitForTimeout(300);
+    else if (await page.locator('[data-afg="next"]').count()) await page.click('[data-afg="next"]');
+    else break;
+    await page.waitForFunction((prev) => {
+      const finish = document.querySelector('[data-afg="finish"]');
+      const coach = document.querySelector('[data-afg="coach"]');
+      return finish || (coach && coach.textContent !== prev);
+    }, before);
   }
   res.first_look_done = (await page.evaluate(() => SM.api('GET', '/api/guide/state'))).course.items.find(i => i.id === 'first-look').done;
   await page.click('[data-afg="fab"]'); await page.waitForSelector('[data-afg="panel"]:not([hidden])');
@@ -42,24 +48,34 @@ const out = process.argv[3] || '.';
   await page.waitForSelector('[data-afg="coach"]:not([hidden])');
   // step 1 is "go to the drawer page": the coach offers to take me there
   if (await page.locator('[data-afg="there"]').count()) await page.click('[data-afg="there"]');
-  await page.waitForTimeout(900);
+  await page.waitForSelector('[data-guide="cash.float"]');
   res.step_after_go = (await page.textContent('[data-afg="coach"]')).replace(/\s+/g, ' ').slice(0, 140);
   res.target_outlined = await page.locator('.afg-target[data-guide="cash.float"]').count() === 1;
   await page.screenshot({ path: out + '/guide-coach-ar.png' });
-  await page.fill('[data-guide="cash.float"]', '500'); await page.waitForTimeout(900);
+  await page.fill('[data-guide="cash.float"]', '500');
+  await page.waitForSelector('.afg-target[data-guide="cash.open"]');
   res.moved_on_by_itself = await page.locator('.afg-target[data-guide="cash.open"]').count() === 1;
-  await page.click('[data-guide="cash.open"]'); await page.waitForTimeout(1500);
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/shift') && r.request().method() === 'POST'),
+    page.click('[data-guide="cash.open"]'),
+  ]);
+  await page.waitForSelector('[data-afg="finish"]');
   res.coach_text_end = (await page.textContent('[data-afg="coach"]').catch(() => '')).replace(/\s+/g, ' ').slice(0, 140);
-  if (await page.locator('[data-afg="finish"]').count()) await page.click('[data-afg="finish"]');
-  await page.waitForTimeout(800);
+  if (await page.locator('[data-afg="finish"]').count()) {
+    await page.click('[data-afg="finish"]');
+    await page.waitForSelector('[data-afg="finish"]', { state: 'hidden' });
+  }
   const st = await page.evaluate(() => SM.api('GET', '/api/guide/state'));
   res.open_shift_done = st.course.items.find(i => i.id === 'open-shift').done;
   res.fab_after = (await page.textContent('[data-afg="fab"]')).trim();
   // an error offers «ماذا أفعل؟» that opens its explanation
   await page.evaluate(() => SM.fail({ code: 'insufficient_stock', status: 400 }));
   res.error_button = await page.locator('.toast [data-afg="explain"]').count() === 1;
-  if (res.error_button) { await page.click('.toast [data-afg="explain"]'); await page.waitForTimeout(500);
-    res.problem_open = (await page.textContent('[data-afg="panel"]')).includes('الكمية لا تكفي'); }
+  if (res.error_button) {
+    await page.click('.toast [data-afg="explain"]');
+    await page.waitForFunction(() => (document.querySelector('[data-afg="panel"]') || {}).textContent.includes('الكمية لا تكفي'));
+    res.problem_open = true;
+  }
   await page.screenshot({ path: out + '/guide-problem-ar.png' });
   // the per-page "?" exists in the top bar
   res.page_help = await page.locator('.topbar [data-afg="help"]').count() === 1;

@@ -9,9 +9,11 @@ const out = process.argv[3] || '.';
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   const login = async (p, user) => {
-    await p.goto(base); await p.waitForSelector('input[autocomplete=username]');
-    await p.fill('input[autocomplete=username]', user); await p.fill('input[type=password]', 'training-only');
-    await p.click('button[type=submit]'); await p.waitForSelector('.sidebar');
+    await p.goto(base); await p.waitForSelector('[data-username="' + user + '"]');
+    await p.click('[data-username="' + user + '"]');
+    const pins = { owner: '159382', manager: '470296', cashier: '3826', butcher: '2964', counter: '4702' };
+    for (const d of pins[user]) await p.click('.pin-key[data-digit="' + d + '"]');
+    await p.waitForSelector('.sidebar');
   };
   await login(page, 'owner');
   const T = (k, v) => page.evaluate(([k, v]) => SM.t(k, v), [k, v]);
@@ -30,7 +32,10 @@ const out = process.argv[3] || '.';
   res.shows_plain_warning = text.includes(await T('cloud.offline'));
   res.no_secret_or_address = !/workers\.dev|secret|SMC1-/i.test(text);
   await page.locator('#cloud-card').screenshot({ path: out + '/cloud-card-ar.png' });
-  await page.click('#cloud-now'); await page.waitForTimeout(300);
+  await Promise.all([
+    page.waitForRequest((r) => r.url().includes('/api/cloud/now')),
+    page.click('#cloud-now'),
+  ]);
   res.send_now_called = sent === 1;
   // first minutes of a new install: it connects by itself, nothing to press, nothing technical
   await page.unroute('**/api/cloud');
@@ -45,7 +50,8 @@ const out = process.argv[3] || '.';
   await page.route('**/api/cloud/recovery', r => r.fulfill({ json: { code: 'ABCDE-FGHJK-LMNPQ-23456' } }));
   await page.evaluate(() => SM.go('home')); await page.evaluate(() => SM.go('settings')); await page.waitForSelector('#cloud-recovery');
   res.recovery_hidden_until_asked = !(await page.locator('#cloud-card').innerText()).includes('ABCDE');
-  await page.click('#cloud-recovery'); await page.waitForTimeout(300);
+  await page.click('#cloud-recovery');
+  await page.waitForFunction(() => (document.querySelector('#cloud-recovery-code') || {}).textContent.includes('ABCDE'));
   res.recovery_shown = (await page.locator('#cloud-recovery-code').innerText()).includes('ABCDE-FGHJK-LMNPQ-23456');
   await page.locator('#cloud-card').screenshot({ path: out + '/cloud-card-recovery-ar.png' });
   await page.unroute('**/api/cloud/recovery');

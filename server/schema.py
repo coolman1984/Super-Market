@@ -670,11 +670,28 @@ SCHEMA_VERSION = MIGRATIONS[-1][0]
 
 
 # ---------------------------------------------------------------- migration 10
+# PIN sign-in (SM-UX-LOGIN). The hash never leaves the shop PC (see cloudsync).
+# via_pin: a session opened with the PIN is not blocked by a temporary password.
+def m010(conn):
+    run_script(conn, """
+ALTER TABLE users ADD COLUMN pin_hash TEXT;
+ALTER TABLE users ADD COLUMN pin_salt TEXT;
+ALTER TABLE users ADD COLUMN pin_iter INTEGER;
+ALTER TABLE sessions ADD COLUMN via_pin INTEGER NOT NULL DEFAULT 0;
+""")
+
+
+MIGRATIONS.append((10, "PIN sign-in: hashed PIN per user, session opened with a PIN", m010))
+SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+# ---------------------------------------------------------------- migration 11
 # A drawer gap stays on Today after the business day rolls until someone
 # explains it or marks it done. The column is mutable (see GUARDED).
-def m010(conn):
+# Numbered 11 because main already used 10 for PIN sign-in.
+def m011(conn):
     run_script(conn, "ALTER TABLE shifts ADD COLUMN gap_handled_at TEXT;")
 
 
-MIGRATIONS.append((10, "shift gaps stay open until explained or marked done", m010))
+MIGRATIONS.append((11, "shift gaps stay open until explained or marked done", m011))
 SCHEMA_VERSION = MIGRATIONS[-1][0]

@@ -6,17 +6,25 @@ const base = process.argv[2] || 'http://127.0.0.1:8799';
 const out = process.argv[3] || '.';
 const TEMP = 'temp-pass-9';
 const NEXT = 'drawer-pass-9';
+const PINS = { owner: '159382', manager: '470296' };
 
 async function login(page, username, password) {
   await page.goto(base + '/');
-  await page.waitForFunction(() => document.querySelector('.logout-btn') || document.querySelector('input[autocomplete=username]'));
-  if (await page.locator('.logout-btn').count()) {
-    await page.click('.logout-btn');
-    await page.waitForSelector('input[autocomplete=username]');
+  await page.reload();
+  await page.waitForSelector('.sidebar, .who-list, input[type=password]');
+  if (await page.locator('.side-foot .logout-btn').count()) {
+    await page.locator('.side-foot .logout-btn').click();
+    await page.waitForSelector('.who-list, [data-username="' + username + '"]');
   }
-  await page.fill('input[autocomplete=username]', username);
-  await page.fill('input[type=password]', password);
-  await page.click('button[type=submit]');
+  await page.waitForSelector('[data-username="' + username + '"]');
+  await page.click('[data-username="' + username + '"]');
+  if (PINS[username] && await page.locator('.pin-pad').count()) {
+    for (const d of PINS[username]) await page.click('.pin-key[data-digit="' + d + '"]');
+  } else {
+    await page.waitForSelector('input[type=password]');
+    await page.fill('input[type=password]', password);
+    await page.click('#login-go');
+  }
   await page.waitForFunction(() => document.querySelector('.sidebar') || document.querySelector('[data-guide="account.new"]'));
   if (await page.locator('[data-guide="account.new"]').count()) {
     await page.fill('[data-guide="account.old"]', TEMP);

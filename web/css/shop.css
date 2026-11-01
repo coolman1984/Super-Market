@@ -1,8 +1,32 @@
 /* Shop-specific layout on top of Yousef base.css. Tokens only, logical properties only. */
 
 .auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 1rem; background: radial-gradient(circle at 20% 10%, var(--brand-soft), transparent 50%), var(--canvas); align-content: center; gap: 1rem; }
-.auth-card { width: min(28rem, 100%); display: grid; gap: .9rem; }
-.auth-card h1 { font-size: 1.5rem; }
+.auth-card { width: min(32rem, 100%); display: grid; gap: .9rem; }
+.auth-card h1 { font-size: 1.7rem; }
+.who-list { display: grid; gap: .55rem; }
+.who-btn { display: flex; align-items: center; gap: .85rem; width: 100%; min-height: 4.6rem; padding: .65rem .85rem; text-align: start; border: 1px solid var(--line-2); border-radius: var(--r-2); background: var(--surface); color: var(--ink); }
+.who-btn:hover, .who-btn:focus-visible { background: var(--brand-soft); border-color: var(--line); }
+.who-av { width: 3.1rem; height: 3.1rem; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--brand-soft); color: var(--ink); font-size: 1.25rem; font-weight: 750; }
+.who-btn:hover .who-av { background: var(--surface); }
+.who-name { display: grid; gap: .05rem; min-width: 0; }
+.who-name b { font-size: 1.2rem; line-height: 1.25; }
+.who-name small { color: var(--ink-2); font-weight: 550; font-size: .9rem; }
+.pin-block { display: grid; gap: .7rem; }
+.pin-hint { text-align: center; color: var(--ink-2); font-size: 1.05rem; }
+.pin-hello { text-align: center; font-size: 1.35rem; font-weight: 750; }
+.pin-dots { display: flex; gap: .55rem; justify-content: center; min-height: 1.2rem; direction: ltr; }
+.pin-dot { width: .85rem; height: .85rem; border-radius: 50%; border: 2px solid var(--ink-3); background: transparent; }
+.pin-dot.on { background: var(--ink); border-color: var(--ink); }
+.pin-pad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; direction: ltr; }
+.pin-key { min-height: 4.1rem; font-size: 1.55rem; font-weight: 700; border-radius: .85rem; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); }
+.pin-key:hover, .pin-key:focus-visible { background: var(--brand-soft); }
+.pin-key.pin-ghost { font-size: 1rem; font-weight: 650; color: var(--ink-2); background: transparent; }
+.pin-block .field-error,
+.pin-block .field-error:empty,
+.pin-block .field-error:not(:empty) {
+  min-height: 2.8rem; margin-top: .45rem; padding: .6rem .8rem; box-sizing: border-box; text-align: center;
+}
+.pin-block .field-error:empty { background: transparent; color: transparent; }
 .brand-mark { width: 3.2rem; height: 3.2rem; border-radius: .9rem; display: grid; place-items: center; background: var(--signal); color: var(--signal-ink); }
 .auth-foot { justify-content: flex-end; }
 .wide { width: min(64rem, 100%); }
@@ -66,6 +90,8 @@ svg.ean { width: 100%; height: 3.2rem; fill: #000; background: #fff; }
 .recv-line header h3 { flex: 1; }
 .mass { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin-block-start: .8rem; }
 .count-row { display: flex; justify-content: space-between; gap: 1rem; align-items: center; padding: .6rem .9rem; border: 1px solid var(--line-2); border-radius: var(--r-1); background: var(--surface); flex-wrap: wrap; }
+.count-meta { display: flex; flex-wrap: wrap; gap: .4rem; align-items: baseline; }
+.count-sep { unicode-bidi: isolate; }
 .count-row .input { width: 9rem; direction: ltr; text-align: end; }
 .scan-result { min-height: 1rem; }
 .faq summary { cursor: pointer; font-size: 1.05rem; }
