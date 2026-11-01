@@ -180,10 +180,10 @@ class PinLogin(unittest.TestCase):
         text = json.dumps(tip, ensure_ascii=False)
         self.assertNotIn("training-only", text)
         self.assertNotIn("cashier", text)
-        self.assertIn("أمين الصندوق (تدريب)", text)
+        self.assertIn("كاشير (تدريب)", text)
         self.assertIn("3826", text)
         people = Client(port).call("GET", "/api/login/people")[1]
-        cash = next(p for p in people if p["name"].startswith("أمين الصندوق"))
+        cash = next(p for p in people if p["name"].startswith("كاشير"))
         self.assertTrue(cash["has_pin"])
         self.assertEqual(Client(port).login_pin(cash["id"], "3826")[0], 200)
 

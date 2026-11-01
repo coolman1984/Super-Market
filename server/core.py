@@ -10,6 +10,11 @@ MAX_INT = 2**63 - 1
 # Review report L6: no posted number may be absurd. 10^11 = 1,000,000,000 EGP in piastres, 100,000 tonnes in
 # grams or 100 billion pieces: far above any shop, far below any overflow. integer() uses it unless told otherwise.
 MAX_PLAUSIBLE = 10**11
+# A shelf price: at least one piastre, and at most 1,000,000 EGP. Zero and a typo of billions are both refused.
+MAX_PRICE = 100_000_000
+# One sale line. 200 kg matches the till. 10,000 pieces is a pallet, not a grocery receipt. 250 kg is over the line.
+MAX_SALE_GRAMS = 200_000
+MAX_SALE_UNITS = 10_000
 
 
 class ShopError(ValueError):
@@ -40,6 +45,21 @@ def integer(value, minimum=0, code="bad_number", maximum=MAX_PLAUSIBLE):
     if type(value) is not int or not minimum <= value <= maximum:
         raise ShopError(code, {"min": minimum})
     return value
+
+
+def sale_price(value):
+    """Selling price in piastres. Only a JSON integer is a price.
+
+    Text, a decimal, true/false, and null are refused. They are never stored
+    as zero and never dropped so the product saves with no price.
+    Zero is a real price. A value above MAX_PRICE is refused.
+    """
+    return integer(value, 0, "bad_price", MAX_PRICE)
+
+
+def price_piastres(value):
+    """Same rule as sale_price. Kept so both names stay."""
+    return sale_price(value)
 
 
 def text(value, code="required", max_len=200, optional=False):

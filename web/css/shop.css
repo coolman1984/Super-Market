@@ -90,6 +90,8 @@ svg.ean { width: 100%; height: 3.2rem; fill: #000; background: #fff; }
 .recv-line header h3 { flex: 1; }
 .mass { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin-block-start: .8rem; }
 .count-row { display: flex; justify-content: space-between; gap: 1rem; align-items: center; padding: .6rem .9rem; border: 1px solid var(--line-2); border-radius: var(--r-1); background: var(--surface); flex-wrap: wrap; }
+.count-meta { display: flex; flex-wrap: wrap; gap: .4rem; align-items: baseline; }
+.count-sep { unicode-bidi: isolate; }
 .count-row .input { width: 9rem; direction: ltr; text-align: end; }
 .scan-result { min-height: 1rem; }
 .faq summary { cursor: pointer; font-size: 1.05rem; }

@@ -12,8 +12,8 @@ from . import backup
 from . import barcode as bc
 from .auth import ROLES, Auth, can, require
 import datetime as _dt
-from .core import (Conflict, Forbidden, ShopError, add_days, allocate, cumulative_share, integer,
-                   iso_date, now_iso, text, today, weighed_amount)
+from .core import (MAX_SALE_GRAMS, MAX_SALE_UNITS, Conflict, Forbidden, ShopError, add_days, allocate,
+                   cumulative_share, integer, iso_date, now_iso, sale_price, text, today, weighed_amount)
 
 LOCATION_KINDS = ("shelf", "store", "display_fridge", "prep_fridge", "freezer", "quarantine", "waste")
 PRODUCT_KINDS = ("grocery", "raw_meat", "prepared", "ingredient", "packaging")
@@ -158,6 +158,9 @@ class Shop:
             raise ShopError("bad_product")
         if kind in ("raw_meat", "prepared") and measure != "g":
             raise ShopError("meat_is_weighed")
+        # A missing price is allowed (the price is set later). A present price must be
+        # an integer in piastres, including zero. Null and text are not "no price".
+        price_value = sale_price(p["price"]) if "price" in p else None
         needs_expiry = 1 if kind in ("raw_meat", "prepared", "ingredient") else int(bool(p.get("needs_expiry")))
         meat_share = p.get("meat_permille")
         if meat_share is not None:
@@ -188,9 +191,9 @@ class Shop:
                 self._add_packaging(pid, pk)
             for code_text in p.get("barcodes", []):
                 self._add_barcode(code_text, pid, None)
-            if p.get("price") is not None:
+            if price_value is not None:
                 self.store.db.execute("INSERT INTO prices(product_id,price,effective_at,user_id) VALUES(?,?,?,?)",
-                                      (pid, integer(p["price"]), now_iso(), actor["id"]))
+                                      (pid, price_value, now_iso(), actor["id"]))
             self.store.audit(actor, "product.add", str(pid))
             return pid
         return self.store.tx(work)
@@ -235,7 +238,7 @@ class Shop:
 
     def set_price(self, actor, key, product_id, price):
         require(actor, "prices")
-        integer(product_id, 1), integer(price)
+        product_id, price = integer(product_id, 1), sale_price(price)
 
         def work(op):
             if not self.store.scalar("SELECT 1 FROM products WHERE id=?", (product_id,)):
@@ -357,7 +360,7 @@ class Shop:
                 out.update(ok=False, error="unknown_pack")
                 return out
             out["pack"] = pack
-            out["product"] = self._brief(pack["product_id"])
+            out["product"] = self._with_available(actor, self._brief(pack["product_id"]))
             out["qty"] = pack["net_g"]
             if pack["status"] != "available":
                 out.update(ok=False, error="pack_already_sold" if pack["status"] == "sold" else "pack_returned")
@@ -375,7 +378,7 @@ class Shop:
             if not row:
                 out.update(ok=False, error="unknown_item")
                 return out
-            out["product"] = self._brief(row["product_id"])
+            out["product"] = self._with_available(actor, self._brief(row["product_id"]))
             if "net_g" in info:
                 out["qty"] = info["net_g"]
             elif settings["price_label_policy"] == "block":
@@ -398,7 +401,7 @@ class Shop:
         if not row:
             out.update(ok=False, error="unknown_barcode")
             return out
-        out["product"] = self._brief(row["product_id"])
+        out["product"] = self._with_available(actor, self._brief(row["product_id"]))
         qty = 1
         if row["packaging_id"]:
             pk = self.store.one("SELECT * FROM packagings WHERE id=?", (row["packaging_id"],))
@@ -423,6 +426,12 @@ class Shop:
         p = self.store.one("SELECT id, code, name_ar, name_en, kind, measure, needs_expiry, allergens FROM products WHERE id=?", (pid,))
         p["price"] = self.current_price(pid)
         return p
+
+    def _with_available(self, actor, product):
+        """The till can refuse an over-stock line before it is added. A counter who must not see quantities gets none."""
+        if product is not None and self.can_see_qty(actor):
+            product["available"] = self.available(product["id"])
+        return product
 
     # =============== stock primitives (inside a command) ===============
     def _new_lot(self, op, product_id, origin, expires, status="released", supplier_lot=None, allergens=""):
@@ -869,6 +878,9 @@ class Shop:
                 if not prod:
                     raise ShopError("unknown_product")
                 qty = integer(raw.get("qty"), 1, "bad_quantity", 10_000_000)
+            cap = MAX_SALE_GRAMS if prod["measure"] == "g" else MAX_SALE_UNITS
+            if qty > cap:
+                raise ShopError("qty_impossible", {"max": cap, "measure": prod["measure"]})
             if prod["kind"] in ("ingredient", "packaging"):
                 raise ShopError("not_for_sale", {"product": prod["code"]})
             current = self.current_price(prod["id"])
