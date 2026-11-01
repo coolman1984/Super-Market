@@ -243,8 +243,14 @@ SM.dialog = function ({ title, body, actions, wide, onClose }) {
 SM.drawer = function ({ title, body, actions }) {
   let host = document.getElementById('panels');
   if (!host) { host = h('div', { id: 'panels' }); document.body.append(host); }
+  // Each open gets a generation. The slide-out clear must not wipe a drawer
+  // opened after this one (the close timer outlives the panel it belonged to).
+  const gen = host._drawerGen = (host._drawerGen || 0) + 1;
   const scrim = h('div', { class: 'drawer-scrim' });
-  const close = () => { panel.classList.remove('on'); scrim.classList.remove('on'); setTimeout(() => { SM.put(host); }, 220); };
+  const close = () => {
+    panel.classList.remove('on'); scrim.classList.remove('on');
+    setTimeout(() => { if (host._drawerGen === gen) SM.put(host); }, 220);
+  };
   const panel = h('aside', { class: 'drawer', role: 'dialog', 'aria-label': title },
     h('header', { class: 'drawer-head' }, h('h2', { text: title }), h('button', { class: 'icon-btn', 'aria-label': t('close'), onclick: close }, icon('x'))),
     h('div', { class: 'drawer-body' }, body),
