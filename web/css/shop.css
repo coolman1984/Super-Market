@@ -93,6 +93,13 @@ svg.ean { width: 100%; height: 3.2rem; fill: #000; background: #fff; }
 .count-meta { display: flex; flex-wrap: wrap; gap: .4rem; align-items: baseline; }
 .count-sep { unicode-bidi: isolate; }
 .count-row .input { width: 9rem; direction: ltr; text-align: end; }
+tr.count-open { cursor: pointer; }
+.count-resume { width: 100%; justify-content: center; }
+.dialog > footer { flex-wrap: wrap; }
+tr.count-open td:first-child { border-inline-start: 3px solid var(--signal); }
+.count-diff { display: flex; flex-wrap: wrap; gap: .45rem 1.1rem; align-items: center; padding: .65rem .8rem; border: 1px solid var(--line-2); border-radius: var(--r-1); background: var(--surface); }
+.count-diff b { flex: 1 1 10rem; }
+.count-diff.wide { background: var(--warn-soft); border-color: var(--warn); }
 .scan-result { min-height: 1rem; }
 .faq summary { cursor: pointer; font-size: 1.05rem; }
 .faq[open] summary { margin-block-end: .7rem; }

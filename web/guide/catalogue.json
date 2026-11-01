@@ -2005,7 +2005,8 @@
     "counter"
    ],
    "errors": [
-    "err.count_already_open",
+    "err.count_jump_unconfirmed",
+    "err.count_cancel_manager",
     "err.count_not_open",
     "err.unknown_count"
    ],
