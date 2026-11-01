@@ -1,5 +1,5 @@
 // ISSUE-009 resume, ISSUE-010 difference list, ISSUE-011 a 10× count is never silent.
-// Use the actual opening rice balance: earlier journeys may have received another unit.
+// An isolated product avoids depending on stock consumed by earlier journeys.
 const { chromium } = require('playwright');
 const base = process.argv[2] || 'http://127.0.0.1:8799';
 const out = process.argv[3] || '.';
@@ -18,7 +18,8 @@ const out = process.argv[3] || '.';
     for (const digit of pins[user]) await page.click('.pin-key[data-digit="' + digit + '"]');
     await page.waitForSelector('.sidebar');
   };
-  const rice = () => page.locator('.count-row', { hasText: 'أرز' }).locator('input');
+  const testCode = 'COUNT-' + Date.now();
+  const rice = () => page.locator('.count-row', { hasText: 'أرز اختبار الجرد' }).locator('input');
   const stock = async (code) => page.evaluate(async (code) => {
     const rows = await SM.api('GET', '/api/stock');
     const row = rows.find(r => r.code === code);
@@ -27,8 +28,13 @@ const out = process.argv[3] || '.';
 
   await page.goto(base);
   await login('manager');
-  const initialRice = await stock('1002');
-  if (!(initialRice > 0 && initialRice < 100)) throw new Error('unexpected training rice balance: ' + initialRice);
+  await page.evaluate(async code => {
+    const item = await SM.api('POST', '/api/products', { code, name_ar: 'أرز اختبار الجرد', name_en: 'Count test rice', kind: 'grocery', measure: 'unit', price: 1000 });
+    const shelf = (await SM.api('GET', '/api/locations')).find(l => l.kind === 'shelf');
+    await SM.command('/api/receipts', SM.newKey(), { lines: [{ product_id: item.id, qty: 30, line_cost: 3000, location_id: shelf.id }] });
+  }, testCode);
+  const initialRice = await stock(testCode);
+  if (initialRice !== 30) throw new Error('isolated count fixture was not received');
   await page.click('[aria-label="تبديل المستخدم"]');
   await login('counter');
   await page.evaluate(() => SM.go('count'));
@@ -94,13 +100,13 @@ const out = process.argv[3] || '.';
   await shot('approver');
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
-  check('escape_does_not_post', (await stock('1002')) === initialRice);
+  check('escape_does_not_post', (await stock(testCode)) === initialRice);
   check('escape_closes', await page.locator('#count-diffs').count() === 0);
   await page.click('[data-guide="count.approve"]');
   await page.waitForSelector('#count-approve-yes');
   await page.click('#count-approve-yes');
   await page.waitForSelector('.toast');
-  check('approved_stock_is_300', (await stock('1002')) === initialRice0);
+  check('approved_stock_is_300', (await stock(testCode)) === initialRice0);
 
   await browser.close();
   console.log(JSON.stringify(res, null, 2));
