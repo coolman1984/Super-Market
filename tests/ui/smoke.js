@@ -1,5 +1,6 @@
 // UI smoke test against a running TRAINING server: node tests/ui/smoke.js http://127.0.0.1:8799 outdir
 const { chromium } = require('playwright');
+const { scanCode, viewText } = require('./wait');
 const base = process.argv[2] || 'http://127.0.0.1:8799';
 const out = process.argv[3] || '.';
 (async () => {
@@ -20,7 +21,7 @@ const out = process.argv[3] || '.';
   await page.click('button.btn.primary.lg');
   await page.waitForSelector('.scan-input');
   // scan juice twice (two units), then carton, then a bad code
-  const scan = async (code) => { await page.fill('.scan-input', code); await page.press('.scan-input', 'Enter'); await page.waitForTimeout(350); };
+  const scan = (code) => scanCode(page, code);
   await scan('6220000000013');
   await scan('6220000000013');
   await scan('16220000000010');
@@ -44,9 +45,13 @@ const out = process.argv[3] || '.';
   await page.click('.dialog footer .btn.primary');
   // dark + English + phone width
   await page.evaluate(() => { localStorage.setItem('sm.theme', '"night"'); localStorage.setItem('sm.lang', '"en"'); });
-  await page.goto(base + '/#stock');
   await page.reload();
-  await page.waitForSelector('.tbl');
+  await page.waitForSelector('.sidebar');
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/stock') && r.ok()),
+    page.goto(base + '/#stock'),
+  ]);
+  await page.waitForSelector('#view .tbl');
   await page.screenshot({ path: out + '/stock-en-night.png' });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base + '/#sell');
@@ -68,7 +73,7 @@ const out = process.argv[3] || '.';
   await page.waitForSelector('.sidebar');
   for (const v of ['today', 'reports', 'parties', 'stock', 'prepare', 'receive', 'count', 'catalog', 'scanner', 'settings', 'help', 'returns', 'cash']) {
     await page.goto(base + '/#' + v);
-    await page.waitForTimeout(600);
+    await viewText(page, '#' + v);
     const txt = await page.textContent('#view');
     const rawKey = txt.match(/\b(?:nav|party|scn|safe|recall|refund|pay|stock|ret|rep|cash|cat|recv|prep|lots|count|set|lbl|help|pending|entry|scan|receipt|state|kind|role|waste|origin)\.[a-z_0-9.]+/);
     if (rawKey) errors.push(v + ': untranslated key ' + rawKey[0]);
@@ -77,8 +82,11 @@ const out = process.argv[3] || '.';
   }
   // the same screens in English + night: every key has an English text
   await page.evaluate(() => { localStorage.setItem('sm.theme', '"night"'); localStorage.setItem('sm.lang', '"en"'); });
+  await page.reload();
+  await page.waitForSelector('.sidebar');
   for (const v of ['today', 'reports', 'parties', 'stock', 'prepare', 'receive', 'count', 'catalog', 'scanner', 'settings', 'help', 'returns', 'cash']) {
-    await page.goto(base + '/#' + v); await page.reload(); await page.waitForTimeout(500);
+    await page.goto(base + '/#' + v);
+    await viewText(page, '#' + v);
     const txt = await page.textContent('#view');
     if (/[\u0600-\u06FF]{3,}/.test(txt.replace(/سوبر ماركت التدريب|[\u0600-\u06FF ()١-٩]+تدريب[^a-z]*/g, '')) && ['help', 'scanner'].includes(v))   // other screens show shop data (names) in Arabic
       errors.push(v + ': Arabic text in English mode');

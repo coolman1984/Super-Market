@@ -126,9 +126,9 @@ SM.api = async function (method, path, body) {
   } catch (e) { throw new ApiError(0, { error: 'network' }); }
   const data = await resp.json().catch(() => ({ error: 'bad_reply' }));
   if (!resp.ok) {
-    if (resp.status === 401 && data.error === 'login_required' && SM.onLoggedOut) {
-      if (SM.state.user) SM.state.sessionEnded = true;     // report L1: the sign-in screen says why it is back
-      SM.onLoggedOut();
+    if (resp.status === 401 && data.error === 'login_required' && SM.onLoggedOut && SM.state.user) {
+      SM.state.sessionEnded = true;     // report L1: the sign-in screen says why it is back
+      SM.onLoggedOut();                  // one departure only; a second 401 must not rebuild the screen and hide the message
     }
     // the server refuses everything on a locked till or before a forced password change: show that screen
     if ((data.error === 'screen_locked' || data.error === 'must_change_password') && SM.onAccountGate) SM.onAccountGate(data.error);

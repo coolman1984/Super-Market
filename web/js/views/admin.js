@@ -226,7 +226,7 @@
           }
         });
         const prefix = h('input', { class: 'input mono', maxlength: '1', value: profile.prefix || '' });
-        const suffix = SM.select([{ value: 'CR', label: 'Enter' }, { value: 'TAB', label: 'Tab' }], profile.suffix);
+        const suffix = SM.select(['CR', 'TAB'].map(s => ({ value: s, label: t('scn.suffix.' + s) })), profile.suffix);
         const fix = h('input', { type: 'checkbox', checked: profile.layout_fix === 'arabic101' });
         const aim = h('input', { type: 'checkbox', checked: !!profile.aim_ids });
         const beep = h('input', { type: 'checkbox', checked: !!profile.beep });
@@ -247,7 +247,7 @@
         const parity = SM.select(['none', 'even', 'odd'].map(p => ({ value: p, label: t('scn.parity.' + p) })), existing.parity || 'none');
         const bits = SM.select([{ value: 8, label: '8' }, { value: 7, label: '7' }], existing.bits || 8);
         const stop = SM.select([{ value: 1, label: '1' }, { value: 2, label: '2' }], existing.stop || 1);
-        const suffix = SM.select(['CR', 'LF', 'CRLF', 'TAB', 'ETX', 'EOT'].map(s => ({ value: s, label: s })), existing.suffix || 'CR');
+        const suffix = SM.select(['CR', 'LF', 'CRLF', 'TAB', 'ETX', 'EOT'].map(s => ({ value: s, label: t('scn.suffix.' + s) })), existing.suffix || 'CR');
         const till = h('input', { class: 'input ltr', value: existing.workstation || SM.workstation() });
         const live = h('div', { class: 'scan-result' });
         const statusBox = h('div', {}, ports.devices.map(d => h('div', {}, h('b', { class: 'ltr', text: d.id }), ' ', SM.badge(d.status === 'connected' ? 'available' : 'held'), ' ', t('scn.st.' + d.status),

@@ -1684,6 +1684,7 @@
     "err.lines_required",
     "err.bad_line",
     "err.bad_quantity",
+    "err.qty_impossible",
     "err.unknown_product"
    ],
    "guide": "first-sale"

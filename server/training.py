@@ -9,8 +9,8 @@ from .barcode import gs1_check_digit
 from .core import add_days, today
 
 TRAINING_USERS = [("owner", "صاحب المحل (تدريب)", "owner"), ("manager", "المدير (تدريب)", "manager"),
-                  ("cashier", "أمين الصندوق (تدريب)", "cashier"), ("butcher", "الجزار (تدريب)", "butcher"),
-                  ("counter", "مسؤول الجرد (تدريب)", "counter")]
+                  ("cashier", "كاشير (تدريب)", "cashier"), ("butcher", "الجزار (تدريب)", "butcher"),
+                  ("counter", "أمين الجرد (تدريب)", "counter")]
 TRAINING_PASSWORD = "training-only"
 
 

@@ -1,5 +1,6 @@
 // Review of 1170bf2, cases 1-5, through the real sell screen on a fresh TRAINING server.
 const { chromium } = require('playwright');
+const { scanCode } = require('./wait');
 const base = process.argv[2] || 'http://127.0.0.1:8799';
 const out = process.argv[3] || '.';
 (async () => {
@@ -16,12 +17,14 @@ const out = process.argv[3] || '.';
   await page.click('button[type=submit]'); await page.waitForSelector('.sidebar');
   await page.evaluate(() => SM.api('GET', '/api/shift').then(s => s && s.shift && !s.shift.closed_at ? null : SM.command('/api/shift/open', SM.newKey(), undefined, { opening_float: 10000 })).catch(() => null));
   await page.goto(base + '/#sell'); await page.waitForSelector('.scan-input');
-  const scan = async (code) => { await page.fill('.scan-input', code); await page.press('.scan-input', 'Enter'); await page.waitForTimeout(350); };
+  const scan = (code) => scanCode(page, code);
   const qtyText = () => page.locator('.cart .qty-cell').first().textContent({ timeout: 1500 }).catch(() => '');
   // case 1: 3 pieces, minus -> 2 pieces, the line stays
   for (let i = 0; i < 3; i++) await scan('6220000000013');
   const before1 = await qtyText();
-  await page.locator('.cart .qty-cell button').first().click(); await page.waitForTimeout(200);
+  const qtyBeforeClick = await page.locator('.cart .qty-cell').first().innerText();
+  await page.locator('.cart .qty-cell button').first().click();
+  await page.waitForFunction((prev) => (document.querySelector('.cart .qty-cell') || {}).textContent !== prev, qtyBeforeClick);
   res.case1_lines = await page.locator('.cart tbody tr').count();
   res.case1_qty = (await qtyText()).replace(/\s+/g, ' ').trim();
   res.case1_ok = res.case1_lines === 1 && /2/.test(res.case1_qty) && /3/.test(before1);
@@ -34,7 +37,9 @@ const out = process.argv[3] || '.';
   res.case23_ok = c.kg_ar_comma === 2500 && c.kg_comma === 2500 && c.kg_ar_decimal === 2500 && c.kg_dot === 2500 &&
     c.money_comma === 1250 && c.money_ar === 1250 && c.money_two_marks === null && c.money_three_dec === null && c.whole === 15000;
   // case 4: reload keeps the unpaid cart
-  await page.reload(); await page.waitForSelector('.scan-input'); await page.waitForTimeout(1200);
+  await page.reload();
+  await page.waitForSelector('.scan-input');
+  await page.waitForSelector('.cart tbody tr');
   res.case4_lines_after_reload = await page.locator('.cart tbody tr').count();
   res.case4_qty = (await qtyText()).replace(/\s+/g, ' ').trim();
   res.case4_ok = res.case4_lines_after_reload === 1 && /2/.test(res.case4_qty);
@@ -43,10 +48,12 @@ const out = process.argv[3] || '.';
   const holdBtn = await page.evaluate(() => SM.t('sell.hold'));
   for (let i = 0; i < 10; i++) {
     if (i || !(await page.locator('.cart tbody tr').count())) await scan('6220000000013');
-    await page.click('button:has-text("' + holdBtn + '")'); await page.waitForTimeout(150);
+    await page.click('button:has-text("' + holdBtn + '")');
+    await page.waitForFunction(() => !document.querySelector('.cart tbody tr'));
   }
   await scan('6220000000013');
-  await page.click('button:has-text("' + holdBtn + '")'); await page.waitForTimeout(300);
+  await page.click('button:has-text("' + holdBtn + '")');
+  await page.waitForSelector('.toast');
   res.case5_held = await page.evaluate(() => SM.prefs.get(Object.keys(localStorage).map(k => k.replace(/^sm\./, '')).find(k => k.startsWith('held.')) || 'x', []).length);
   res.case5_cart_kept = await page.locator('.cart tbody tr').count();
   res.case5_toast = (await page.locator('.toast').allTextContents()).pop();

@@ -5,12 +5,14 @@ idempotency record bound to a request fingerprint and an audit row.
 
 import hashlib
 import json
+import os
 import pathlib
 import sqlite3
 import threading
 
 from . import schema
 from .core import Conflict, ShopError, add_days, business_day_at, now, now_iso, today
+from .version import VERSION
 
 DB_NAME = "shop.db"
 
@@ -54,7 +56,10 @@ class Store:
             newest = migrations[-1][0]
             if current > newest:
                 raise ShopError("database_newer_than_app", {"db": current, "app": newest})
-            if 0 < current < newest:
+            # A new empty file has nothing to protect. An existing shop is copied
+            # before a schema change and before a newer program opens it.
+            pending = any(version > current for version, _name, _fn in migrations)
+            if current > 0 and (pending or self._opened_with_version() != VERSION):
                 self._pre_upgrade_copy(current)
             for version, name, fn in migrations:
                 if version <= current:
@@ -68,24 +73,53 @@ class Store:
                     if self.db.in_transaction:
                         self.db.execute("ROLLBACK")
                     raise
+            if self.schema_version() > 0:
+                self._remember_opened_version()
+
+    def _opened_with_version(self):
+        try:
+            row = self.db.execute("SELECT value FROM settings WHERE key='opened_with_version'").fetchone()
+        except sqlite3.OperationalError:
+            return None
+        if not row:
+            return None
+        try:
+            return json.loads(row[0])
+        except (ValueError, TypeError):
+            return row[0]
+
+    def _remember_opened_version(self):
+        try:
+            self.db.execute(
+                "INSERT INTO settings VALUES('opened_with_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (json.dumps(VERSION),))
+        except sqlite3.OperationalError:
+            return
 
     def _pre_upgrade_copy(self, current):
-        """Upgrade rule: a verified copy exists before any migration runs."""
+        """A consistent copy before any upgrade or migration. The SQLite backup
+        API reads a snapshot (safe while WAL is on). The file is renamed into
+        place only after the integrity check, so a half-written copy is never the one we keep."""
         folder = self.folder / "pre-upgrade"
         folder.mkdir(exist_ok=True)
         stamp = now_iso().replace(":", "").replace("-", "")[:15]            # 20261031T180912: seconds, so two upgrades never collide (L4)
-        target_path = folder / ("schema-%d-%s.db" % (current, stamp))
+        final = folder / ("schema-%d-%s.db" % (current, stamp))
         n = 1
-        while target_path.exists():
+        while final.exists():
             n += 1
-            target_path = folder / ("schema-%d-%s-%d.db" % (current, stamp, n))
-        target = sqlite3.connect(str(target_path))
+            final = folder / ("schema-%d-%s-%d.db" % (current, stamp, n))
+        partial = final.with_name(final.name + ".partial")
+        target = sqlite3.connect(str(partial))
         try:
             self.db.backup(target)
             if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise ShopError("pre_upgrade_copy_failed")
-        finally:
+        except BaseException:
             target.close()
+            partial.unlink(missing_ok=True)
+            raise
+        target.close()
+        os.replace(partial, final)
 
     def _check_mode(self):
         row = self.db.execute("SELECT value FROM settings WHERE key='mode'").fetchone()
