@@ -106,7 +106,7 @@ const out = process.argv[3] || '.';
   await page.waitForSelector('#count-approve-yes');
   await page.click('#count-approve-yes');
   await page.waitForSelector('.toast');
-  check('approved_stock_is_300', (await stock(testCode)) === initialRice0);
+  check('approved_stock_is_300', (await stock(testCode)) === 300);
 
   await browser.close();
   console.log(JSON.stringify(res, null, 2));

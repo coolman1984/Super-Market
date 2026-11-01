@@ -12,7 +12,7 @@ on:
   push:
     tags: ["v*"]
     branches: ["main", "codex/windows-hardware-*"]
-    paths: ["server/version.py", ".github/workflows/release.yml"]
+    paths: ["server/**", "web/**", "launcher.py", "tools/build_windows.py", "tools/journey_exe.py", ".github/workflows/release.yml"]
   workflow_dispatch:        # dry run: no GitHub Release; sign+verify run unless VERSION is exactly N.N.N-pilot
 
 permissions:
