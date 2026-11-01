@@ -19,6 +19,15 @@ const out = process.argv[3] || '.';
       await page.evaluate(v => SM.go(v), view);
       await page.waitForFunction(v => SM.state.view === v && !document.querySelector('#view .skeleton'), view);
     };
+    // A closing drawer must never erase a newer drawer after its animation ends.
+    const replacement = await page.evaluate(async () => {
+      const first = SM.drawer({ title: 'first', body: [] }); first.close();
+      const second = SM.drawer({ title: 'second', body: [] });
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const kept = document.querySelector('.drawer h2')?.textContent;
+      second.close(); return kept;
+    });
+    assert.equal(replacement, 'second');
     await go('scanner');
     await page.waitForSelector('#hardware-model');
     assert.equal(await page.locator('#hardware-model option').count(), 13);

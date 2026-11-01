@@ -127,9 +127,9 @@ const out = process.argv[3] || '.';
   await owner.waitForSelector('#scale-answer button, #scale-answer .badge');
   res.scale_sticker_understood = (await owner.locator('#scale-answer').innerText()).includes('00123');
   await owner.locator('#scale-stickers').screenshot({ path: out + '/d-scale-sticker.png' });
-  await owner.locator('#scale-answer button.primary').first().click();
-  await owner.waitForSelector('#scale-stickers .badge.ok');
-  res.scale_sticker_saved = await owner.locator('#scale-stickers .badge.ok').count() >= 1;
+  await Promise.all([owner.waitForResponse(r => r.url().endsWith('/api/label-templates') && r.request().method() === 'POST' && r.status() === 200), owner.locator('#scale-answer button.primary').first().click()]);
+  await owner.waitForSelector('#scale-stickers > ul .badge.ok');
+  res.scale_sticker_saved = await owner.locator('#scale-stickers > ul .badge.ok').count() >= 1;
   // review PR #18: a scale on a second till gets its own id and keeps the first till's scale
   await owner.evaluate(() => SM.api('POST', '/api/scanner/devices', { devices: [{ id: 'scale1', type: 'serial', role: 'scale', port: 'COM7', poll: 'none', workstation: 'other-till' }] }));
   await owner.evaluate(() => SM.go('today')); await owner.evaluate(() => SM.go('scanner')); await owner.waitForSelector('#scale-save');

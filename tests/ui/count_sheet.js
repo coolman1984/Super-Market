@@ -12,10 +12,10 @@ const out = process.argv[3] || '.';
   page.on('dialog', d => { errors.push('browser dialog ' + d.type()); d.dismiss(); });
   const check = (name, ok) => { res[name] = !!ok; if (!ok) errors.push(name); };
   const login = async (user) => {
-    await page.waitForSelector('input[autocomplete=username]');
-    await page.fill('input[autocomplete=username]', user);
-    await page.fill('input[type=password]', 'training-only');
-    await page.click('button[type=submit]');
+    await page.waitForSelector('[data-username="' + user + '"]');
+    await page.click('[data-username="' + user + '"]');
+    const pins = { owner: '159382', manager: '470296', counter: '4702' };
+    for (const digit of pins[user]) await page.click('.pin-key[data-digit="' + digit + '"]');
     await page.waitForSelector('.sidebar');
   };
   const rice = () => page.locator('.count-row', { hasText: 'أرز' }).locator('input');

@@ -140,7 +140,7 @@ tr.count-open td:first-child { border-inline-start: 3px solid var(--signal); }
 .ex-done .badge { margin-inline-end: .3rem; }
 
 /* User accounts remain actionable without horizontal scrolling on a phone. */
-@media (max-width: 600px) {
+@media (max-width: 1100px) {
  .users-card .table-wrap { overflow: visible; }
  .users-card .tbl, .users-card .tbl tbody, .users-card .tbl tr, .users-card .tbl td { display: block; width: 100%; min-width: 0; }
  .users-card .tbl thead { display: none; }
