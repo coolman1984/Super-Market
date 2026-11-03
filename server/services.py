@@ -1935,7 +1935,10 @@ class Shop:
         for sup in self.store.all("SELECT id FROM suppliers"):
             invoices = [[e["amount"], e["at"]] for e in self.store.all(
                 "SELECT amount, at FROM supplier_entries WHERE supplier_id=? AND kind='invoice' ORDER BY id", (sup["id"],))]
-            settled = -self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM supplier_entries WHERE supplier_id=? AND kind IN ('payment','credit_note')",
+            # everything that is not an invoice lowers (or, for a price correction upwards, raises) what is owed:
+            # payments, credit notes, rebates and cost corrections. Leaving the last two out made this report
+            # disagree with the supplier's statement and with supplier_balance().
+            settled = -self.store.scalar("SELECT COALESCE(SUM(amount),0) FROM supplier_entries WHERE supplier_id=? AND kind<>'invoice'",
                                          (sup["id"],))
             for inv in invoices:
                 take = min(settled, inv[0])
