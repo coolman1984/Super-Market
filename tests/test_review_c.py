@@ -130,7 +130,7 @@ class ReviewC(ShopFixture, unittest.TestCase):
     def test_thaw_and_transfer_retain_cost_exposure(self):
         freezer = self.shop.add_location(self.owner, 'FZ', 'مجمد', 'Freezer', 'freezer', 0)
         r = self.receipt(location=freezer)
-        self.shop.update_settings(self.owner, {'thaw_shelf_life_days': 2})
+        self.shop.update_settings(self.owner, {'thaw_enabled': True, 'thaw_shelf_life_days': 2})
         child = self.shop.thaw(self.owner, key(), r['lines'][0]['lot'], freezer, self.prep, 400)['lot']
         self.shop.transfer(self.owner, key(), child, self.prep, self.fridge, 400)
         self.adjust(r)
@@ -175,7 +175,7 @@ class ReviewC(ShopFixture, unittest.TestCase):
     def test_thawed_stock_cannot_be_moved_or_produced_onto_shelf(self):
         freezer = self.shop.add_location(self.owner, 'FZ', 'مجمد', 'Freezer', 'freezer', 0)
         r = self.receipt(location=freezer)
-        self.shop.update_settings(self.owner, {'thaw_shelf_life_days': 2})
+        self.shop.update_settings(self.owner, {'thaw_enabled': True, 'thaw_shelf_life_days': 2})
         lot = self.shop.thaw(self.owner, key(), r['lines'][0]['lot'], freezer, self.prep, 1000)['lot']
         with self.assertRaises(ShopError) as e:
             self.shop.transfer(self.owner, key(), lot, self.prep, self.shelf, 1000)
@@ -195,7 +195,7 @@ class ReviewC(ShopFixture, unittest.TestCase):
     def test_positive_count_and_release_cannot_bypass_thaw_storage(self):
         freezer = self.shop.add_location(self.owner, 'FZ', 'مجمد', 'Freezer', 'freezer', 0)
         r = self.receipt(location=freezer)
-        self.shop.update_settings(self.owner, {'thaw_shelf_life_days': 2})
+        self.shop.update_settings(self.owner, {'thaw_enabled': True, 'thaw_shelf_life_days': 2})
         lot = self.shop.thaw(self.owner, key(), r['lines'][0]['lot'], freezer, self.prep, 1000)['lot']
         # Model a legacy placement made before this fix, using append-only entries.
         def legacy(op):

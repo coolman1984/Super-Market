@@ -24,6 +24,8 @@ DEFAULT_SETTINGS = {
     "price_label_policy": "block", "pack_price_policy": "label",
     "gtin_equivalence": False, "tax_mode": "unverified", "recipe_component_tolerance_permille": 50,
     "receipt_footer": "", "receipt_width_mm": 80,
+    # Thaw stays off until the owner turns it on (SM-THAW-OFF). No shelf-life is invented.
+    "thaw_enabled": False,
     # days a thawed piece may be kept chilled: the owner's approved policy; no default is assumed (matrix row 14)
     "thaw_shelf_life_days": None,
     # business day (gap row 15): before this hour a posting still belongs to the previous day; shifts follow their opening
@@ -84,6 +86,7 @@ class Shop:
                 self._check_setting(key, value)
                 self.store.db.execute("INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                                       (key, json.dumps(value)))
+            self._check_thaw_switch()
             self.store.audit(actor, "settings", None, changes)
             return self.settings()
         return self.store.tx(work)
@@ -110,7 +113,7 @@ class Shop:
                 raise bad
             if value:
                 backup.check_external(value, pathlib.Path(self.store.folder).parent)
-        elif key in ("block_below_cost", "gtin_equivalence"):
+        elif key in ("block_below_cost", "gtin_equivalence", "thaw_enabled"):
             if type(value) is not bool:
                 raise bad
         elif key == "pack_prefix":
@@ -127,6 +130,12 @@ class Shop:
             raise bad
         elif key == "shop_name" and not value.strip():
             raise bad                       # the name is on every receipt and on the sign-in screen
+
+    def _check_thaw_switch(self):
+        """The switch may be on only together with the shop's own period. No period is filled in."""
+        current = self.settings()
+        if current.get("thaw_enabled") and not current.get("thaw_shelf_life_days"):
+            raise ShopError("thaw_policy_missing", {"key": "thaw_shelf_life_days"})
 
     def add_location(self, actor, code, name_ar, name_en, kind, sellable):
         require(actor, "settings")
@@ -1807,7 +1816,7 @@ class Shop:
         in a freezer leaves it only through thawing, which sets the shorter date;
         freezer to freezer is fine; thawed stock never goes back into a freezer."""
         if src["kind"] == "freezer" and dst["kind"] != "freezer":
-            raise ShopError("use_thaw")
+            self._thaw_required()
         if dst["kind"] == "freezer" and src["kind"] != "freezer" and self._thawed(lot_id):
             raise ShopError("no_refreeze")
         self._storage_destination(lot_id, dst)
@@ -1826,13 +1835,23 @@ class Shop:
         lots = self.ancestors(lot_id)
         return bool(self.store.scalar("SELECT 1 FROM thaws WHERE child_lot IN (%s) LIMIT 1" % ",".join("?" * len(lots)), lots))
 
+    def _thaw_required(self):
+        """Frozen stock leaves a freezer only through thaw, and only after the owner turns thaw on."""
+        if not self.settings().get("thaw_enabled"):
+            raise ShopError("thaw_off", status=403)
+        raise ShopError("use_thaw")
+
     def thaw(self, actor, key, lot_id, from_location, to_location, qty):
         """Move frozen stock out of the freezer to thaw. The thawed part becomes
         its own lot: its expiry is the EARLIER of the original expiry and the
         shop's approved thaw period; it never starts again, and it cannot go
-        back into a freezer. The period is the owner's policy, never assumed."""
+        back into a freezer. The period is the owner's policy, never assumed.
+        A new shop cannot thaw until the owner turns the switch on."""
         require(actor, "transfer")
-        days = self.settings().get("thaw_shelf_life_days")
+        cfg = self.settings()
+        if not cfg.get("thaw_enabled"):
+            raise ShopError("thaw_off", status=403)
+        days = cfg.get("thaw_shelf_life_days")
 
         def work(op):
             if not days:
@@ -2791,7 +2810,7 @@ class Shop:
                 if kind == 'cutting' and lot['pkind'] != 'raw_meat':
                     raise ShopError('cutting_needs_raw_meat')
                 if self._location(loc_id)["kind"] == "freezer":
-                    raise ShopError("use_thaw")         # frozen inputs are thawed first, with their shorter date (review case 6)
+                    self._thaw_required()         # frozen inputs are thawed first, with their shorter date (review case 6)
                 self._check_free(lot_id, loc_id, qty)   # stock promised to labelled packs stays (audit E02)
                 if kind == "recipe":
                     if lot["product_id"] not in allowed:

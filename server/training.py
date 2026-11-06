@@ -32,8 +32,9 @@ def seed(shop):
     owner = shop.auth.public(store.one("SELECT * FROM users WHERE username='owner'"))
     owner["workstation"] = "training"
     k = lambda: uuid.uuid4().hex  # noqa: E731
+    # Teaching copy only. The period below is an example in this database, not a shop default.
     shop.update_settings(owner, {"shop_name": "سوبر ماركت التدريب", "cutting_loss_tolerance_permille": 80,
-                                 "thaw_shelf_life_days": 2})
+                                 "thaw_enabled": True, "thaw_shelf_life_days": 2})
     shelf = shop.add_location(owner, "SH", "رفوف البقالة", "Grocery shelves", "shelf", 1)
     fridge = shop.add_location(owner, "FR", "ثلاجة العرض", "Display fridge", "display_fridge", 1)
     prep = shop.add_location(owner, "PR", "ثلاجة التجهيز", "Prep fridge", "prep_fridge", 0)

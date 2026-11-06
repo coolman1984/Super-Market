@@ -732,3 +732,19 @@ CREATE VIEW payment_states AS
 
 MIGRATIONS.append((12, "collection shift for non-cash customer receipts", m012))
 SCHEMA_VERSION = MIGRATIONS[-1][0]
+
+
+# ---------------------------------------------------------------- migration 13
+# Thaw is off for a new shop (SM-THAW-OFF). A shop that already thawed keeps the
+# switch on. The saved period is never invented and never overwritten.
+def m013(conn):
+    used = conn.execute("SELECT 1 FROM thaws LIMIT 1").fetchone()
+    if not used:
+        return
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES('thaw_enabled', 'true') "
+        "ON CONFLICT(key) DO UPDATE SET value='true'")
+
+
+MIGRATIONS.append((13, "thaw stays off until the owner turns it on; shops that already thawed keep it", m013))
+SCHEMA_VERSION = MIGRATIONS[-1][0]

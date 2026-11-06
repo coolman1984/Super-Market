@@ -44,7 +44,7 @@ def thaw_then_shelf(f):
     freezer = s.add_location(o, 'FZ', 'مجمد', 'Freezer', 'freezer', 0)
     raw = f.meat()
     parent = f.receive(raw, 1000, 10000, location=freezer)['lines'][0]['lot']
-    s.update_settings(o, {'thaw_shelf_life_days': 2})
+    s.update_settings(o, {'thaw_enabled': True, 'thaw_shelf_life_days': 2})
     child = s.thaw(o, key(), parent, freezer, f.prep, 1000)['lot']
     moved = s.transfer(o, key(), child, f.prep, f.shelf, 1000)
     return {'transfer_accepted': moved, 'shelf_stock': s._balance(child, f.shelf),

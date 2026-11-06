@@ -41,7 +41,7 @@
       try {
         targets.forEach((t, i) => { t.addEventListener = function (type, fn, opts) { listeners.push([t, type, fn, opts]); originals[i].call(t, type, fn, opts); }; });
         ctl = window.AFGuide.init({
-          catalogue: pack.catalogue, texts: { ar: pack.ar, en: pack.en }, role: SM.state.user.role, person: SM.state.user.id,
+          catalogue: SM.visibleCatalogue(pack.catalogue, { thaw: SM.thawOn() }), texts: { ar: pack.ar, en: pack.en }, role: SM.state.user.role, person: SM.state.user.id,
           ui: (key, lang) => (SM.i18n[lang] || {})[key] !== undefined ? SM.i18n[lang][key] : (SM.i18n.en || {})[key],
           uiLang: () => SM.state.lang,
           route: () => SM.state.view,
