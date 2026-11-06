@@ -224,7 +224,7 @@
       const actions = h('div', { class: 'toolbar' }, filter, seg,
         SM.can('waste') ? h('button', { class: 'btn', onclick: () => moveDialog('waste', rows, load) }, t('stock.waste')) : null,
         SM.can('transfer') ? h('button', { class: 'btn', onclick: () => moveDialog('transfer', rows, load) }, t('stock.transfer')) : null,
-        SM.can('transfer') ? h('button', { class: 'btn', onclick: () => thawDialog(rows, load) }, t('thaw.btn')) : null,
+        SM.can('transfer') && SM.thawOn() ? h('button', { class: 'btn', id: 'thaw-btn', onclick: () => thawDialog(rows, load) }, t('thaw.btn')) : null,
         SM.can('waste') ? h('button', { class: 'btn', onclick: () => wastePackDialog(load) }, t('stock.waste_pack')) : null,
         SM.can('receive') ? h('button', { class: 'btn', onclick: () => supplierReturnDialog(rows, load) }, t('stock.supplier_return')) : null,
         SM.can('cutting') || SM.can('produce') ? h('button', { class: 'btn ghost', onclick: () => reprintDialog() }, t('prep.reprint')) : null,

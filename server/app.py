@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import guidebook, backup, scale, training
 from .auth import Auth, can, check_pin_rules, pin_digits, require
+from .phone_access import reject_if_phone
 from .core import Forbidden, ShopError, integer, text, today
 from .db import Store
 from .scanner import ScannerHub, list_serial_ports
@@ -703,6 +704,7 @@ def make_handler(app, allowed_lan):
                             raise ShopError("screen_locked", status=423)
                         if actor.get("must_change"):
                             raise ShopError("must_change_password", status=403)
+                    reject_if_phone(actor, self.headers, method, parts.path)
                     # one shared connection: reads take the lock too, so nobody
                     # sees rows of a transaction that may still roll back
                     lock = app.store.lock if take_lock else contextlib.nullcontext()

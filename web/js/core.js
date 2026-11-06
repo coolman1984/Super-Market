@@ -129,8 +129,10 @@ class ApiError extends Error {
 SM.ApiError = ApiError;
 SM.api = async function (method, path, body) {
   let resp;
+  const headers = SM.isPhone && SM.isPhone() ? { 'X-SM-Client': 'phone', 'X-SM-Capability': 'reports' } : {};
+  if (method === 'POST') { headers['Content-Type'] = 'application/json'; headers['X-SM'] = '1'; }
   try {
-    resp = await fetch(path, { method, credentials: 'same-origin', headers: method === 'POST' ? { 'Content-Type': 'application/json', 'X-SM': '1' } : {},
+    resp = await fetch(path, { method, credentials: 'same-origin', headers,
       body: method === 'POST' ? JSON.stringify(body || {}) : undefined });
   } catch (e) { throw new ApiError(0, { error: 'network' }); }
   const data = await resp.json().catch(() => ({ error: 'bad_reply' }));
@@ -372,9 +374,18 @@ SM.prefs = {
   set(k, v) { try { localStorage.setItem('sm.' + k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
 };
 SM.workstation = () => {
-  let w = SM.prefs.get('workstation', null);
-  if (!w) { w = 'till-' + SM.newKey().slice(0, 6); SM.prefs.set('workstation', w); }
-  return w;
+  const stored = SM.prefs.get('workstation', null);
+  const phone = typeof SM.isPhone === 'function' && SM.isPhone();
+  if (typeof SM.phoneWorkstation !== 'function') {
+    if (stored) return stored;
+    const made = 'till-' + SM.newKey().slice(0, 6);
+    SM.prefs.set('workstation', made);
+    return made;
+  }
+  if (stored && !(phone && !/^phone-/i.test(stored))) return stored;
+  const next = SM.phoneWorkstation(stored, phone, SM.newKey().slice(0, 6));
+  if (next !== stored) SM.prefs.set('workstation', next);
+  return next;
 };
 SM.applyPrefs = () => {
   const root = document.documentElement;

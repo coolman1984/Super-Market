@@ -37,8 +37,17 @@
   const list = (text, ordered) => h(ordered ? 'ol' : 'ul', { class: ordered ? 'steps' : 'help-list' },
     SM.fill(text).split('|').filter(Boolean).map(s => h('li', { text: s })));
 
+  function topicText(v, field) {
+    const base = t('help.' + v + '.' + field);
+    if (v === 'stock' && SM.thawOn() && (field === 'steps' || field === 'errors')) {
+      const extra = t('help.stock.' + field + '.thaw');
+      if (extra && extra.indexOf('help.stock.') !== 0) return base + '|' + extra;
+    }
+    return base;
+  }
+
   function block(v, ctx) {
-    const k = (f) => t('help.' + v + '.' + f);
+    const k = (f) => topicText(v, f);
     const row = (f, body) => h('div', { class: 'help-row' }, h('h4', { text: t('help.field.' + f) }), body);
     return h('details', { class: 'card faq', id: 'help-' + v, open: v === (SM.state.helpFor || 'today') },
       h('summary', {}, h('b', { text: t('nav.' + v) })),
@@ -80,7 +89,9 @@
           h('button', { class: 'btn', id: 'help-lock', text: t('lock.btn'), onclick: () => SM.lockNow() }),
           h('button', { class: 'btn', id: 'help-forgot', text: t('login.forgot'), onclick: () => SM.forgotDialog() })));
       const training = SM.state.mode === 'training' ? await trainingCard() : null;
-      SM.put(root, intro, coach, account, training, ...TOPICS.map(v => block(v, ctx)));
+      const phoneNote = h('div', { class: 'tip', id: 'help-phone' }, h('div', { text: t('help.phone') }));
+      const topics = SM.isPhone() ? ['reports'] : TOPICS;
+      SM.put(root, intro, phoneNote, coach, account, training, ...topics.map(v => block(v, ctx)));
     },
   };
 })();

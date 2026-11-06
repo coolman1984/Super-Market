@@ -112,7 +112,7 @@ const out = process.argv[3] || '.';
   const meat = (await api('GET', '/api/products?limit=300')).find(p => p.kind === 'raw_meat');
   res.row14_frozen_in = await page.evaluate(([m, fz]) => SM.command('/api/receipts', SM.newKey(), { lines: [{ product_id: m, gross_g: 2000, tare_g: 0, line_cost: 40000,
     location_id: fz, expires: '2027-01-01' }] }).then(r => r.lines.length, e => 'error ' + e.code), [meat.id, fz]);
-  await api('POST', '/api/settings', { thaw_shelf_life_days: 2 });
+  await api('POST', '/api/settings', { thaw_enabled: true, thaw_shelf_life_days: 2 });
   await page.goto(base + '/#stock'); await page.waitForSelector('#view .tbl');
   await page.click('text=' + await page.evaluate(() => SM.t('thaw.btn')));
   await page.waitForSelector('.dialog', { timeout: 5000 }).catch(async () => { console.log('no thaw dialog', res, await page.locator('.toast').allTextContents()); });

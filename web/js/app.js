@@ -12,7 +12,16 @@
     // quantities on hand: a pure counter counts blind (server: Shop.can_see_qty), so the page is not offered to him
     stock: ['reports', 'receive', 'transfer', 'waste', 'cutting', 'produce', 'sell'],
     reports: 'reports', scanner: 'scanner_setup', parties: ['receive', 'supplier_pay', 'sell'] };
-  const allowed = (v) => { const p = PERM[v]; return !p || (Array.isArray(p) ? p.some(SM.can) : SM.can(p)); };
+  const PHONE_VIEWS = { reports: 1, help: 1 };
+  const allowed = (v) => {
+    if (SM.isPhone && SM.isPhone() && !PHONE_VIEWS[v]) return false;
+    const p = PERM[v];
+    return !p || (Array.isArray(p) ? p.some(SM.can) : SM.can(p));
+  };
+  const fallbackView = () => {
+    if (SM.isPhone && SM.isPhone()) return allowed('reports') ? 'reports' : 'help';
+    return SM.can('sell') && !SM.can('reports') ? 'sell' : 'today';
+  };
   let current = null;
 
   SM.go = (view) => { if (location.hash === '#' + view) route(); else location.hash = view; };
@@ -334,8 +343,12 @@
   SM.renderShell = function () {
     const u = SM.state.user;
     SM.state.dialogOpen = false;     // a new shell has no dialog: a stale flag would block every scan
-    const nav = h('nav', { class: 'nav', 'aria-label': t('nav.label') }, NAV.map(([group, views]) => h('div', { class: 'nav-group' }, h('span', { text: t('nav.g.' + group) }),
-      views.filter(allowed).map(v => h('a', { href: '#' + v, 'data-view': v }, icon(SM.views[v].icon), h('span', { text: t('nav.' + v) }))))));
+    const nav = h('nav', { class: 'nav', 'aria-label': t('nav.label') }, NAV.map(([group, views]) => {
+      const items = views.filter(allowed);
+      if (!items.length) return null;
+      return h('div', { class: 'nav-group' }, h('span', { text: t('nav.g.' + group) }),
+        items.map(v => h('a', { href: '#' + v, 'data-view': v }, icon(SM.views[v].icon), h('span', { text: t('nav.' + v) }))));
+    }));
     const side = h('aside', { class: 'sidebar' }, h('div', { class: 'brand' }, h('div', { class: 'mark' }, icon('cart')), h('div', { class: 'name' }, SM.state.settings.shop_name || t('app.name'), h('small', { text: t('app.tagline') }))),
       nav, h('div', { class: 'side-foot' }, h('div', { class: 'who' }, h('b', { text: u.name }), h('small', { text: t('role.' + u.role) })),
         h('button', { class: 'icon-btn', 'data-guide': 'shell.lock', 'aria-label': t('lock.btn'), title: t('lock.btn'), onclick: () => SM.lockNow() }, icon('lock')),
@@ -361,7 +374,7 @@
 
   /* After an upgrade, old accounts have no PIN. The owner sees one bar until they set them. */
   async function pinPrompt(main) {
-    if (SM.state.mode === 'training' || !SM.can('users')) return;
+    if (SM.state.mode === 'training' || !SM.can('users') || (SM.isPhone && SM.isPhone())) return;
     const users = await SM.api('GET', '/api/users').catch(() => []);
     const missing = (users || []).filter(u => u.active && !u.has_pin);
     const top = main.querySelector('.topbar');
@@ -407,7 +420,7 @@
     const panels = document.getElementById('panels');
     if (panels) { panels._drawerGen = (panels._drawerGen || 0) + 1; SM.put(panels); }
     let v = (location.hash || '#today').slice(1);
-    if (!SM.views[v] || !allowed(v)) v = SM.can('sell') && !SM.can('reports') ? 'sell' : 'today';
+    if (!SM.views[v] || !allowed(v)) v = fallbackView();
     if (current && current.unmount) { try { current.unmount(); } catch (e) { /* ignore */ } }
     current = SM.views[v];
     SM.state.view = v;

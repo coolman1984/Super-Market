@@ -2010,6 +2010,26 @@
    "guide": "make-tagine"
   },
   {
+   "id": "cold-places",
+   "cat": "stock",
+   "page": "stock",
+   "roles": [
+    "owner",
+    "manager",
+    "receiver",
+    "butcher",
+    "counter"
+   ],
+   "errors": [
+    "err.same_location",
+    "err.quarantine_location_missing",
+    "err.bad_location",
+    "err.unknown_location",
+    "err.unknown_lot",
+    "err.meat_needs_cold_storage"
+   ]
+  },
+  {
    "id": "freezer-and-places",
    "cat": "stock",
    "page": "stock",
@@ -2026,12 +2046,25 @@
     "err.no_refreeze",
     "err.not_in_freezer",
     "err.thaw_policy_missing",
-    "err.same_location",
-    "err.quarantine_location_missing",
-    "err.bad_location",
-    "err.unknown_location",
-    "err.unknown_lot",
-    "err.meat_needs_cold_storage"
+    "err.thaw_off"
+   ]
+  },
+  {
+   "id": "phone-reports-only",
+   "cat": "reports",
+   "page": "reports",
+   "roles": [
+    "owner",
+    "manager",
+    "cashier",
+    "receiver",
+    "butcher",
+    "counter",
+    "accountant",
+    "viewer"
+   ],
+   "errors": [
+    "err.phone_reports_only"
    ]
   },
   {

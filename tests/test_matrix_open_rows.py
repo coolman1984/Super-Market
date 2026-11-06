@@ -149,8 +149,9 @@ class OpenRows(ShopFixture, unittest.TestCase):
 
     def test_row14_thaw_needs_an_approved_policy_and_never_restarts_or_extends_shelf_life(self):
         freezer, m, lot = self.thaw_setup()
-        self.assertEqual(self.code(self.shop.thaw, self.owner, key(), lot, freezer, self.prep, 2000), "thaw_policy_missing")
-        self.shop.update_settings(self.owner, {"thaw_shelf_life_days": 2})
+        self.assertEqual(self.code(self.shop.thaw, self.owner, key(), lot, freezer, self.prep, 2000), "thaw_off")
+        self.assertEqual(self.code(self.shop.update_settings, self.owner, {"thaw_enabled": True}), "thaw_policy_missing")
+        self.shop.update_settings(self.owner, {"thaw_enabled": True, "thaw_shelf_life_days": 2})
         t = self.shop.thaw(self.owner, key(), lot, freezer, self.prep, 2000)
         self.assertEqual((t["expires"], t["original_expires"]), ("2026-11-01", "2027-03-01"))
         self.assertEqual(self.code(self.shop.transfer, self.owner, key(), t["lot"], self.prep, freezer, 500), "no_refreeze")
@@ -161,12 +162,12 @@ class OpenRows(ShopFixture, unittest.TestCase):
         freezer = self.shop.add_location(self.owner, "FZ", "مجمد", "Freezer", "freezer", 0)
         m = self.meat()
         lot = self.receive(m, 1000, 40000, location=freezer, expires="2026-10-31")["lines"][0]["lot"]
-        self.shop.update_settings(self.owner, {"thaw_shelf_life_days": 3})
+        self.shop.update_settings(self.owner, {"thaw_enabled": True, "thaw_shelf_life_days": 3})
         self.assertEqual(self.shop.thaw(self.owner, key(), lot, freezer, self.prep, 1000)["expires"], "2026-10-31")
 
     def test_row14_cuts_made_from_thawed_meat_keep_the_earlier_date_and_cannot_be_frozen(self):
         freezer, m, lot = self.thaw_setup()
-        self.shop.update_settings(self.owner, {"thaw_shelf_life_days": 2, "cutting_loss_tolerance_permille": 100})
+        self.shop.update_settings(self.owner, {"thaw_enabled": True, "thaw_shelf_life_days": 2, "cutting_loss_tolerance_permille": 100})
         t = self.shop.thaw(self.owner, key(), lot, freezer, self.prep, 2000)
         cut = self.meat("M2")
         payload = {"kind": "cutting", "inputs": [{"lot_id": t["lot"], "location_id": self.prep, "qty": 2000}],

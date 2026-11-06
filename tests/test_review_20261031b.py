@@ -11,7 +11,7 @@ class FrozenStock(ShopFixture, unittest.TestCase):
     def setUp(self):
         self.make_shop()
         self.freezer = self.shop.add_location(self.owner, "FZ", "مجمد", "Freezer", "freezer", 0)
-        self.shop.update_settings(self.owner, {"thaw_shelf_life_days": 2, "cutting_loss_tolerance_permille": 100})
+        self.shop.update_settings(self.owner, {"thaw_enabled": True, "thaw_shelf_life_days": 2, "cutting_loss_tolerance_permille": 100})
         self.m = self.meat()
         self.lot = self.receive(self.m, 5000, 200000, location=self.freezer, expires="2027-03-01")["lines"][0]["lot"]
 
