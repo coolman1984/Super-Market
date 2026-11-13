@@ -21,7 +21,7 @@
     SM.applyPrefs();
     let state;
     try { state = await SM.api('GET', '/api/state'); } catch (e) { SM.put(document.body, h('p', { class: 'empty', text: t('err.server_down') })); return; }
-    SM.state.mode = state.mode; SM.state.instance = state.instance; SM.state.businessDay = state.business_day; SM.state.version = state.version; SM.state.trainingLogin = state.training_login; SM.state.lanAddresses = state.lan_addresses;
+    SM.state.mode = state.mode; SM.state.instance = state.instance; SM.state.businessDay = state.business_day; SM.state.version = state.version; SM.state.trainingLogin = state.training_login; SM.state.lanAddresses = state.lan_addresses; SM.state.sampleData = !!state.sample_data;
     document.title = (state.shop_name || t('app.name')) + (state.mode === 'training' ? ' — ' + t('mode.training') : '');
     if (state.clock_behind) return clockScreen(state);
     if (state.setup_needed) return setupScreen(state);
@@ -354,6 +354,7 @@
       top, h('div', { class: 'content', id: 'view' }));
     SM.put(document.body, h('div', { class: 'app' }, side, main));
     pendingBanner(main);
+    sampleBanner(main);
     backupBanner(main);
     pinPrompt(main);
     route();
@@ -384,6 +385,15 @@
         if (!SM.pendingOps().length) bar.remove();
       } }));
     main.insertBefore(bar, main.querySelector('.topbar').nextSibling);
+  }
+
+  /* Sample data is loaded: every screen says so, so nobody mistakes it for the real shop. */
+  function sampleBanner(main) {
+    const top = main.querySelector('.topbar');
+    if (!SM.state.sampleData || !top) return;
+    top.parentNode.insertBefore(h('div', { class: 'tip warn-tip sample-bar', id: 'sample-bar', role: 'status' }, icon('warn'),
+      h('div', { class: 'grow', text: t('sample.bar') }),
+      SM.can('backup') ? h('button', { class: 'btn primary sm', id: 'sample-bar-go', text: t('sample.bar_go'), onclick: () => SM.go('settings') }) : null), top.nextSibling);
   }
 
   /* Review H5/M7: a copy that only lives on the shop PC is lost with the PC; the owner/manager sees it on every screen. */

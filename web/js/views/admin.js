@@ -392,7 +392,7 @@
       }
       if (SM.can('users')) parts.push(await usersCard());
       if (SM.state.lanAddresses) parts.push(lanCard());
-      if (SM.can('backup')) parts.push(await backupCard(), await cloudCard());
+      if (SM.can('backup')) parts.push(await backupCard(), await cloudCard(), await sampleCard());
       SM.put(root, ...parts);
     },
   };
@@ -469,6 +469,44 @@
       h('div', { class: 'row' }, second, h('button', { class: 'btn', id: 'backup2-save', text: t('set.backup2_save'), onclick: async () => {
         try { SM.state.settings = await SM.api('POST', '/api/settings', { backup_folder_2: second.value.trim() }); SM.toast(t('set.backup2_saved')); SM.go('settings'); } catch (e) { SM.fail(e); }
       } })));
+  }
+
+
+  /* Sample data (server/sampledata.py): a month of believable trading to try every screen, and one button to remove it.
+     Only an empty shop can load it, so the real and the sample numbers never mix. Removing asks for the owner's password. */
+  async function sampleCard() {
+    const st = await SM.api('GET', '/api/sample').catch(() => null);
+    if (!st || !st.shop_mode) return null;
+    const note = h('p', { class: 'muted', id: 'sample-note', role: 'status' });
+    const refresh = async () => { SM.state.settings = await SM.api('GET', '/api/settings').catch(() => SM.state.settings); SM.renderShell(); SM.go('today'); };
+    const parts = [h('h3', { text: t('set.sample') }), h('p', { class: 'muted', text: t('set.sample_help') })];
+    if (!st.loaded) {
+      if (!st.can_load) parts.push(h('p', { class: 'tip', id: 'sample-busy', text: t('set.sample_busy') }));
+      else parts.push(h('button', { class: 'btn primary', id: 'sample-load', 'data-guide': 'set.sample_load', text: t('set.sample_load'), onclick: SM.guard(async () => {
+        note.textContent = t('set.sample_loading');
+        try { const r = await SM.api('POST', '/api/sample/load', {}); SM.state.sampleData = true; SM.toast(t('set.sample_done', { n: r.sales })); await refresh(); }
+        catch (e) { note.textContent = ''; SM.fail(e); SM.go('settings'); }
+      }) }), note);
+    } else {
+      const mine = st.mine || {};
+      parts.push(st.complete ? h('p', { id: 'sample-on', text: t('set.sample_on', { n: mine.sales || 0, from: '\u2066' + (st.first_day || '') + '\u2069', to: '\u2066' + (st.last_day || '') + '\u2069' }) }) : h('p', { class: 'warn', id: 'sample-broken', text: t('set.sample_broken') }),
+        h('p', { class: 'muted', text: t('set.sample_staff') }),
+        h('button', { class: 'btn danger', id: 'sample-clear', 'data-guide': 'set.sample_clear', text: t('set.sample_clear'), onclick: () => clearSampleDialog(st, refresh) }));
+    }
+    return h('div', { class: 'card', id: 'sample-card' }, parts);
+  }
+
+  function clearSampleDialog(st, after) {
+    const pw = h('input', { class: 'input', type: 'password', id: 'sample-pw', autocomplete: 'current-password' });
+    const a = st.added_after || {};
+    const extra = (a.operations || 0) + (a.products || 0) + (a.parties || 0);
+    const d = SM.dialog({ title: t('set.sample_clear_title'), body: [h('p', { text: t('set.sample_clear_q') }),
+      extra ? h('p', { class: 'warn', id: 'sample-extra', text: t('set.sample_clear_extra', { n: extra }) }) : null, SM.field(t('set.sample_clear_pw'), pw)],
+      actions: [h('button', { class: 'btn danger', id: 'sample-clear-go', text: t('set.sample_clear_go'), onclick: SM.guard(async () => {
+        if (!pw.value) { pw.focus(); return; }
+        try { await SM.api('POST', '/api/sample/clear', { password: pw.value }); d.close(); SM.state.sampleData = false; SM.toast(t('set.sample_cleared')); await after(); }
+        catch (e) { SM.fail(e); pw.value = ''; pw.focus(); }
+      }) })] });
   }
 
   // Live copy of the shop in the cloud (server/cloudsync.py). The program connects itself; the owner only sees the state

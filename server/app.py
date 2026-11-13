@@ -24,7 +24,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-from . import guidebook, backup, scale, training
+from . import guidebook, backup, sampledata, scale, training
 from .auth import Auth, can, check_pin_rules, pin_digits, require
 from .core import Forbidden, ShopError, integer, text, today
 from .db import Store
@@ -167,6 +167,9 @@ class App:
         r("POST", r"/api/scanner/inspect", self.inspect_scan)
         r("GET", r"/api/users", self.users)
         r("POST", r"/api/users", self.add_user)
+        r("GET", r"/api/sample", lambda a, q, b: self.sample_status(a))
+        r("POST", r"/api/sample/load", self.sample_load)
+        r("POST", r"/api/sample/clear", self.sample_clear)
         r("POST", r"/api/backup", self.make_backup)
         r("GET", r"/api/backups", lambda a, q, b: require(a, "backup") and backup.list_backups(self.backup_folder))
         r("GET", r"/api/backup/status", self.backup_status)
@@ -191,7 +194,8 @@ class App:
                 "lan_addresses": self._lan_addresses() if self.lan and actor else None,
                 "clock_behind": ({"closed": self.store.clock_behind(), "today": today()} if self.store.clock_behind() else None),
                 "training_login": {"people": [{"name": n, "pin": training.TRAINING_PINS[u]} for u, n, _r in training.TRAINING_USERS]}
-                if self.store.mode == "training" else None}
+                if self.store.mode == "training" else None,
+                "sample_data": bool(sampledata.read_meta(self.store)) if private else None}
 
     port = None
     _lan_cache = None
@@ -506,6 +510,25 @@ class App:
         self.store.tx(lambda: self.store.audit(actor, "backup", result["folder"]))
         result["external"] = backup.sync_external(self.store, self.backup_folder, self.home)
         return result
+
+    # ---- sample data (server/sampledata.py): owner only, like backups ----
+    def sample_status(self, actor):
+        require(actor, "backup")
+        return sampledata.status(self.store)
+
+    def sample_load(self, actor, q, body):
+        require(actor, "backup")
+        return sampledata.load(self.shop, actor)
+
+    def sample_clear(self, actor, q, body):
+        """Removing the sample deletes data for good, so the owner types his own password first.
+        A verified copy is taken before anything is removed."""
+        require(actor, "backup")
+        name = self.store.scalar("SELECT username FROM users WHERE id=?", (actor["id"],))
+        who = self.shop.verify_approval({"username": name, "password": body.get("password")}, actor)
+        if not who or who["id"] != actor["id"]:
+            raise ShopError("bad_login", status=401)
+        return sampledata.clear(self.shop, actor, self.backup_folder)
 
     @property
     def home(self):

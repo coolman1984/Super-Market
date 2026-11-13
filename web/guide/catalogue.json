@@ -391,6 +391,14 @@
   "scale.detect": {
    "page": "scanner",
    "sel": "[data-guide=\"scale.detect\"]"
+  },
+  "set.sample_load": {
+   "page": "settings",
+   "sel": "[data-guide=\"set.sample_load\"]"
+  },
+  "set.sample_clear": {
+   "page": "settings",
+   "sel": "[data-guide=\"set.sample_clear\"]"
   }
  },
  "guides": [
@@ -1192,6 +1200,31 @@
    }
   },
   {
+   "id": "sample-data",
+   "cat": "admin",
+   "perm": "backup",
+   "minutes": 2,
+   "steps": [
+    {
+     "k": "go",
+     "page": "settings",
+     "until": {
+      "route": "settings"
+     }
+    },
+    {
+     "k": "click",
+     "target": "set.sample_load"
+    },
+    {
+     "k": "tip"
+    },
+    {
+     "k": "done"
+    }
+   ]
+  },
+  {
    "id": "change-password",
    "cat": "start",
    "perm": "*",
@@ -1514,6 +1547,7 @@
     "wrong-password",
     "forgot-owner-password",
     "backup-now",
+    "sample-data",
     "weighed-sale",
     "hold-sale",
     "cut-meat",
@@ -2135,6 +2169,22 @@
     "err.wrong_data_folder"
    ],
    "guide": "backup-now"
+  },
+  {
+   "id": "sample-data",
+   "cat": "settings",
+   "page": "settings",
+   "roles": [
+    "owner"
+   ],
+   "errors": [
+    "err.sample_shop_only",
+    "err.sample_already_loaded",
+    "err.sample_needs_empty_shop",
+    "err.sample_not_loaded",
+    "err.sample_clear_failed"
+   ],
+   "guide": "sample-data"
   },
   {
    "id": "settings-values",
